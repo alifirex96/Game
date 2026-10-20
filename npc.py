@@ -5,12 +5,14 @@ Mixed into server.World. Everything here runs on the host, inside the world lock
 import math
 import secrets
 import time
-from world_data import (FACTIONS, BASES, BUILDINGS, NPC_TYPES, POI_KINDS, ARMOR, WEAPONS,
+from world_data import (FACTIONS, BASES, BUILDINGS, NPC_TYPES, POI_KINDS, ARMOR, WEAPONS, NPC_FACTION, WILDLIFE, REGIONS,
                         RESOURCES, WORLD_SIZE)
 
 AI_PRIORITY = ['farm', 'house', 'sawmill', 'depot', 'quarry', 'workshop', 'warehouse',
                'garage', 'guard', 'radio']
 MAX_MARAUDERS = 36
+MAX_CREATURES = 40
+MONSTERS = ('marauders', 'wild', 'mutants')
 SQUAD_COSTS = {'talk':{'food':12,'wood':8},'bribe':{'food':18,'fuel':8},'assault':{'metal':12,'food':6}}
 
 
@@ -29,9 +31,9 @@ class NpcMixin:
 
     def hostile(self, a, b):
         fa = a['faction']; fb = b['faction']
-        if fa == fb:
+        if fa == fb or 'game' in (fa, fb):
             return False
-        if 'marauders' in (fa, fb):
+        if fa in MONSTERS or fb in MONSTERS:
             return True
         if fa in FACTIONS and fb in FACTIONS:
             return not self.truce_active()
@@ -145,8 +147,14 @@ class NpcMixin:
         self.fstats[f]['kills'] += 1
         if 'stats' in attacker:
             attacker['stats']['kills'] += 1
+            kind = victim.get('faction')
             self.gain_xp(attacker, 'kill_player' if 'stats' in victim else
-                         'kill_marauder' if victim.get('type') == 'marauder' else 'kill_fighter')
+                         'kill_marauder' if victim.get('type') == 'marauder' else
+                         'kill_animal' if kind in ('wild', 'game') else 'kill_mutant' if kind == 'mutants' else 'kill_fighter')
+            if kind in ('wild', 'game'):
+                attacker['stats']['hunt'] += 1
+            elif kind == 'mutants':
+                attacker['stats']['mutants'] += 1
         if 'stats' in victim:
             self._notice(victim['name'] + ' ранен', 'Победа: ' + FACTIONS[f], faction=f)
 
@@ -171,9 +179,14 @@ class NpcMixin:
                 self._notice('Груз перехвачен', self.resource_text({k:int(v) for k, v in loot.items()}) or 'Пустой кузов', faction=f)
             return
         if f in FACTIONS:
-            self._reward(f, NPC_TYPES[npc['type']]['loot'])
-            if attacker is not None and 'stats' in attacker and self.rng.random() < .25:
-                self._loot_items(attacker, 1)
+            spec = NPC_TYPES[npc['type']]
+            self._reward(f, spec['loot'])
+            if attacker is not None and 'stats' in attacker:
+                if spec.get('meat'):
+                    got = self.give_item(attacker, 'meat_raw', spec['meat'])
+                    self._notice('Добыча: ' + spec['name'], ('Сырое мясо ×' + str(got)) if got else 'Рюкзак полон — мясо осталось.', player=attacker['id'])
+                elif self.rng.random() < (.4 if npc['faction'] == 'mutants' else .25):
+                    self._loot_items(attacker, 1)
             self._credit_kill(attacker, npc)
 
     def _wreck_car(self, p):
@@ -212,7 +225,7 @@ class NpcMixin:
         """Who a deliberate player shot may hit: never allies, neutral militia always."""
         if shooter['faction'] == other['faction']:
             return False
-        if other.get('faction') == 'neutral':
+        if other.get('faction') in ('neutral', 'game'):
             return True
         return self.hostile(shooter, other)
 
@@ -220,13 +233,14 @@ class NpcMixin:
     def tick_npcs(self, dt, active):
         self.npc_clock += dt
         self._spawn_marauders(active)
+        self._spawn_creatures(active)
         for npc in list(self.npcs.values()):
             if npc['hp'] <= 0:
                 npc['dead'] = npc.get('dead', 0) + dt
                 if npc['dead'] > 2.5:
                     del self.npcs[npc['id']]
                 continue
-            if npc['type'] == 'marauder':
+            if npc['type'] == 'marauder' or npc['faction'] in ('wild', 'game', 'mutants'):
                 near = min((self._dist(npc, p) for p in active), default=1e9)
                 npc['far'] = npc['far'] + dt if near > 3400 else 0
                 if npc['far'] > 20:
@@ -268,6 +282,45 @@ class NpcMixin:
                     for i in range(1 + (self.rng.random() < .4)):
                         self.spawn_npc('marauder', 'marauders', spot[0] + i * 30, spot[1]); count += 1
 
+    def is_night(self):
+        hour = (8 + self.elapsed * 1.4 / 60) % 24
+        return hour >= 21 or hour < 6
+
+    def _spawn_creatures(self, active):
+        """Wildlife by region around travellers; mutants near ruins and in the North, more at night."""
+        if self.creature_clock > self.elapsed:
+            return
+        self.creature_clock = self.elapsed + 7
+        count = sum(1 for n in self.npcs.values() if n['faction'] in ('wild', 'game', 'mutants'))
+        night = self.is_night()
+        for p in active:
+            if p['hp'] <= 0 or count >= MAX_CREATURES or any(self._dist(p, t) < 1100 for t in self.towns.values()):
+                continue
+            town = min(self.towns.values(), key=lambda t: self._dist(t, p))
+            biome = REGIONS[town['region']]['biome']
+            near = [n for n in self.npcs.values() if self._dist(n, p) < 2600]
+            if sum(1 for n in near if n['faction'] in ('wild', 'game')) < 3 and self.rng.random() < .4:
+                kind = self.rng.choice(WILDLIFE[biome])
+                size = self.rng.randint(2, 4) if kind == 'wolf' else self.rng.randint(1, 2) if kind in ('elk', 'boar') else 1
+                count += self._spawn_group(p, kind, size)
+            ruins = any(self._dist(o, p) < 1600 and o['kind'] in ('factory', 'military', 'mine', 'oil') for o in self.terrain.pois.values())
+            north = REGIONS[town['region']]['cold'] >= 3
+            cap = (3 if night else 1) + (1 if ruins or north else 0)
+            chance = (.55 if night else .15) + (.2 if ruins or north else 0)
+            if sum(1 for n in near if n['faction'] == 'mutants') < cap and self.rng.random() < chance:
+                roll = self.rng.random()
+                kind = 'brute' if roll < .1 else 'spitter' if roll < .3 else 'mutant'
+                count += self._spawn_group(p, kind, 1 if kind != 'mutant' else self.rng.randint(1, 3))
+
+    def _spawn_group(self, p, kind, size):
+        angle = self.rng.uniform(0, math.pi * 2)
+        spot = self._free_near(p['x'] + math.cos(angle) * 1200, p['y'] + math.sin(angle) * 1200, 0, 250)
+        if not spot or self.terrain.in_town(spot[0], spot[1], 300):
+            return 0
+        for i in range(size):
+            self.spawn_npc(kind, NPC_FACTION[kind], spot[0] + i * 26, spot[1] + (i % 2) * 22)
+        return size
+
     def _free_near(self, x, y, rmin, rmax):
         for attempt in range(14):
             a = self.rng.uniform(0, math.pi * 2); r = self.rng.uniform(rmin, rmax)
@@ -280,10 +333,21 @@ class NpcMixin:
         spec = NPC_TYPES[npc['type']]
         if npc['type'] == 'convoy':
             return
+        if spec.get('passive'):
+            threat = min((o for o in self._entities() if o is not npc and o['faction'] not in ('game', 'wild')),
+                         key=lambda o: self._dist(o, npc), default=None)
+            if threat is not None and self._dist(threat, npc) < spec['flee']:
+                a = math.atan2(npc['y'] - threat['y'], npc['x'] - threat['x']) + self.rng.uniform(-.5, .5)
+                npc['goal'] = [npc['x'] + math.cos(a) * 500, npc['y'] + math.sin(a) * 500]; npc['mode'] = 'wander'
+                npc['fleeing'] = self.elapsed
+            elif not npc['goal'] or self.rng.random() < .03:
+                hx, hy = npc['home']; spot = self._free_near(hx, hy, 0, 420)
+                if spot: npc['goal'] = list(spot)
+            return
         target = self._target_alive(npc['target'])
         if target is not None and not self.hostile(npc, target) and target.get('faction') != 'neutral':
             target = None
-        aggro = 470 if npc['type'] != 'militia' else 520
+        aggro = spec.get('aggro', 470 if npc['type'] != 'militia' else 520) * (1.3 if npc['faction'] == 'mutants' and self.is_night() else 1)
         if target is None or self._dist(npc, target) > aggro * 1.6:
             target = None
             best = aggro
@@ -298,12 +362,20 @@ class NpcMixin:
             npc['mode_before'] = npc.get('mode_before') or npc['mode']
             npc['mode'] = 'fight'
             d = self._dist(npc, target)
+            if spec.get('melee'):
+                if d < spec['range'] + (12 if target.get('vehicle') else 0) and npc['cd'] <= 0:
+                    npc['cd'] = spec['cd'] * self.rng.uniform(.85, 1.2); npc['shot'] = self.elapsed
+                    self.effects.append({'id':secrets.token_hex(4),'kind':'bite','x':npc['x'],'y':npc['y'],'ex':target['x'],'ey':target['y'],
+                                         'until':self.elapsed+.3,'faction':npc['faction']})
+                    if self.rng.random() < .8:
+                        self.hurt(target, spec['dmg'], npc)
+                return
             if d < spec['range'] and npc['cd'] <= 0 and not self._covered(npc, target):
                 npc['cd'] = spec['cd'] * self.rng.uniform(.85, 1.25)
                 npc['shot'] = self.elapsed
                 chance = max(.28, min(.85, .9 - d / spec['range'] * .5))
                 ex = target['x'] + self.rng.uniform(-14, 14); ey = target['y'] + self.rng.uniform(-14, 14)
-                self.effects.append({'id':secrets.token_hex(4),'kind':'shot','x':npc['x'],'y':npc['y'],'ex':ex,'ey':ey,
+                self.effects.append({'id':secrets.token_hex(4),'kind':'acid' if spec.get('acid') else 'shot','x':npc['x'],'y':npc['y'],'ex':ex,'ey':ey,
                                      'until':self.elapsed+.2,'faction':npc['faction']})
                 if self.rng.random() < chance:
                     self.hurt(target, spec['dmg'], npc)
@@ -336,7 +408,7 @@ class NpcMixin:
                 if d > spec['range'] * .7:
                     goal = [target['x'], target['y']]
                 leash = npc['home']
-                if npc['type'] in ('marauder', 'militia') and math.hypot(npc['x'] - leash[0], npc['y'] - leash[1]) > 1100:
+                if npc['type'] not in ('raider', 'ranger') and math.hypot(npc['x'] - leash[0], npc['y'] - leash[1]) > 1100:
                     npc['target'] = None; npc['mode'] = npc.pop('mode_before', None) or 'wander'
                     goal = leash
         elif npc['mode'] == 'travel':

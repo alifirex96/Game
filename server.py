@@ -19,14 +19,14 @@ from urllib.parse import urlsplit
 from world_data import (VERSION, WORLD_SIZE, FACTIONS, RESOURCES, TOWNS, REGIONS,
                         BASES, BUILDINGS, EVENTS, QUESTS, STORY, WEAPONS, ARMOR, POI_KINDS,
                         POSTS, POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
-                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, xp_to_next, max_hp, config)
+                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, xp_to_next, max_hp, config)
 from terrain import Terrain, town_buildings, resource_nodes, landmark_rect
 from npc import NpcMixin, other_faction
 
 ROOT = Path(__file__).resolve().parent
 SAVE_VERSION = 2
 DISCOVERY_PORT = 8766
-STAT_KEYS = ('harvest','build','event','explore','deliver','capture','aid','kills','loot','trade')
+STAT_KEYS = ('harvest','build','event','explore','deliver','capture','aid','kills','loot','trade','hunt','mutants')
 FSTAT_KEYS = ('kills','convoy','tribute','post','trade','capture')
 
 def clamp(v, low, high):
@@ -55,6 +55,7 @@ class World(NpcMixin):
         self.production_clock = 0.0
         self.save_clock = 0.0
         self.npc_clock = self.tower_clock = self.post_clock = self.convoy_clock = self.ai_clock = 0.0
+        self.creature_clock = 0.0
         self.event_clock = 0.0
         self.towns = {}
         self.harvested = {}
@@ -116,7 +117,7 @@ class World(NpcMixin):
     def _public_player(self, p):
         out={k:p[k] for k in ('id','name','faction','x','y','angle','hp','stamina','vehicle','dead_until','gear','level','xp')}
         out['max_hp']=max_hp(p['level'])
-        out['car']={k:p['car'].get(k,0) for k in ('x','y','angle','hp','wrecked_until')}
+        out['car']={k:p['car'].get(k,0) for k in ('x','y','angle','hp','wrecked_until','fuel')}
         out['shot']=p.get('shot',-10);out['busy']=p.get('busy',-10);out['moving']=bool(p['input'][0] or p['input'][1])
         out['sprint']=bool(p['input'][2])
         return out
@@ -143,7 +144,7 @@ class World(NpcMixin):
         p={'id':secrets.token_hex(6),'name':name,'faction':faction,
            'x':town['x']+slot*40,'y':town['y']+70,'angle':0.0,
            'hp':100.0,'stamina':100.0,'vehicle':False,
-           'car':{'x':town['x']+90+slot*65,'y':town['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0},
+           'car':{'x':town['x']+90+slot*65,'y':town['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0,'fuel':30.0},
            'dead_until':0.0,'last_seen':now,'last_input':now,'input':[0,0,False],
            'aim':[0,1],'paused':False,'last_action':{},'receipts':OrderedDict(),
            'stats':{k:0 for k in STAT_KEYS},'gear':{'weapon':0,'armor':0,'clothes':0,'backpack':0},'level':1,'xp':0,
@@ -183,7 +184,9 @@ class World(NpcMixin):
     def _place_randomly(self,p):
         x,y,cx,cy=self._spawn_point(p)
         p['x']=x;p['y']=y;p['vehicle']=False
-        p['car']={'x':cx,'y':cy,'angle':self.rng.uniform(-math.pi,math.pi),'hp':100.0,'wrecked_until':0.0}
+        # The tank is the player's own: it is not refilled for free, only kept from running completely dry.
+        fuel=max(10.0,p['car'].get('fuel',30.0)) if isinstance(p.get('car'),dict) else 30.0
+        p['car']={'x':cx,'y':cy,'angle':self.rng.uniform(-math.pi,math.pi),'hp':100.0,'wrecked_until':0.0,'fuel':fuel}
         near=min(self.towns.values(),key=lambda t:dist(t,p))
         self._notice('Ты очнулся у дороги','Рядом: '+near['name']+'. Убежище: '+self.towns[BASES[p['faction']]]['name']+' — метка на карте M.',player=p['id'])
 
@@ -402,6 +405,7 @@ class World(NpcMixin):
             p['stats']['harvest']+=1;self.gain_xp(p,'harvest')
             extra=''
             if n['kind']=='food' and self.rng.random()<.4 and self.give_item(p,self.rng.choice(('canned','crackers','water'))):extra=' · что-то в рюкзак'
+            if n['kind']=='fuel' and self.rng.random()<.35 and self.give_item(p,'canister'):extra=' · канистра в рюкзак'
             return {'title':'+'+str(amount)+' · '+RESOURCES[n['kind']]+extra,'success':True}
         if op=='build':
             b=self.buildings.get(str(data.get('id')))
@@ -600,7 +604,7 @@ class World(NpcMixin):
             return {'quiet':True}
         if op=='use':
             item=data.get('item')
-            if item not in ITEMS or item=='repairkit' or p['items'].get(item,0)<1: raise GameError('Этого предмета нет в рюкзаке.')
+            if item not in ITEMS or item in ('repairkit','canister') or p['items'].get(item,0)<1: raise GameError('Этого предмета нет в рюкзаке.')
             self._cooldown(p,'use',.6)
             return self._use(p,item)
         if op=='drink':
@@ -619,6 +623,32 @@ class World(NpcMixin):
             self._pay(f,{'food':3});t['cooldowns']['canteen:'+p['id']]=self.elapsed+90
             p['food']=min(100,p['food']+50);p['water']=min(100,p['water']+70);p['warmth']=min(100,p['warmth']+20)
             return {'title':'Столовая и колодец','text':'Сытость +50, жажда +70. −3 припаса фракции.','success':True}
+        if op=='refuel':
+            car=p['car'];tank=CAR_TANK
+            if car.get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита.')
+            if car.get('fuel',0)>=tank-.5: raise GameError('Бак полон.')
+            if data.get('canister'):
+                if p['items'].get('canister',0)<1: raise GameError('Нет канистры. Её продают в магазине и находят в тайниках.')
+                if not p['vehicle'] and dist(car,p)>110: raise GameError('Подойди к своей машине.')
+                p['items']['canister']-=1
+                if not p['items']['canister']:del p['items']['canister']
+                car['fuel']=min(tank,car.get('fuel',0)+20)
+                return {'title':'Канистра залита','text':'Бак: '+str(int(car['fuel']))+' / '+str(tank)+'.','success':True}
+            # Filling up from the faction stock is possible only in a settlement your side holds.
+            t=self.towns.get(str(data.get('town')))
+            if not t or t['owner']!=f: raise GameError('Заправиться можно только в поселении своей стороны.')
+            if dist(car,t)>650 or (not p['vehicle'] and dist(p,t)>650): raise GameError('Подгони машину к поселению.')
+            need=tank-car.get('fuel',0);take=min(need,self.stocks[f]['fuel'])
+            if take<1: raise GameError('В запасе фракции нет топлива. Его дают гаражи, канистры у дорог и торговля.')
+            self.stocks[f]['fuel']-=take;car['fuel']=car.get('fuel',0)+take
+            return {'title':'Заправка в '+t['name'],'text':'+'+str(int(take))+' топлива из запаса фракции. Бак: '+str(int(car['fuel']))+' / '+str(tank)+'.','success':True}
+        if op=='cook':
+            t=self._town_action(p,str(data.get('town')))
+            if t['owner']!=f: raise GameError('Костёр горит только в поселении твоей стороны.')
+            raw=p['items'].get('meat_raw',0)
+            if not raw: raise GameError('Нет сырого мяса. Добудь зверя на охоте.')
+            del p['items']['meat_raw'];p['items']['meat']=p['items'].get('meat',0)+raw
+            return {'title':'Мясо пожарено','text':'Жареное мясо ×'+str(raw)+'.','success':True}
         if op=='equip':
             idx=data.get('weapon')
             if not isinstance(idx,int) or idx not in p['weapons']: raise GameError('Этого оружия у тебя нет.')
@@ -708,6 +738,9 @@ class World(NpcMixin):
         p['warmth']=clamp(p['warmth']+spec.get('warmth',0),0,100);p['hp']=min(self.max_hp(p),p['hp']+spec.get('hp',0))
         if spec.get('stop_bleed'):p['bleeding']=False
         if spec.get('cure'):p['sick']=0
+        if spec.get('risk') and self.rng.random()<spec['risk']:
+            p['sick']=self.elapsed+120
+            return {'title':spec['name'],'text':'Сытость +'+str(spec.get('food',0))+', но живот скрутило: отравление.','success':False}
         return {'title':spec['name'],'text':spec['desc'],'success':True}
 
     def _loot_items(self,p,count):
@@ -803,7 +836,7 @@ class World(NpcMixin):
         p['hp']=max(0,p['hp']-amount)
         if p['hp']==0 and not p['dead_until']:
             p['dead_until']=self.elapsed+7;p['vehicle']=False;p['input']=[0,0,False]
-            self._notice('Ты ранен','Возвращение в убежище через 7 секунд.',player=p['id'],tone='error')
+            self._notice('Ты ранен','Через 7 секунд очнёшься в новом месте у дороги.',player=p['id'],tone='error')
 
     def _covered(self,a,b):
         length=dist(a,b)
@@ -827,7 +860,7 @@ class World(NpcMixin):
             car=p['car']
             if car.get('wrecked_until',0) and self.elapsed>=car['wrecked_until']:
                 t=self.towns[BASES[p['faction']]]
-                p['car']={'x':t['x']+90,'y':t['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0}
+                p['car']={'x':t['x']+90,'y':t['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0,'fuel':max(10.0,car.get('fuel',0))}
             if p['hp']<=0:
                 if self.elapsed>=p['dead_until']:
                     # Each respawn is a new random roadside spot; the car comes along so nobody is stranded.
@@ -842,9 +875,9 @@ class World(NpcMixin):
             speed=140
             if p['vehicle']:
                 level=garage[p['faction']]
-                speed=390*(1+.08*level) if self.stocks[p['faction']]['fuel']>.01 else 0
+                speed=390*(1+.08*level) if p['car'].get('fuel',0)>.01 else 0
                 if self.weather['kind'] in ('storm','snow'):speed*=.85
-                if moving and speed: self.stocks[p['faction']]['fuel']=max(0,self.stocks[p['faction']]['fuel']-dt*.18*(1-.1*level))
+                if moving and speed: p['car']['fuel']=max(0,p['car'].get('fuel',0)-dt*.18*(1-.1*level))
             elif sprint and p['stamina']>1 and moving:
                 speed=220;p['stamina']=max(0,p['stamina']-dt*22)
             else: p['stamina']=min(100,p['stamina']+dt*14*(.4 if min(p['food'],p['water'])<20 or p['warmth']<25 else 1))
@@ -1072,7 +1105,7 @@ class World(NpcMixin):
                 p.update(last_seen=-1000,last_input=-1000,input=[0,0,False],receipts=OrderedDict(),paused=False)
                 gear=p.get('gear') or {}
                 p['gear']={'weapon':int(clamp(finite(gear.get('weapon',0)),0,len(WEAPONS)-1)),'armor':int(clamp(finite(gear.get('armor',0)),0,len(ARMOR)-1))}
-                p['car'].setdefault('hp',100.0);p['car'].setdefault('wrecked_until',0.0)
+                p['car'].setdefault('hp',100.0);p['car'].setdefault('wrecked_until',0.0);p['car']['fuel']=clamp(finite(p['car'].get('fuel',30.0),30.0),0,CAR_TANK)
                 for k in STAT_KEYS:p['stats'].setdefault(k,0)
                 p['level']=int(clamp(finite(p.get('level',1),1),1,MAX_LEVEL));p['xp']=max(0,int(finite(p.get('xp',0))))
                 p['coins']=max(0,int(finite(p.get('coins',0))))

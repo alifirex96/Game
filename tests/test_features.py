@@ -100,7 +100,7 @@ class FeatureTests(unittest.TestCase):
         self.assertFalse(self.world._blocked_for(self.p, side[0], side[1], 10))   # people wade
 
     def test_ai_faction_expands_without_human_players(self):
-        run(self.world, 900, step=.25)
+        run(self.world, 900, step=.1)
         owned = [t for t in self.world.towns.values() if t['owner'] == 'bandits']
         self.assertGreaterEqual(len(owned), 2)
 
@@ -474,3 +474,72 @@ class SurvivalTests(unittest.TestCase):
         self.act('buy', town='revda', kind='canned')
         self.assertEqual((self.p['gear']['clothes'], self.p['gear']['backpack']), (2, 2))
         self.assertEqual(self.p['items'].get('canned'), 1)
+
+class WildlifeAndFuelTests(unittest.TestCase):
+    def setUp(self):
+        self.world = World(rng=random.Random(21))
+        self.world.settings['ai'] = False
+        self.token = self.world.join('Охотник', 'survivors')
+        self.p = self.world.players[self.token]
+        self.p['x'], self.p['y'] = 8000.0 * 3, 6200.0 * 3
+
+    def act(self, op, **data):
+        data.update(op=op, request_id='w' + str(random.random()))
+        return self.world.command(self.token, data)
+
+    def test_creatures_appear_in_the_wild(self):
+        self.world.elapsed = 700        # night brings mutants out
+        run(self.world, 120, step=.1)
+        factions = {n['faction'] for n in self.world.npcs.values()}
+        self.assertTrue({'wild', 'game'} & factions)
+        self.assertIn('mutants', factions)
+
+    def test_hunting_gives_meat_to_cook_at_home(self):
+        elk = self.world.spawn_npc('elk', 'game', self.p['x'] + 200, self.p['y'])
+        self.assertTrue(self.world.hostile_shot(self.p, elk))
+        self.world.hurt(elk, 999, self.p)
+        self.assertEqual(self.p['items'].get('meat_raw'), 3)
+        self.assertEqual(self.p['stats']['hunt'], 1)
+        base = self.world.towns['shabrovsky']
+        self.p['x'], self.p['y'] = base['x'], base['y'] + 40
+        self.act('cook', town='shabrovsky')
+        self.assertEqual(self.p['items'].get('meat'), 3)
+        self.assertNotIn('meat_raw', self.p['items'])
+
+    def test_elk_runs_and_wolves_bite(self):
+        elk = self.world.spawn_npc('elk', 'game', self.p['x'] + 150, self.p['y'])
+        wolf = self.world.spawn_npc('wolf', 'wild', self.p['x'] + 20, self.p['y'] + 10)
+        self.world._think(elk)
+        self.assertGreater(elk['goal'][0], elk['x'])               # away from the player
+        hp = self.p['hp']
+        for _ in range(12):
+            wolf['cd'] = 0; self.world._think(wolf)
+        self.assertLess(self.p['hp'], hp)
+        self.assertFalse(self.world.hostile(wolf, elk))
+
+    def test_each_car_has_its_own_tank(self):
+        stock = self.world.stocks['survivors']['fuel']
+        car = self.p['car']; car['fuel'] = 5.0
+        self.p['vehicle'] = True; self.p['x'], self.p['y'] = car['x'], car['y']
+        self.p['input'] = [1, 0, False]
+        run(self.world, 40, step=.1)
+        self.assertEqual(self.p['car']['fuel'], 0)
+        self.assertEqual(self.world.stocks['survivors']['fuel'], stock)
+        with self.assertRaises(GameError):
+            self.act('refuel', canister=True)
+        self.p['items']['canister'] = 1
+        self.act('refuel', canister=True)
+        self.assertEqual(self.p['car']['fuel'], 20)
+
+    def test_refuel_only_in_own_settlement(self):
+        self.p['vehicle'] = False
+        revda = self.world.towns['revda']
+        self.p['x'], self.p['y'] = revda['x'], revda['y'] + 40
+        self.p['car'].update(x=revda['x'] + 100, y=revda['y'] + 60, fuel=2.0)
+        with self.assertRaises(GameError):
+            self.act('refuel', town='revda')
+        revda['owner'] = 'survivors'
+        stock = self.world.stocks['survivors']['fuel']
+        self.act('refuel', town='revda')
+        self.assertEqual(self.p['car']['fuel'], min(45, 2 + stock))
+        self.assertLess(self.world.stocks['survivors']['fuel'], stock)

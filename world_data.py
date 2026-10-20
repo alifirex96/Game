@@ -199,8 +199,11 @@ ITEMS = {
     'medkit': {'name':'Аптечка','desc':'+60 здоровья и останавливает кровотечение.','price':35,'hp':60,'stop_bleed':True},
     'pills': {'name':'Антибиотики','desc':'Лечат отравление.','price':30,'cure':True},
     'repairkit': {'name':'Ремкомплект','desc':'Чинит машину в любом месте (R рядом с машиной).','price':45},
+    'canister': {'name':'Канистра бензина','desc':'+20 топлива в бак твоей машины (T рядом с машиной).','price':25},
+    'meat_raw': {'name':'Сырое мясо','desc':'Сытость +25, но можно отравиться. Пожарь у костра своего поселения.','price':0,'food':25,'risk':.35},
+    'meat': {'name':'Жареное мясо','desc':'Сытость +45.','price':0,'food':45},
 }
-LOOT_ITEMS = ['canned', 'crackers', 'water', 'water', 'bandage', 'crackers', 'pills', 'canned', 'tea', 'medkit']
+LOOT_ITEMS = ['canned', 'crackers', 'water', 'water', 'bandage', 'crackers', 'pills', 'canned', 'tea', 'medkit', 'canister']
 # Shop goods paid in coins that go straight to the faction stock.
 SHOP_ITEMS = {
     'supplies': {'name':'Ящик снабжения','desc':'+20 припасов и +15 топлива в запас фракции.','price':60},
@@ -213,7 +216,20 @@ NPC_TYPES = {
     'ranger': {'name':'Дружинник','hp':70,'speed':125,'dmg':11,'range':360,'cd':1.2,'loot':{'food':4}},
     'militia': {'name':'Ополченец','hp':55,'speed':110,'dmg':9,'range':340,'cd':1.4,'loot':{'food':2}},
     'convoy': {'name':'Грузовик','hp':150,'speed':165,'dmg':0,'range':0,'cd':0,'loot':{}},
+    # Wild animals: melee predators and a shy elk worth hunting. Meat goes into the hunter's backpack.
+    'wolf': {'name':'Волк','hp':40,'speed':178,'dmg':9,'range':34,'cd':1.0,'melee':True,'aggro':430,'loot':{'food':3},'meat':1},
+    'bear': {'name':'Медведь','hp':170,'speed':142,'dmg':26,'range':46,'cd':1.6,'melee':True,'aggro':300,'loot':{'food':8},'meat':3},
+    'boar': {'name':'Кабан','hp':60,'speed':160,'dmg':12,'range':34,'cd':1.2,'melee':True,'aggro':230,'loot':{'food':5},'meat':2},
+    'elk': {'name':'Лось','hp':75,'speed':195,'dmg':0,'range':0,'cd':0,'passive':True,'flee':400,'loot':{'food':6},'meat':3},
+    # Mutants come out of ruined plants and the cold North, more of them at night.
+    'mutant': {'name':'Мутант','hp':65,'speed':168,'dmg':14,'range':36,'cd':.9,'melee':True,'aggro':520,'loot':{'metal':3}},
+    'spitter': {'name':'Кислотник','hp':50,'speed':120,'dmg':12,'range':300,'cd':1.8,'acid':True,'aggro':480,'loot':{'fuel':3}},
+    'brute': {'name':'Громила','hp':260,'speed':108,'dmg':32,'range':50,'cd':2.0,'melee':True,'aggro':380,'loot':{'metal':10,'stone':6}},
 }
+NPC_FACTION = {'wolf':'wild','bear':'wild','boar':'wild','elk':'game','mutant':'mutants','spitter':'mutants','brute':'mutants'}
+WILDLIFE = {'tundra':['wolf','wolf','elk','bear'],'taiga':['wolf','bear','elk','elk','boar'],
+            'ural':['wolf','boar','elk','elk','bear'],'mixed':['boar','elk','wolf','elk'],'steppe':['boar','wolf','boar']}
+CAR_TANK = 45
 POSTS = {
     'survivors': {'name':'Сторожевой пост','desc':'Лечит союзников рядом, защищает колонны, добавляет репутацию.'},
     'bandits': {'name':'Блокпост','desc':'Собирает пошлину с дороги и берёт четверть груза чужих колонн.'},
@@ -304,6 +320,8 @@ QUESTS = [
  {'kind':'aid','coins':35,'name':'Плечом к плечу','text':'Поддержи жителей своего поселения через меню площади.','target':1,'reward':{'metal':12,'food':18}},
  {'kind':'kills','coins':60,'name':'Чистая дорога','text':'Обезвредь двух мародёров. Они собираются у заброшенных заводов и заправок.','target':2,'reward':{'metal':16,'food':10}},
  {'kind':'loot','coins':50,'name':'Старые тайники','text':'Обыщи тайник в заброшенном месте: завод, деревня, нефтебаза. Отмечены на карте.','target':1,'reward':{'fuel':10,'stone':12}},
+ {'kind':'hunt','coins':45,'name':'Охотничий сезон','text':'Добудь двух диких зверей: лося, кабана, волка или медведя. Мясо пожарь у костра.','target':2,'reward':{'food':20}},
+ {'kind':'mutants','coins':70,'name':'Тварь из руин','text':'Убей трёх мутантов. Они выходят из заводов, шахт и с Севера, ночью их больше.','target':3,'reward':{'metal':20,'fuel':10}},
  {'kind':'trade','coins':30,'name':'Рыночный день','text':'Соверши обмен у торговцев на площади нейтрального или своего поселения.','target':1,'reward':{'food':12,'wood':10}},
 ]
 # Faction storylines. Each chapter ends with a choice whose consequences persist.
@@ -361,7 +379,7 @@ STORY = {
 MAX_LEVEL = 30
 XP = {'harvest':4,'build':15,'built':25,'event':20,'event_fail':5,'explore':30,'deliver':25,'aid':10,
       'tax':10,'raid':25,'capture':60,'quest':40,'story':80,'kill_marauder':15,'kill_fighter':20,
-      'kill_player':35,'kill_convoy':30,'loot':25,'airdrop':20,'extinguish':15,'trade':3,'post':20,'craft':10}
+      'kill_player':35,'kill_animal':10,'kill_mutant':20,'kill_convoy':30,'loot':25,'airdrop':20,'extinguish':15,'trade':3,'post':20,'craft':10}
 PERKS = [
     {'level':5,'name':'Сноровка','desc':'Сбор ресурсов приносит на 2 единицы больше.'},
     {'level':10,'name':'Полевой медик','desc':'Перевязка стоит 3 припаса и лечит на 45.'},
@@ -387,5 +405,5 @@ def config():
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'posts':POSTS,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
-            'perks':PERKS,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
+            'perks':PERKS,'car_tank':CAR_TANK,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}

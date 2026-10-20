@@ -242,6 +242,8 @@ function effectsFrom(state, v) {
     if (e.kind === 'boom') { for (let i = 0; i < 24; i++) { const a = Math.random() * 6.28, s = 40 + Math.random() * 160; puff('flame', e.x, e.y, Math.cos(a) * s * .4, Math.sin(a) * s * .4, .6 + Math.random() * .4, 14 + Math.random() * 10); puff('debris', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, .9, 2, '#2d2b27'); puff('smoke', e.x, e.y, Math.cos(a) * 20, Math.sin(a) * 20 - 10, 2.5, 10, '#3d3a36'); } if (R.onSound) R.onSound('boom', near); }
     else if (e.kind === 'levelup') { for (let i = 0; i < 36; i++) { const a = i / 36 * 6.28; puff('spark', e.x, e.y, Math.cos(a) * 140, Math.sin(a) * 140, .8, 1); puff('flame', e.x + Math.cos(a) * 20, e.y + Math.sin(a) * 20, Math.cos(a) * 30, Math.sin(a) * 30 - 20, .7, 5, null); } if (R.onSound && v.state && e.player === v.state.me.id) R.onSound('levelup', 0); }
     else if (e.kind === 'fall') { for (let i = 0; i < 8; i++) puff('blood', e.x + (Math.random() - .5) * 10, e.y + (Math.random() - .5) * 10, 0, 0, 30, 2 + Math.random() * 3); }
+    else if (e.kind === 'bite') { for (let i = 0; i < 6; i++) puff('blood', e.ex + (Math.random() - .5) * 16, e.ey + (Math.random() - .5) * 16, 0, 0, 12, 1.5 + Math.random() * 2); if (R.onSound) R.onSound('bite', near); }
+    else if (e.kind === 'acid') { for (let i = 0; i < 8; i++) puff('smoke', e.ex, e.ey, (Math.random() - .5) * 40, (Math.random() - .5) * 40, .8, 5, '#9cc23e'); if (R.onSound) R.onSound('acid', near); }
     else { puff('smoke', e.x, e.y, (Math.random() - .5) * 10, -8, .6, 3, '#a8a69a'); for (let i = 0; i < 4; i++) puff('spark', e.ex, e.ey, (Math.random() - .5) * 120, (Math.random() - .5) * 120, .25, 1); puff('dust', e.ex, e.ey, 0, 0, .5, 5, '#8d8673'); if (R.onSound) R.onSound(e.kind === 'tower' ? 'tower' : 'shot' + (e.weapon || 0), near); }
   }
 }
@@ -297,7 +299,7 @@ R.draw = function (c, v) {
   } else { items.push({ y: 5225, f: () => drawCar(c, { x: 7390, y: 5225, angle: -.4 }, 'survivors', 0, false, now) }); }
   items.sort((a, b) => a.y - b.y).forEach(i => i.f());
   // Tracers.
-  if (state) state.effects.forEach(e => { if (e.kind !== 'shot' && e.kind !== 'tower') return; const k = Math.max(0, (e.until - state.time) / .22); c.strokeStyle = (e.kind === 'tower' ? '#ffcf7a' : '#f8e3a8') + Math.floor(k * 220).toString(16).padStart(2, '0'); c.lineWidth = 1.6; c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); });
+  if (state) state.effects.forEach(e => { if (e.kind !== 'shot' && e.kind !== 'tower' && e.kind !== 'acid') return; const k = Math.max(0, (e.until - state.time) / .22); if (e.kind === 'acid') { c.strokeStyle = '#b9e04a' + Math.floor(Math.min(1, k) * 200).toString(16).padStart(2, '0'); c.lineWidth = 4; c.setLineDash([4, 6]); c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); c.setLineDash([]); return; } c.strokeStyle = (e.kind === 'tower' ? '#ffcf7a' : '#f8e3a8') + Math.floor(k * 220).toString(16).padStart(2, '0'); c.lineWidth = 1.6; c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); });
   // Canopies over everything on the ground; trees near the player become see-through.
   const me = state && v.drawPlayers[state.me.id];
   visibleChunks.forEach(k => k.trees.forEach(t => { if (!vis(t.x, t.y, 80)) return; const sp = S.tree(t.kind, t.v); const near = me && Math.abs(me.x - t.x) < 44 && Math.abs(me.y - t.y) < 44; if (near) c.globalAlpha = .38; const sway = Math.sin(now * 1.2 + t.x * .01) * (state && state.weather.kind === 'storm' ? 2.5 : .8); c.drawImage(sp.im, t.x - sp.ox + sway, t.y - sp.oy); if (near) c.globalAlpha = 1; }));
@@ -376,7 +378,16 @@ function drawPlayer(c, p, r, v) {
   if (dead) return;
   const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
 }
+const CREATURES = { wolf: 1, bear: 1, boar: 1, elk: 1, mutant: 1, spitter: 1, brute: 1 };
 function drawNpc(c, n, r, v) {
+  if (CREATURES[n.type]) {
+    const t = v.state.time, dead = n.hp <= 0;
+    c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (r.ang != null ? r.ang : n.angle));
+    S.creature(c, { type: n.type, phase: (r.phase || 0) * (n.type === 'elk' || n.type === 'wolf' ? 1.4 : 1), moving: r.moving, attack: t - n.shot < .25, dead });
+    c.restore();
+    if (!dead && n.hp < n.max) bar(c, r.x, r.y + (n.type === 'bear' || n.type === 'brute' ? 34 : 24), n.hp / n.max, n.faction === 'mutants' ? '#a7c46a' : '#c9a36a');
+    return;
+  }
   if (n.type === 'convoy') {
     const sp = S.vehicle('truck', n.faction === 'bandits' ? '#6a3b2e' : '#5d6b4c', n.hp < n.max * .4 ? 1 : 0);
     c.save(); c.translate(r.x, r.y); c.rotate(r.ang != null ? r.ang : n.angle); c.drawImage(sp.im, -sp.ox, -sp.oy); c.restore();

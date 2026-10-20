@@ -3,7 +3,7 @@
 'use strict';
 const AS = window.AS = window.AS || {};
 let ctx = null, master, sfx, music, amb, noise, delay, wind, windFilter, rain, engine, engineGain, engineFilter, drone, droneGain;
-let nextChord = 0, nextNote = 0, chordIndex = 0, nextBird = 0, nextCricket = 0, nextStep = 0, tension = 0;
+let nextHowl = 0, nextChord = 0, nextNote = 0, chordIndex = 0, nextBird = 0, nextCricket = 0, nextStep = 0, tension = 0;
 const A = AS.audio = { enabled: true, music: .55, sfx: .8 };
 const CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62], [50, 53, 57], [57, 60, 64], [52, 56, 59], [57, 60, 64]];
 const PENTA = [57, 60, 62, 64, 67, 69, 72, 74, 76];
@@ -58,6 +58,9 @@ A.play = function (kind, distance) {
   else if (kind === 'build') { [0, 220, 440].forEach(d => setTimeout(() => ctx && (tone(1800 + Math.random() * 300, .12, 'triangle', .14), burst(.05, 'highpass', 3000, .12)), d)); }
   else if (kind === 'door') { tone(180, .2, 'square', .06, sfx, 90); burst(.15, 'lowpass', 500, .2); }
   else if (kind === 'error') { tone(220, .18, 'triangle', .12, sfx, 160); }
+  else if (kind === 'bite') { burst(.18, 'bandpass', 600, .35 * k, sfx, 2, 200); tone(90, .25, 'sawtooth', .12 * k, sfx, 60); }
+  else if (kind === 'acid') { burst(.35, 'highpass', 900, .25 * k, sfx, 1, 3000); }
+  else if (kind === 'howl') { const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1200; o.type = 'triangle'; o.frequency.setValueAtTime(380, t); o.frequency.linearRampToValueAtTime(620, t + .9); o.frequency.linearRampToValueAtTime(520, t + 2.4); o.frequency.linearRampToValueAtTime(330, t + 3.2); o.connect(f); f.connect(g); g.connect(amb); g.connect(delay); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.05 * k, t + .6); g.gain.exponentialRampToValueAtTime(.0001, t + 3.3); o.start(t); o.stop(t + 3.4); }
   else if (kind === 'levelup') { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => ctx && tone(f, .35, 'triangle', .12), i * 110)); }
   else if (kind === 'success') { tone(660, .14, 'triangle', .1); setTimeout(() => ctx && tone(990, .25, 'triangle', .1), 110); }
   else { tone(760, .12, 'sine', .07, sfx, 1100); }
@@ -77,6 +80,7 @@ A.update = function (v) {
   engine.frequency.setTargetAtTime(driving && moving ? 62 + Math.random() * 3 : 34, t, .4); engineFilter.frequency.setTargetAtTime(driving && moving ? 520 : 240, t, .4);
   if (!driving && moving && me.hp > 0 && t > nextStep) { nextStep = t + (me.sprint ? .28 : .42); A.play('step'); }
   if (!night && kind !== 'storm' && kind !== 'rain' && t > nextBird) { nextBird = t + 2 + Math.random() * 6; const f = 2200 + Math.random() * 1800; for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++) setTimeout(() => ctx && tone(f * (1 + Math.random() * .2), .09, 'sine', .025, amb, f * 1.3), i * 120); }
+  if (night && t > nextHowl) { nextHowl = t + 25 + Math.random() * 50; if (v.weatherMode === 'snow' || Math.random() < .5) A.play('howl', 400 + Math.random() * 600); }
   if (night && kind === 'clear' && t > nextCricket) { nextCricket = t + .8 + Math.random() * 1.5; for (let i = 0; i < 4; i++) setTimeout(() => ctx && tone(4300, .03, 'sine', .012, amb), i * 45); }
   tension = Math.max(0, tension - .004);
   droneGain.gain.setTargetAtTime(tension * .05, t, .6);

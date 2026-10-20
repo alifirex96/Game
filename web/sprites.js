@@ -540,5 +540,53 @@ AS.sprites.landmark = function (tid, w, h) {
     return { im, ox: pad + w / 2, oy: top + h / 2 };
   });
 };
+
+/* ---------- wild animals and mutants, top-down, facing +x ---------- */
+AS.sprites.creature = function (c, o) {
+  // o: {type, phase, moving, attack, dead, seed}
+  const t = o.type, sw = o.moving ? Math.sin(o.phase) : 0, lunge = o.attack ? 6 : 0;
+  if (o.dead) { c.fillStyle = '#5b1d1666'; c.beginPath(); c.ellipse(0, 3, 22, 12, 0, 0, 7); c.fill(); c.rotate(1.4); c.globalAlpha = .75; }
+  c.translate(lunge, 0);
+  const shadow = (rx, ry) => { c.fillStyle = '#0c120d55'; c.beginPath(); c.ellipse(4, 5, rx, ry, 0, 0, 7); c.fill(); };
+  const legs = (xs, len, col, w) => { c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round'; xs.forEach((x, i) => { const k = (i % 2 ? 1 : -1) * sw * len * .5; [-1, 1].forEach(side => { c.beginPath(); c.moveTo(x, side * 4); c.lineTo(x + k * side, side * (4 + len)); c.stroke(); }); }); };
+  if (t === 'wolf') {
+    shadow(20, 9); legs([-9, 9], 7, '#4a4844', 3);
+    c.strokeStyle = '#6d6a62'; c.lineWidth = 5; c.beginPath(); c.moveTo(-14, 0); c.quadraticCurveTo(-24, sw * 4, -28, 2 + sw * 5); c.stroke();
+    c.fillStyle = '#6f6c64'; c.beginPath(); c.ellipse(0, 0, 16, 7.5, 0, 0, 7); c.fill(); c.fillStyle = '#8a867c'; c.beginPath(); c.ellipse(-2, 0, 10, 4, 0, 0, 7); c.fill();
+    c.fillStyle = '#6f6c64'; c.beginPath(); c.ellipse(17, 0, 7, 5.5, 0, 0, 7); c.fill(); c.fillStyle = '#5a5751'; c.beginPath(); c.moveTo(21, -3); c.lineTo(29, 0); c.lineTo(21, 3); c.fill();
+    c.fillStyle = '#4a4844'; c.beginPath(); c.moveTo(14, -4); c.lineTo(15, -9); c.lineTo(18, -4); c.moveTo(14, 4); c.lineTo(15, 9); c.lineTo(18, 4); c.fill();
+    if (o.attack) { c.fillStyle = '#e8e4d6'; c.fillRect(26, -2, 3, 1); c.fillRect(26, 1, 3, 1); }
+  } else if (t === 'bear') {
+    shadow(30, 18); legs([-14, 12], 8, '#3b2a1e', 7);
+    c.fillStyle = '#4e3725'; c.beginPath(); c.ellipse(0, 0, 26, 15, 0, 0, 7); c.fill(); c.fillStyle = '#5f4430'; c.beginPath(); c.ellipse(-3, -2, 18, 9, 0, 0, 7); c.fill();
+    c.fillStyle = '#4e3725'; c.beginPath(); c.arc(26, 0, 10, 0, 7); c.fill(); c.beginPath(); c.arc(22, -9, 3.5, 0, 7); c.arc(22, 9, 3.5, 0, 7); c.fill();
+    c.fillStyle = '#7a5e44'; c.beginPath(); c.ellipse(34, 0, 4, 3.5, 0, 0, 7); c.fill(); c.fillStyle = '#1a1410'; c.beginPath(); c.arc(37, 0, 1.6, 0, 7); c.fill();
+  } else if (t === 'boar') {
+    shadow(20, 10); legs([-8, 8], 6, '#2e2620', 3.5);
+    c.fillStyle = '#3d3229'; c.beginPath(); c.ellipse(0, 0, 17, 9, 0, 0, 7); c.fill();
+    c.strokeStyle = '#2a221c'; c.lineWidth = 1; for (let i = -12; i < 12; i += 3) { c.beginPath(); c.moveTo(i, -8); c.lineTo(i + 2, -3); c.stroke(); }
+    c.fillStyle = '#3d3229'; c.beginPath(); c.moveTo(12, -7); c.lineTo(28, -3); c.lineTo(28, 3); c.lineTo(12, 7); c.fill(); c.fillStyle = '#8a6f62'; c.beginPath(); c.ellipse(28, 0, 2.5, 3.5, 0, 0, 7); c.fill();
+    c.strokeStyle = '#e8e1cf'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(24, -4); c.lineTo(28, -8); c.moveTo(24, 4); c.lineTo(28, 8); c.stroke();
+  } else if (t === 'elk') {
+    shadow(26, 11); legs([-12, 12], 11, '#3a2c20', 3.5);
+    c.fillStyle = '#5b4330'; c.beginPath(); c.ellipse(0, 0, 22, 9, 0, 0, 7); c.fill(); c.fillStyle = '#6e5440'; c.beginPath(); c.ellipse(4, 0, 12, 5, 0, 0, 7); c.fill();
+    c.fillStyle = '#5b4330'; c.beginPath(); c.moveTo(18, -4); c.lineTo(30, -3); c.lineTo(36, 0); c.lineTo(30, 3); c.lineTo(18, 4); c.fill();
+    c.fillStyle = '#b7a585'; [-1, 1].forEach(s => { c.beginPath(); c.moveTo(26, s * 3); c.quadraticCurveTo(22, s * 16, 14, s * 18); c.lineTo(20, s * 13); c.lineTo(17, s * 22); c.lineTo(24, s * 15); c.lineTo(23, s * 23); c.lineTo(28, s * 8); c.closePath(); c.fill(); });
+  } else {
+    // Mutants: humanoid, hunched, long arms; spitter is bloated, brute is huge.
+    const big = t === 'brute' ? 1.8 : t === 'spitter' ? 1.25 : 1;
+    c.scale(big, big);
+    shadow(13, 11);
+    const skin = t === 'spitter' ? '#7c9a54' : t === 'brute' ? '#7d6a78' : '#9aa38c', dark = t === 'spitter' ? '#56703a' : t === 'brute' ? '#5a4b57' : '#6d7562';
+    c.fillStyle = '#2d2a26'; rr(c, -4 + sw * 4, -8, 10, 5, 2.5); c.fill(); rr(c, -4 - sw * 4, 3, 10, 5, 2.5); c.fill();
+    c.fillStyle = dark; c.beginPath(); c.ellipse(-1, 0, 9, 12, 0, 0, 7); c.fill(); c.fillStyle = skin; c.beginPath(); c.ellipse(0, 0, 7.5, 11, 0, 0, 7); c.fill();
+    c.fillStyle = '#4a3f36'; c.beginPath(); c.moveTo(-6, -9); c.lineTo(2, -4); c.lineTo(-3, 2); c.lineTo(-7, 6); c.fill();
+    if (t === 'spitter') { c.fillStyle = '#b9e04a'; [[-3, -5, 3], [-5, 4, 2.5], [2, 6, 2]].forEach(b => { c.beginPath(); c.arc(b[0], b[1], b[2], 0, 7); c.fill(); }); }
+    const reach = o.attack ? 10 : 4;
+    c.strokeStyle = skin; c.lineWidth = t === 'brute' ? 5 : 3.2; c.lineCap = 'round'; c.beginPath(); c.moveTo(1, -9); c.lineTo(12 + reach - sw * 3, -10); c.moveTo(1, 9); c.lineTo(12 + reach + sw * 3, 10); c.stroke();
+    c.strokeStyle = '#e6e0c8'; c.lineWidth = 1; [-10, 10].forEach(y => { const x = 12 + reach + (y > 0 ? sw : -sw) * 3; c.beginPath(); c.moveTo(x, y - 2); c.lineTo(x + 4, y - 3); c.moveTo(x, y); c.lineTo(x + 4, y); c.moveTo(x, y + 2); c.lineTo(x + 4, y + 3); c.stroke(); });
+    c.fillStyle = skin; c.beginPath(); c.arc(4, 0, 5, 0, 7); c.fill(); c.fillStyle = '#ff5a3a'; c.beginPath(); c.arc(7, -2, 1.1, 0, 7); c.arc(7, 2, 1.1, 0, 7); c.fill();
+  }
+};
 AS.sprites.cache = cache;
 })();
