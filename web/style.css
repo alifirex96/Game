@@ -50,3 +50,12 @@
 .shop-eyebrow{display:block;margin-top:16px}.decision strong svg{width:13px;height:13px;vertical-align:-2px}
 .owned{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.owned button{padding:8px 12px;font-size:12px}
 @media(max-width:1750px){#autosave{display:none}}
+#vitals{position:absolute;left:28px;bottom:262px;pointer-events:none}
+.vitals{display:flex;flex-direction:column;gap:7px}.vitals.big{gap:10px;margin-bottom:6px}
+.vital{display:flex;align-items:center;gap:8px;color:#cad0c1}.vital svg{width:16px;height:16px}.vital i{display:block;width:96px;height:5px;background:#ffffff1c;border-radius:3px;overflow:hidden}.vital em{display:block;height:100%;border-radius:3px}
+.vital.food em{background:#d3b77b}.vital.water em{background:#7fb2d0}.vital.warm em{background:#e09a6a}.vital.low svg{color:#e08e79;animation:pulse 1s infinite}.vital.big i{width:200px}.vital b{font-size:12px;font-weight:500}
+.vitals.big .vital i{width:220px}
+.chip{display:inline-block;font-size:11px;padding:3px 8px;border-radius:10px;background:#e08e7922;color:#eba98c;border:1px solid #e08e7966;margin-top:2px}
+@keyframes pulse{50%{opacity:.35}}
+.gear-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:12px}.gear-list span{display:flex;gap:7px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:5px}.gear-list svg{width:16px;height:16px;color:var(--orange)}
+@media(max-height:760px){#vitals{bottom:232px}}

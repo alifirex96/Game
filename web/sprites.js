@@ -438,22 +438,28 @@ AS.sprites.person = function (c, o) {
   const bandit = o.faction === 'bandits' || o.type === 'raider', marauder = o.type === 'marauder', militia = o.type === 'militia';
   const jacket = marauder ? ['#5b5442', '#4d4a3d', '#665a46'][Math.floor(seed * 3)] : militia ? '#6a6b4e' : bandit ? ['#2c2a28', '#3a2f28', '#2f3330'][Math.floor(seed * 3)] : ['#56664a', '#4f5f58', '#64694c'][Math.floor(seed * 3)];
   const pants = bandit ? '#24262a' : marauder ? '#3c3a33' : '#3d4639';
+  // Warm clothes override the jacket: quilted vatnik, sheepskin coat, white arctic suit.
+  const warmCoat = [null, '#3c443c', '#7a5a3a', '#cfd4d2'][o.clothes || 0];
   if (o.dead) { c.fillStyle = '#5b1d1666'; c.beginPath(); c.ellipse(3, 2, 15, 9, .3, 0, 7); c.fill(); c.rotate(1.3); }
   c.fillStyle = '#0c120d55'; c.beginPath(); c.ellipse(3, 4, 13, 10, 0, 0, 7); c.fill();
   // Legs (forward is +x).
   c.fillStyle = pants; rr(c, -4 + sw, -8, 11, 6, 3); c.fill(); rr(c, -4 - sw, 2, 11, 6, 3); c.fill();
   c.fillStyle = '#1d1a16'; c.beginPath(); c.arc(7 + sw, -5, 2.8, 0, 7); c.arc(7 - sw, 5, 2.8, 0, 7); c.fill();
   // Backpack or bedroll for survivors.
-  if (!bandit && !marauder && !militia) { c.fillStyle = '#6b5a3c'; rr(c, -12, -7, 7, 14, 3); c.fill(); c.fillStyle = '#8a7a52'; c.fillRect(-12, -6, 2, 12); }
+  if (o.pack) { const s = [0, 3, 5, 7][o.pack]; c.fillStyle = ['#6b5a3c', '#5d6b45', '#4f5a3f'][o.pack - 1] || '#6b5a3c'; rr(c, -10 - s, -6 - s * .6, 6 + s, 12 + s * 1.2, 3); c.fill(); c.fillStyle = '#00000030'; c.fillRect(-10 - s, -1, 6 + s, 2); }
+  else if (!bandit && !marauder && !militia) { c.fillStyle = '#6b5a3c'; rr(c, -12, -7, 7, 14, 3); c.fill(); c.fillStyle = '#8a7a52'; c.fillRect(-12, -6, 2, 12); }
   else if (marauder) { c.fillStyle = '#4c4232'; rr(c, -11, -5, 5, 10, 2); c.fill(); }
   // Torso and shoulders.
-  c.fillStyle = shade(jacket, -.2); c.beginPath(); c.ellipse(0, 0, 8, 11.5, 0, 0, 7); c.fill();
-  c.fillStyle = jacket; c.beginPath(); c.ellipse(.5, 0, 6.8, 10.5, 0, 0, 7); c.fill();
+  const coat = warmCoat || jacket;
+  c.fillStyle = shade(coat, -.2); c.beginPath(); c.ellipse(0, 0, warmCoat ? 9 : 8, warmCoat ? 12.5 : 11.5, 0, 0, 7); c.fill();
+  c.fillStyle = coat; c.beginPath(); c.ellipse(.5, 0, warmCoat ? 7.8 : 6.8, warmCoat ? 11.5 : 10.5, 0, 0, 7); c.fill();
+  if (o.clothes === 1) { c.strokeStyle = '#00000040'; c.lineWidth = 1; for (let k = -8; k <= 8; k += 4) { c.beginPath(); c.moveTo(-5, k); c.lineTo(6, k); c.stroke(); } }
+  if (o.clothes === 2) { c.fillStyle = '#e8dcc0'; c.beginPath(); c.ellipse(1, 0, 4, 8, 0, 0, 7); c.fill(); }
   if (o.armor >= 1) { c.fillStyle = o.armor >= 2 ? '#3c4436' : '#5d5a41'; rr(c, -5, -7, 10, 14, 3); c.fill(); c.fillStyle = shade(o.armor >= 2 ? '#3c4436' : '#5d5a41', .15); for (let i = 0; i < 3; i++) c.fillRect(1, -6 + i * 4.5, 3, 3); if (o.armor >= 2) { c.fillStyle = '#2b3128'; c.fillRect(-5, -8, 10, 2); c.fillRect(-5, 6, 10, 2); } }
   if (bandit && !marauder) { c.fillStyle = '#9b2f22'; c.fillRect(-2, 8, 5, 3); }
   // Arms: aim pose holds the weapon forward, interact reaches forward, walking swings.
   const aiming = o.aim || o.shot, reach = o.busy;
-  c.fillStyle = jacket; c.strokeStyle = jacket; c.lineCap = 'round'; c.lineWidth = 4.2;
+  c.fillStyle = coat; c.strokeStyle = coat; c.lineCap = 'round'; c.lineWidth = 4.2;
   const hand = SKIN[Math.floor(seed * 4)];
   if (aiming) {
     const recoil = o.shot ? -2.5 : 0;

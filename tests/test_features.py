@@ -80,14 +80,24 @@ class FeatureTests(unittest.TestCase):
             self.act('craft', item='weapon', tier=2)    # needs level 2
 
     def test_cars_stop_at_rivers_but_cross_bridges(self):
-        # Volga crossing on the Nizhny Novgorod - Kazan road.
+        terrain = self.world.terrain
+        bridge = None
+        for ax, ay, bx, by, a, b in terrain.road_segments:
+            for k in range(1, 400):
+                x, y = ax + (bx - ax) * k / 400, ay + (by - ay) * k / 400
+                if terrain.water(x, y):
+                    bridge = (x, y, -(by - ay), bx - ax); break
+            if bridge: break
+        self.assertIsNotNone(bridge)
+        x, y, nx, ny = bridge
+        length = (nx * nx + ny * ny) ** .5
         self.p['vehicle'] = True
-        self.p['x'], self.p['y'] = 4070.0, 4500.0       # off the road, west bank of the river
-        self.assertTrue(self.world.terrain.water(4070, 4500) or self.world.terrain.water(4060, 4500))
-        self.p['input'] = [1, 0, False]
-        run(self.world, 1)
-        self.assertTrue(self.world._blocked_for(self.p, 4060, 4500, 22) or self.world.terrain.on_road(4060, 4500, 70))
-        self.assertFalse(self.world._blocked_for(self.p, 4070, 4183, 22))   # the bridge
+        self.assertFalse(self.world._blocked_for(self.p, x, y, 22))           # on the bridge
+        side = (x + nx / length * 200, y + ny / length * 200)                # same river, off the road
+        if terrain.water(*side):
+            self.assertTrue(self.world._blocked_for(self.p, side[0], side[1], 22))
+        self.p['vehicle'] = False
+        self.assertFalse(self.world._blocked_for(self.p, side[0], side[1], 10))   # people wade
 
     def test_ai_faction_expands_without_human_players(self):
         run(self.world, 900, step=.25)
@@ -110,7 +120,7 @@ class FeatureTests(unittest.TestCase):
         run(self.world, .2)
         convoys = [n for n in self.world.npcs.values() if n['type'] == 'convoy']
         self.assertEqual(len(convoys), 1)
-        run(self.world, 25, step=.1)
+        run(self.world, 70, step=.1)
         self.assertEqual(self.world.fstats['survivors']['convoy'], 1)
         self.assertGreaterEqual(self.world.stocks['survivors']['wood'], wood + 19)
 
@@ -223,11 +233,12 @@ class SaveTests(unittest.TestCase):
             w = World(path)
             self.assertIsNone(w.load_warning)
             self.assertEqual(w.elapsed, 500)
+            self.assertEqual((w.players['tok']['x'], w.players['tok']['y']), (7300 * 3, 5270 * 3))
             self.assertEqual(w.towns['shabrovsky']['levels']['depot'], 2)
             self.assertEqual(w.towns['shabrovsky']['levels']['warehouse'], 0)
             self.assertIn('magadan', w.towns)
             p = w.players['tok']
-            self.assertEqual(p['gear'], {'weapon':0,'armor':0})
+            self.assertEqual(p['gear'], {'weapon':0,'armor':0,'clothes':0,'backpack':0})
             self.assertEqual(p['stats']['kills'], 0)
             self.assertEqual(p['car']['hp'], 100.0)
 
@@ -379,10 +390,87 @@ class ShopTests(unittest.TestCase):
         self.p['car'].update(x=self.p['x'] + 50, y=self.p['y'], hp=30.0)
         self.act('repair', kit=True)
         self.assertEqual(self.p['car']['hp'], 100.0)
-        self.assertEqual(self.p['items'], {'medkit':0,'repairkit':0})
+        self.assertNotIn('medkit', self.p['items'])
+        self.assertNotIn('repairkit', self.p['items'])
 
     def test_supplies_go_to_faction_stock(self):
         self.p['coins'] = 100
         fuel = self.world.stocks['survivors']['fuel']
         self.act('buy', town='revda', kind='supplies')
         self.assertEqual(self.world.stocks['survivors']['fuel'], fuel + 15)
+
+
+class SurvivalTests(unittest.TestCase):
+    def setUp(self):
+        self.world = World(rng=random.Random(4))
+        self.world.settings['ai'] = False
+        self.token = self.world.join('Выживший', 'survivors')
+        self.p = self.world.players[self.token]
+        self.p['x'], self.p['y'] = 8000.0 * 3, 6200.0 * 3          # open country in the Urals
+
+    def act(self, op, **data):
+        data.update(op=op, request_id='v' + str(random.random()))
+        return self.world.command(self.token, data)
+
+    def test_hunger_and_thirst_drop_and_hurt_at_zero(self):
+        food, water = self.p['food'], self.p['water']
+        run(self.world, 60, step=.1)
+        self.assertLess(self.p['food'], food)
+        self.assertLess(self.p['water'], water - 4)
+        self.p.update(food=0.0, water=0.0, hp=50.0)
+        run(self.world, 10, step=.1)
+        self.assertLess(self.p['hp'], 45)
+
+    def test_items_feed_and_bandage_stops_bleeding(self):
+        self.p.update(food=10.0, bleeding=True)
+        self.p['items'] = {'canned': 1, 'bandage': 1}
+        self.act('use', item='canned')
+        self.assertGreaterEqual(self.p['food'], 49)
+        self.p['hp'] = 50
+        self.act('heal')
+        self.assertFalse(self.p['bleeding'])
+        self.assertEqual(self.p['items'], {})
+
+    def test_backpack_limits_items(self):
+        self.p['items'] = {'water': 6}
+        self.assertEqual(self.world.give_item(self.p, 'canned'), 0)
+        self.p['gear']['backpack'] = 1
+        self.assertEqual(self.world.give_item(self.p, 'canned', 10), 6)
+
+    def test_cold_north_needs_warm_clothes(self):
+        north = self.world.towns['vorkuta']
+        self.p['x'], self.p['y'] = north['x'] + 1500, north['y'] + 900
+        self.world.weather = {'kind': 'snow', 'until': 1e9}
+        self.world.elapsed = 700               # night
+        run(self.world, 120, step=.1)
+        cold = self.p['warmth']
+        self.assertLess(cold, 30)
+        self.p['gear']['clothes'] = 3
+        run(self.world, 200, step=.1)
+        self.assertGreater(self.p['warmth'], cold + 20)
+
+    def test_river_water_and_town_canteen(self):
+        terrain = self.world.terrain
+        spot = next((x, y) for ax, ay, bx, by, h in terrain.water_segments
+                    for x, y in [((ax + bx) / 2, (ay + by) / 2)] if terrain.water(x, y) and not terrain.in_town(x, y, 100))
+        self.p['x'], self.p['y'] = spot
+        self.p['water'] = 10.0
+        self.act('drink')
+        self.assertGreaterEqual(self.p['water'], 44)
+        base = self.world.towns['shabrovsky']
+        self.p['x'], self.p['y'] = base['x'], base['y'] + 40
+        self.p.update(food=5.0, water=5.0)
+        self.act('canteen', town='shabrovsky')
+        self.assertGreater(self.p['food'], 50)
+        with self.assertRaises(GameError):
+            self.act('canteen', town='shabrovsky')
+
+    def test_shop_sells_clothes_backpacks_and_food(self):
+        t = self.world.towns['revda']
+        self.p['x'], self.p['y'] = t['x'], t['y'] + 40
+        self.p['coins'] = 1000; self.p['level'] = 5
+        self.act('buy', town='revda', kind='clothes', index=2)
+        self.act('buy', town='revda', kind='backpack', index=2)
+        self.act('buy', town='revda', kind='canned')
+        self.assertEqual((self.p['gear']['clothes'], self.p['gear']['backpack']), (2, 2))
+        self.assertEqual(self.p['items'].get('canned'), 1)

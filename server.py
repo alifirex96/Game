@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 from world_data import (VERSION, WORLD_SIZE, FACTIONS, RESOURCES, TOWNS, REGIONS,
                         BASES, BUILDINGS, EVENTS, QUESTS, STORY, WEAPONS, ARMOR, POI_KINDS,
                         POSTS, POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
-                        WEATHER, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, xp_to_next, max_hp, config)
+                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, xp_to_next, max_hp, config)
 from terrain import Terrain, town_buildings, resource_nodes, landmark_rect
 from npc import NpcMixin, other_faction
 
@@ -146,8 +146,9 @@ class World(NpcMixin):
            'car':{'x':town['x']+90+slot*65,'y':town['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0},
            'dead_until':0.0,'last_seen':now,'last_input':now,'input':[0,0,False],
            'aim':[0,1],'paused':False,'last_action':{},'receipts':OrderedDict(),
-           'stats':{k:0 for k in STAT_KEYS},'gear':{'weapon':0,'armor':0},'level':1,'xp':0,
-           'coins':0,'weapons':[0],'items':{'medkit':0,'repairkit':0},
+           'stats':{k:0 for k in STAT_KEYS},'gear':{'weapon':0,'armor':0,'clothes':0,'backpack':0},'level':1,'xp':0,
+           'coins':0,'weapons':[0],'items':{'water':1,'crackers':1,'bandage':1},
+           'food':80.0,'water':80.0,'warmth':90.0,'bleeding':False,'sick':0.0,'warned':[],
            'visited':[tid],'quests':[],'quest_serial':0,'completed':0,'pending':None}
         self._place_randomly(p)
         for q in range(3):
@@ -309,7 +310,7 @@ class World(NpcMixin):
     def snapshot(self,token,full=True):
         p=self.player(token); f=p['faction']; now=time.monotonic()
         me=self._public_player(p)
-        for k in ('stats','quests','completed','visited','pending','coins','weapons','items'):
+        for k in ('stats','quests','completed','visited','pending','coins','weapons','items','food','water','warmth','bleeding','sick'):
             me[k]=copy.deepcopy(p[k])
         story=self.story[f]; chapter=self._chapter(f)
         out={'version':VERSION,'stamp':time.monotonic(),'time':round(self.elapsed,2),'me':me,
@@ -399,7 +400,9 @@ class World(NpcMixin):
             amount=n['amount']+(2 if self.has_perk(p,5) else 0)
             self._reward(f,{n['kind']:amount}); self.harvested[n['id']]=self.elapsed+100
             p['stats']['harvest']+=1;self.gain_xp(p,'harvest')
-            return {'title':'+'+str(amount)+' · '+RESOURCES[n['kind']],'success':True}
+            extra=''
+            if n['kind']=='food' and self.rng.random()<.4 and self.give_item(p,self.rng.choice(('canned','crackers','water'))):extra=' · что-то в рюкзак'
+            return {'title':'+'+str(amount)+' · '+RESOURCES[n['kind']]+extra,'success':True}
         if op=='build':
             b=self.buildings.get(str(data.get('id')))
             if not b: raise GameError('Здание не найдено.')
@@ -435,8 +438,9 @@ class World(NpcMixin):
             if p['vehicle'] or dist(p['car'],p)>110: raise GameError('Подойди к своей машине пешком.')
             if p['car'].get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита, её отбуксируют в убежище.')
             if p['car'].get('hp',100)>=100: raise GameError('Машина исправна.')
-            p['items']['repairkit']-=1;p['car']['hp']=100.0
-            return {'title':'Машина отремонтирована','text':'Ремкомплектов осталось: '+str(p['items']['repairkit']),'success':True}
+            p['items']['repairkit']-=1;p['car']['hp']=100.0;left=p['items']['repairkit']
+            if not left:del p['items']['repairkit']
+            return {'title':'Машина отремонтирована','text':'Ремкомплектов осталось: '+str(left),'success':True}
         if op=='repair':
             g=[b for b in self.buildings.values() if b['kind']=='garage' and self.towns[b['town']]['owner']==f and self.towns[b['town']]['levels']['garage']>0 and dist(b,p)<200]
             if not g: raise GameError('Ремонт возможен у своего восстановленного гаража.')
@@ -446,9 +450,9 @@ class World(NpcMixin):
             return {'title':'Машина отремонтирована','text':'−4 металла','success':True}
         if op=='heal':
             if p['hp']>=self.max_hp(p): raise GameError('Ты не ранен.')
-            if p['items'].get('medkit',0)>0:
-                self._cooldown(p,'heal',4);p['items']['medkit']-=1;p['hp']=min(self.max_hp(p),p['hp']+60)
-                return {'title':'Аптечка','text':'Здоровье +60. Аптечек осталось: '+str(p['items']['medkit']),'success':True}
+            for item in (('bandage','medkit') if p['bleeding'] else ('medkit',)):
+                if p['items'].get(item,0)>0:
+                    self._cooldown(p,'heal',3);return self._use(p,item)
             medic=self.has_perk(p,10);cost=3 if medic else 5;amount=45 if medic else 35
             self._cooldown(p,'heal',6);self._pay(f,{'food':cost});p['hp']=min(self.max_hp(p),p['hp']+amount)
             return {'title':'Перевязка','text':'Здоровье +'+str(amount)+', −'+str(cost)+' припасов','success':True}
@@ -594,6 +598,27 @@ class World(NpcMixin):
             p['shot']=self.elapsed
             self.effects.append({'id':secrets.token_hex(4),'kind':'shot','x':p['x'],'y':p['y'],'ex':end['x'],'ey':end['y'],'until':self.elapsed+.22,'faction':f,'weapon':p['gear']['weapon']})
             return {'quiet':True}
+        if op=='use':
+            item=data.get('item')
+            if item not in ITEMS or item=='repairkit' or p['items'].get(item,0)<1: raise GameError('Этого предмета нет в рюкзаке.')
+            self._cooldown(p,'use',.6)
+            return self._use(p,item)
+        if op=='drink':
+            if p['vehicle']: raise GameError('Выйди из машины.')
+            if not self.terrain.water(p['x'],p['y'],70): raise GameError('Рядом нет воды.')
+            self._cooldown(p,'drink',2);p['water']=min(100,p['water']+35)
+            # Raw river water is a gamble without antibiotics.
+            if self.rng.random()<.25:
+                p['sick']=self.elapsed+120
+                return {'title':'Вода из реки','text':'Жажда утолена, но вода была грязной: отравление. Помогут антибиотики.','success':False}
+            return {'title':'Вода из реки','text':'Жажда +35. Сырая вода может вызвать отравление.','success':True}
+        if op=='canteen':
+            t=self._town_action(p,str(data.get('town')))
+            if t['owner']!=f: raise GameError('Накормят только в поселении твоей стороны.')
+            if t['cooldowns'].get('canteen:'+p['id'],0)>self.elapsed: raise GameError('Повара ещё не приготовили следующую порцию.')
+            self._pay(f,{'food':3});t['cooldowns']['canteen:'+p['id']]=self.elapsed+90
+            p['food']=min(100,p['food']+50);p['water']=min(100,p['water']+70);p['warmth']=min(100,p['warmth']+20)
+            return {'title':'Столовая и колодец','text':'Сытость +50, жажда +70. −3 припаса фракции.','success':True}
         if op=='equip':
             idx=data.get('weapon')
             if not isinstance(idx,int) or idx not in p['weapons']: raise GameError('Этого оружия у тебя нет.')
@@ -611,14 +636,16 @@ class World(NpcMixin):
             if any(n['type']=='marauder' and n['hp']>0 and dist(n,poi)<330 for n in self.npcs.values()): raise GameError('Сначала разберись с мародёрами у тайника.')
             loot=POI_KINDS[poi['kind']]['loot'];st[f]=self.elapsed+300
             self._reward(f,loot);p['stats']['loot']+=1;self.gain_xp(p,'loot')
-            return {'title':'Тайник: '+poi['name'],'text':self.resource_text(loot),'success':True}
+            got=self._loot_items(p,2)
+            return {'title':'Тайник: '+poi['name'],'text':self.resource_text(loot)+('. В рюкзак: '+', '.join(got) if got else '. Рюкзак полон.'),'success':True}
         if op=='airdrop':
             drop=self.airdrops.get(str(data.get('id')))
             if not drop: raise GameError('Груз уже забрали.')
             self._near(p,drop,80)
             del self.airdrops[drop['id']];self._reward(f,drop['loot']);p['stats']['loot']+=1;self.gain_xp(p,'airdrop')
             self._notice('Груз найден',p['name']+' · '+FACTIONS[f])
-            return {'title':'Сброшенный груз','text':self.resource_text(drop['loot']),'success':True}
+            got=[ITEMS[k]['name'] for k in ('medkit','water','canned') if self.give_item(p,k)]
+            return {'title':'Сброшенный груз','text':self.resource_text(drop['loot'])+('. В рюкзак: '+', '.join(got) if got else ''),'success':True}
         if op=='extinguish':
             b=self.buildings.get(str(data.get('id')))
             if not b: raise GameError('Здание не найдено.')
@@ -664,27 +691,53 @@ class World(NpcMixin):
             return {'title':'Перемирие разорвано','text':'Репутация −15.','success':False}
         raise GameError('Неизвестное действие.')
 
+    def slots(self,p):
+        return BACKPACKS[p['gear']['backpack']]['slots']
+
+    def give_item(self,p,item,count=1):
+        """Put items into the backpack; returns how many fitted."""
+        room=max(0,self.slots(p)-sum(p['items'].values()))
+        n=min(room,count)
+        if n:p['items'][item]=p['items'].get(item,0)+n
+        return n
+
+    def _use(self,p,item):
+        spec=ITEMS[item];p['items'][item]-=1
+        if not p['items'][item]:del p['items'][item]
+        p['food']=clamp(p['food']+spec.get('food',0),0,100);p['water']=clamp(p['water']+spec.get('water',0),0,100)
+        p['warmth']=clamp(p['warmth']+spec.get('warmth',0),0,100);p['hp']=min(self.max_hp(p),p['hp']+spec.get('hp',0))
+        if spec.get('stop_bleed'):p['bleeding']=False
+        if spec.get('cure'):p['sick']=0
+        return {'title':spec['name'],'text':spec['desc'],'success':True}
+
+    def _loot_items(self,p,count):
+        got=[]
+        for i in range(count):
+            item=self.rng.choice(LOOT_ITEMS)
+            if self.give_item(p,item):got.append(ITEMS[item]['name'])
+        return got
+
     def _buy(self,p,data):
         """Shop on the square of an own or neutral settlement; prices are in personal coins."""
         f=p['faction'];t=self._town_action(p,str(data.get('town')))
         if t['owner'] not in (None,f) and not self.truce_active(): raise GameError('Торговцы чужой стороны тебе не продают.')
         kind=data.get('kind');idx=data.get('index')
-        if kind in ('weapon','armor'):
-            table=WEAPONS if kind=='weapon' else ARMOR
+        if kind in ('weapon','armor','clothes','backpack'):
+            table={'weapon':WEAPONS,'armor':ARMOR,'clothes':CLOTHES,'backpack':BACKPACKS}[kind]
             if not isinstance(idx,int) or not 1<=idx<len(table): raise GameError('Такого товара нет.')
             item=table[idx]
             if p['level']<item['level']: raise GameError('Нужен уровень '+str(item['level'])+'.')
             if kind=='weapon' and idx in p['weapons']: raise GameError('Это оружие уже у тебя.')
-            if kind=='armor' and p['gear']['armor']>=idx: raise GameError('У тебя броня не хуже.')
+            if kind!='weapon' and p['gear'][kind]>=idx: raise GameError('У тебя уже есть не хуже.')
             price=item['price'];name=item['name']
-        elif kind in SHOP_ITEMS:
-            item=SHOP_ITEMS[kind];price=item['price'];name=item['name']
-            if 'max' in item and p['items'].get(kind,0)>=item['max']: raise GameError('Больше не унести: максимум '+str(item['max'])+'.')
+        elif kind in SHOP_ITEMS or kind in ITEMS:
+            item=SHOP_ITEMS.get(kind) or ITEMS[kind];price=item['price'];name=item['name']
+            if kind in ITEMS and sum(p['items'].values())>=self.slots(p): raise GameError('Рюкзак полон. Купи рюкзак побольше или используй вещи.')
         else: raise GameError('Такого товара нет.')
         if p['coins']<price: raise GameError('Не хватает монет: нужно '+str(price)+'. Монеты дают за поручения и главы сюжета.')
         p['coins']-=price
         if kind=='weapon':p['weapons'].append(idx);p['gear']['weapon']=idx
-        elif kind=='armor':p['gear']['armor']=idx
+        elif kind in ('armor','clothes','backpack'):p['gear'][kind]=idx
         elif kind=='supplies':self._reward(f,{'food':20,'fuel':15})
         elif kind=='materials':self._reward(f,{'wood':30,'stone':25,'metal':15})
         else:p['items'][kind]=p['items'].get(kind,0)+1
@@ -779,6 +832,7 @@ class World(NpcMixin):
                 if self.elapsed>=p['dead_until']:
                     # Each respawn is a new random roadside spot; the car comes along so nobody is stranded.
                     p['hp']=self.max_hp(p);p['dead_until']=0
+                    p.update(food=max(p['food'],60.0),water=max(p['water'],60.0),warmth=80.0,bleeding=False,sick=0.0)
                     self._place_randomly(p)
                 continue
             x,y,sprint=p['input'] if now-p['last_input']<.65 and not p['paused'] else (0,0,False)
@@ -793,7 +847,8 @@ class World(NpcMixin):
                 if moving and speed: self.stocks[p['faction']]['fuel']=max(0,self.stocks[p['faction']]['fuel']-dt*.18*(1-.1*level))
             elif sprint and p['stamina']>1 and moving:
                 speed=220;p['stamina']=max(0,p['stamina']-dt*22)
-            else: p['stamina']=min(100,p['stamina']+dt*14)
+            else: p['stamina']=min(100,p['stamina']+dt*14*(.4 if min(p['food'],p['water'])<20 or p['warmth']<25 else 1))
+            self._survive(p,dt,sprint and moving and not p['vehicle'])
             r=22 if p['vehicle'] else 10
             if not p['vehicle'] and self.terrain.water(p['x'],p['y']):speed*=.45
             nx=p['x']+x*speed*dt;ny=p['y']+y*speed*dt
@@ -825,6 +880,31 @@ class World(NpcMixin):
                     self.winner=f;self._notice('Связь восстановлена',FACTIONS[f]+' связали пять поселений. Мир остаётся доступен для игры.');self.save()
         if self.save_clock>=10:
             self.save_clock=0;self.save()
+
+    def _survive(self,p,dt,sprinting):
+        """Hunger, thirst, cold, bleeding and sickness, simulated on the host."""
+        sick=p['sick']>self.elapsed
+        k=(2 if sprinting else .6 if p['vehicle'] else 1)*(1.8 if sick else 1)
+        p['food']=max(0,p['food']-.065*k*dt);p['water']=max(0,p['water']-.1*k*dt)
+        town=min(self.towns.values(),key=lambda t:dist(t,p))
+        hour=(8+self.elapsed*1.4/60)%24;night=hour>=21 or hour<6
+        wading=not p['vehicle'] and self.terrain.water(p['x'],p['y'])
+        exposure=REGIONS[town['region']]['cold']*10+(10 if p['y']<1300*WORLD_SCALE else 0)+(12 if night else 0)
+        exposure+={'rain':10,'storm':18,'snow':16,'fog':4}.get(self.weather['kind'],0)+(15 if wading else 0)
+        exposure-=CLOTHES[p['gear']['clothes']]['warm']+(25 if p['vehicle'] else 0)
+        fire=(town['owner']==p['faction'] and dist(town,p)<300) or any(o['faction']==p['faction'] and o['faction']=='survivors' and dist(o,p)<220 for o in self.posts.values())
+        target=100 if fire else clamp(100-max(0,exposure)*1.6,0,100)
+        rate=2.5 if fire else .6
+        p['warmth']+=clamp(target-p['warmth'],-rate*dt,rate*dt)
+        drain=(.3 if p['food']<=0 else 0)+(.5 if p['water']<=0 else 0)+(.35 if p['warmth']<20 else 0)+(.5 if p['bleeding'] else 0)+(.08 if sick else 0)
+        if drain:self._damage(p,drain*dt)
+        elif p['food']>70 and p['water']>70 and p['warmth']>50:p['hp']=min(self.max_hp(p),p['hp']+.2*dt)
+        for key,value,low,text in (('food',p['food'],25,'Ты голоден. Поешь: G или столовая своего поселения.'),
+                                   ('water',p['water'],25,'Хочется пить. V — вода из рюкзака или из реки.'),
+                                   ('warmth',p['warmth'],30,'Ты замерзаешь. Тёплая одежда, машина, костёр в своём поселении.')):
+            if value<low and key not in p['warned']:
+                p['warned'].append(key);self._notice({'food':'Голод','water':'Жажда','warmth':'Холод'}[key],text,player=p['id'],tone='error')
+            elif value>low+15 and key in p['warned']:p['warned'].remove(key)
 
     def _blocked_for(self,p,x,y,r):
         if self.blocked(x,y,r):return True
@@ -951,7 +1031,7 @@ class World(NpcMixin):
                  'players':players,'harvested':self.harvested,'events_done':self.events_done,'winner':self.winner,
                  'posts':self.posts,'convoys':convoys,'weather':self.weather,'truce':self.truce,'story':self.story,
                  'fstats':self.fstats,'ai_state':self.ai_state,'poi_state':self.poi_state,'settings':self.settings,
-                 'airdrops':self.airdrops,'room_code':self.room_code}
+                 'airdrops':self.airdrops,'room_code':self.room_code,'scale':WORLD_SCALE}
         try:
             self.save_path.parent.mkdir(parents=True,exist_ok=True)
             tmp=self.save_path.with_suffix('.tmp')
@@ -982,10 +1062,13 @@ class World(NpcMixin):
                 t['fires']={k:finite(u) for k,u in v.get('fires',{}).items() if k in BUILDINGS}
                 t['capture']=None
             stocks={f:{r:clamp(finite(raw['stocks'][f][r]),0,99999) for r in RESOURCES} for f in FACTIONS}
+            # Saves made before the map was stretched keep their places relative to the towns.
+            stretch=WORLD_SCALE/max(1,finite(raw.get('scale',1),1))
             players={}
             for token,p in list(raw.get('players',{}).items())[:4]:
                 if p['faction'] not in FACTIONS:raise ValueError('Faction')
-                p['x']=clamp(finite(p['x']),25,WORLD_SIZE[0]-25);p['y']=clamp(finite(p['y']),25,WORLD_SIZE[1]-25)
+                p['x']=clamp(finite(p['x'])*stretch,25,WORLD_SIZE[0]-25);p['y']=clamp(finite(p['y'])*stretch,25,WORLD_SIZE[1]-25)
+                if isinstance(p.get('car'),dict):p['car']['x']=finite(p['car'].get('x'))*stretch;p['car']['y']=finite(p['car'].get('y'))*stretch
                 p.update(last_seen=-1000,last_input=-1000,input=[0,0,False],receipts=OrderedDict(),paused=False)
                 gear=p.get('gear') or {}
                 p['gear']={'weapon':int(clamp(finite(gear.get('weapon',0)),0,len(WEAPONS)-1)),'armor':int(clamp(finite(gear.get('armor',0)),0,len(ARMOR)-1))}
@@ -994,15 +1077,19 @@ class World(NpcMixin):
                 p['level']=int(clamp(finite(p.get('level',1),1),1,MAX_LEVEL));p['xp']=max(0,int(finite(p.get('xp',0))))
                 p['coins']=max(0,int(finite(p.get('coins',0))))
                 p['weapons']=sorted({int(clamp(finite(i),0,len(WEAPONS)-1)) for i in p.get('weapons',[])}|{0,p['gear']['weapon']})
-                items=p.get('items') or {};p['items']={k:max(0,int(finite(items.get(k,0)))) for k in ('medkit','repairkit')}
+                items=p.get('items') or {};p['items']={k:max(0,int(finite(v))) for k,v in items.items() if k in ITEMS and finite(v)>0}
+                gear=p['gear'];gear['clothes']=int(clamp(finite((p.get('gear') or {}).get('clothes',0)),0,len(CLOTHES)-1));gear['backpack']=int(clamp(finite((p.get('gear') or {}).get('backpack',0)),0,len(BACKPACKS)-1))
+                for key,default in (('food',80.0),('water',80.0),('warmth',90.0)):p[key]=clamp(finite(p.get(key,default),default),0,100)
+                p['bleeding']=bool(p.get('bleeding'));p['sick']=finite(p.get('sick',0));p['warned']=[]
                 players[token]=p
             self.elapsed=max(0,finite(raw['time']));self.production_clock=finite(raw.get('production_clock',0))%12
             self.towns=towns;self.stocks=stocks;self.players=players
             self.reputation={f:clamp(finite(raw['reputation'][f]),-100,100) for f in FACTIONS}
             self.harvested=raw.get('harvested',{});self.events_done=raw.get('events_done',{});self.winner=raw.get('winner')
-            self.posts={k:v for k,v in raw.get('posts',{}).items() if v.get('faction') in FACTIONS}
-            for n in raw.get('convoys',[]):
-                if n.get('faction') in FACTIONS and n.get('type')=='convoy':self.npcs[n['id']]=n
+            self.posts={pid:dict(v,x=finite(v.get('x'))*stretch,y=finite(v.get('y'))*stretch) for pid,v in raw.get('posts',{}).items() if v.get('faction') in FACTIONS}
+            if stretch==1:
+                for n in raw.get('convoys',[]):
+                    if n.get('faction') in FACTIONS and n.get('type')=='convoy':self.npcs[n['id']]=n
             if isinstance(raw.get('weather'),dict) and raw['weather'].get('kind') in WEATHER:self.weather=raw['weather']
             truce=raw.get('truce')
             if isinstance(truce,dict):self.truce.update(until=finite(truce.get('until')),proposal=None,cooldown={})
@@ -1013,7 +1100,7 @@ class World(NpcMixin):
                 fs=(raw.get('fstats') or {}).get(f) or {}
                 self.fstats[f]={k:int(finite(fs.get(k,0))) for k in FSTAT_KEYS}
             self.ai_state=raw.get('ai_state') or {};self.poi_state=raw.get('poi_state') or {}
-            self.settings.update(raw.get('settings') or {});self.airdrops=raw.get('airdrops') or {}
+            self.settings.update(raw.get('settings') or {});self.airdrops=(raw.get('airdrops') or {}) if stretch==1 else {}
             code=raw.get('room_code')
             self.room_code=code if isinstance(code,str) and len(code)==6 and code.isdigit() else None
         except (OSError,ValueError,KeyError,TypeError,AttributeError):

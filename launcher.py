@@ -5,6 +5,7 @@ A small Tk window when Tk is present, a text menu or plain LAN hosting otherwise
 """
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -19,6 +20,63 @@ DISCOVERY_PORT = 8766
 URL = 'http://127.0.0.1:' + str(PORT)
 DATA = Path.home() / '.local/share/after-silence'
 BG, INK, MUTED, ACCENT, PANEL = '#15231b', '#d8dfcc', '#a5b49a', '#e7a568', '#1d2e25'
+
+# Chromium-family browsers can open a page as a standalone app window (no tabs or address bar).
+APP_BROWSERS = ('chromium', 'chromium-browser', 'chromium-gost', 'chromium-gost-stable', 'yandex-browser',
+                'yandex-browser-stable', 'google-chrome', 'google-chrome-stable', 'microsoft-edge', 'brave-browser', 'vivaldi')
+FIREFOX_PREFS = '''user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.aboutwelcome.enabled", false);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("media.autoplay.default", 0);
+'''
+
+def load_prefs():
+    try:
+        return json.loads((DATA / 'launcher.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {'app_window': True}
+
+def save_prefs(prefs):
+    try:
+        DATA.mkdir(parents=True, exist_ok=True)
+        (DATA / 'launcher.json').write_text(json.dumps(prefs), encoding='utf-8')
+    except OSError:
+        pass
+
+def open_game(url, app_window=True):
+    """Open the game as its own window when a suitable browser exists; returns the window process.
+
+    Everything runs from the user's home folder: a separate browser profile, no installation
+    and no administrator rights.
+    """
+    if app_window:
+        for name in APP_BROWSERS:
+            exe = shutil.which(name)
+            if exe:
+                profile = DATA / 'window'
+                profile.mkdir(parents=True, exist_ok=True)
+                try:
+                    return subprocess.Popen([exe, '--app=' + url, '--user-data-dir=' + str(profile), '--window-size=1600,900',
+                                             '--no-first-run', '--no-default-browser-check', '--class=AfterSilence',
+                                             '--autoplay-policy=no-user-gesture-required'],
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except OSError:
+                    continue
+        exe = shutil.which('firefox') or shutil.which('firefox-esr')
+        if exe:
+            profile = DATA / 'firefox-window'
+            try:
+                profile.mkdir(parents=True, exist_ok=True)
+                (profile / 'user.js').write_text(FIREFOX_PREFS, encoding='utf-8')
+                return subprocess.Popen([exe, '--no-remote', '--profile', str(profile), '--kiosk', url],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
+    webbrowser.open(url)
+    return None
 
 def existing_game():
     try:
@@ -82,14 +140,27 @@ def console():
             print(str(i) + ') ' + r['ip'] + ' · ' + r.get('name', '') + ' · игроков: ' + str(r.get('players', 0)))
         pick = input('Номер комнаты или адрес ведущего: ').strip()
         address = rooms[int(pick) - 1]['ip'] + ':' + str(rooms[int(pick) - 1]['port']) if pick.isdigit() and 0 < int(pick) <= len(rooms) else pick
-        webbrowser.open(join_url(address, input('Код комнаты: ')))
+        open_game(join_url(address, input('Код комнаты: ')), load_prefs().get('app_window', True))
         return 0
-    cmd = server_command('solo' if choice == '1' else 'lan') + ['--open']
-    os.execv(sys.executable, cmd)
+    server = subprocess.Popen(server_command('solo' if choice == '1' else 'lan'), cwd=str(ROOT))
+    for _ in range(60):
+        if existing_game():
+            break
+        time.sleep(.25)
+    window = open_game(URL, load_prefs().get('app_window', True))
+    print('Игра открыта. Для выхода закрой окно игры' + (' и нажми Ctrl+C.' if choice != '1' else '.'))
+    try:
+        if window is not None and choice == '1':
+            window.wait()
+            server.terminate()
+        server.wait()
+    except KeyboardInterrupt:
+        server.terminate()
+    return 0
 
 def main():
     if existing_game():
-        webbrowser.open(URL)
+        open_game(URL, load_prefs().get('app_window', True))
         return 0
     try:
         import tkinter as tk
@@ -104,7 +175,22 @@ def main():
     window.title('После тишины')
     window.geometry('600x500'); window.resizable(False, False)
     window.configure(bg=BG)
-    state = {'process': None, 'log': None, 'began': 0}
+    state = {'process': None, 'log': None, 'began': 0, 'window': None, 'mode': None}
+    prefs = load_prefs()
+    app_var = tk.BooleanVar(value=prefs.get('app_window', True))
+
+    def launch(url):
+        prefs['app_window'] = bool(app_var.get()); save_prefs(prefs)
+        state['window'] = open_game(url, prefs['app_window'])
+
+    def watch_window():
+        # Single player ends together with its window; a LAN room keeps running for friends.
+        win = state['window']
+        if win is not None and win.poll() is not None:
+            state['window'] = None
+            if state['mode'] == 'solo':
+                shutdown(); return
+        window.after(1000, watch_window)
     tk.Label(window, text='ПОСЛЕ ТИШИНЫ', font=('Arial', 26, 'bold'), fg=ACCENT, bg=BG).pack(pady=(26, 4))
     tk.Label(window, text='Россия после катастрофы · одиночная игра и сеть 2 × 2', font=('Arial', 11), fg=MUTED, bg=BG).pack()
     body = tk.Frame(window, bg=BG); body.pack(fill='both', expand=True, padx=40, pady=18)
@@ -126,6 +212,8 @@ def main():
         button(body, 'Создать комнату в сети', lambda: start('lan'))
         button(body, 'Подключиться к комнате по коду', join_screen)
         button(body, 'Создать ярлык на рабочем столе', shortcut)
+        tk.Checkbutton(body, text='Открывать игру в отдельном окне, как приложение', variable=app_var, bg=BG, fg=INK,
+                       selectcolor=PANEL, activebackground=BG, activeforeground=INK, font=('Arial', 10)).pack(pady=(8, 0))
         tk.Label(body, text='Игра запускается в браузере. Права администратора и интернет не нужны.\nПрогресс сохраняется в ' + str(DATA),
                  font=('Arial', 9), fg=MUTED, bg=BG, justify='center').pack(pady=(14, 0))
 
@@ -144,7 +232,8 @@ def main():
         state['began'] = time.monotonic()
         status = tk.StringVar(value='Мир загружается…')
         tk.Label(body, textvariable=status, justify='center', font=('Arial', 12), fg=INK, bg=BG, wraplength=520).pack(pady=12)
-        open_button = button(body, 'Открыть игру', lambda: webbrowser.open(URL), True)
+        state['mode'] = mode
+        open_button = button(body, 'Открыть игру', lambda: launch(URL), True)
         open_button.configure(state='disabled')
         tk.Label(body, text=('Передай друзьям адрес и код комнаты, либо пусть они нажмут\n«Подключиться к комнате по коду» в своём лаунчере.\nНе закрывай это окно, пока идёт сетевая игра.' if mode == 'lan'
                              else 'Одиночная игра идёт только на этом компьютере.\nСоперником управляет компьютер.'),
@@ -157,7 +246,7 @@ def main():
                     status.set('Код комнаты: ' + str(data['join_code']) + '\n\n' + '\n'.join(data['lan_addresses'] or ['Сетевой адрес не найден. На этом ПК: ' + URL]))
                 else:
                     status.set('Мир готов. Хорошей экспедиции!')
-                open_button.configure(state='normal'); webbrowser.open(URL)
+                open_button.configure(state='normal'); launch(URL); window.after(1500, watch_window)
             elif state['process'].poll() is not None or time.monotonic() - state['began'] > 15:
                 status.set('Не удалось запустить мир. Возможно, порт ' + str(PORT) + ' занят другой программой.\nПодробности: ' + str(DATA / 'server.log'))
             else:
@@ -195,12 +284,24 @@ def main():
             if not address.get().strip() or len(''.join(ch for ch in code.get() if ch.isdigit())) != 6:
                 messagebox.showwarning('После тишины', 'Выбери комнату или введи адрес ведущего и шестизначный код.')
                 return
-            webbrowser.open(join_url(address.get(), code.get()))
+            launch(join_url(address.get(), code.get()))
         button(body, 'Войти в комнату', go, True)
         nav = tk.Frame(body, bg=BG); nav.pack(fill='x')
         tk.Button(nav, text='Обновить список', command=scan, bg=BG, fg=MUTED, relief='flat', font=('Arial', 10)).pack(side='left')
         tk.Button(nav, text='Назад', command=menu, bg=BG, fg=MUTED, relief='flat', font=('Arial', 10)).pack(side='right')
         window.after(100, scan)
+
+    def shutdown():
+        process = state['process']
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        if state['log']:
+            state['log'].close()
+        window.destroy()
 
     def stop():
         process = state['process']

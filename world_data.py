@@ -1,6 +1,9 @@
 """Static game rules and the schematic map of Russia. Python 3.7+, standard library only."""
-VERSION = '0.2.1'
-WORLD_SIZE = (20000, 10000)
+VERSION = '0.3.0'
+# Map coordinates below are written at 1:1 and stretched by WORLD_SCALE, so settlements are far apart
+# while towns, roads and rivers keep their real size.
+WORLD_SCALE = 3
+WORLD_SIZE = (20000 * WORLD_SCALE, 10000 * WORLD_SCALE)
 FACTIONS = {'survivors': 'Выжившие', 'bandits': 'Бандиты'}
 RESOURCES = {'wood': 'Древесина', 'stone': 'Камень', 'metal': 'Металл',
              'food': 'Припасы', 'fuel': 'Топливо'}
@@ -74,6 +77,11 @@ HILLS = [('Уральские горы', 6650, 3000, 380, 2600), ('Хибины'
          ('Саяны', 13900, 7200, 1200, 450), ('Верхоянский хребет', 17500, 1800, 1300, 500),
          ('Сихотэ-Алинь', 18900, 7000, 380, 1400)]
 # Abandoned places worth exploring. Caches restock; marauders gather nearby.
+_S = WORLD_SCALE
+TOWNS = [(t[0], t[1], t[2] * _S, t[3] * _S, t[4]) for t in TOWNS]
+RIVERS = [[n, w, [(x * _S, y * _S) for x, y in pts]] for n, w, pts in RIVERS]
+LAKES = [[n, [(x * _S, y * _S) for x, y in pts]] for n, pts in LAKES]
+HILLS = [(n, x * _S, y * _S, rx * _S, ry * _S) for n, x, y, rx, ry in HILLS]
 POI_KINDS = {
     'factory': {'name':'Заброшенный завод','loot':{'metal':16,'stone':6},'guards':3},
     'gas': {'name':'Заправка','loot':{'fuel':16,'food':4},'guards':1},
@@ -103,6 +111,7 @@ POIS = [
     ('kurgan','Курган','farm',9000,7200),('orenburg','Оренбург','gas',5800,7600),
     ('samara','Самара','rail',3500,7000),('yeniseysk','Енисейск','rail',14300,3300),
 ]
+POIS = [(p[0], p[1], p[2], p[3] * _S, p[4] * _S) for p in POIS]
 BUILDINGS = {
     'depot': {'name':'Опорный пункт','cost':{'wood':24,'stone':14,'metal':8},
               'desc':'Центр поселения и штаб обороны. Его уровень открывает улучшения остальных зданий.','workers':0},
@@ -167,9 +176,33 @@ ARMOR = [
     {'name':'Бронежилет','reduce':.36,'cost':{'metal':64,'stone':10},'workshop':3,'price':520,'level':10},
 ]
 # Shop goods besides weapons and armor. Coins are earned for quests and story chapters.
+# Survival gear bought for coins. 'warm' lowers cold exposure, 'slots' is how many items fit.
+CLOTHES = [
+    {'name':'Ветровка','warm':0,'price':0,'level':1},
+    {'name':'Ватник','warm':15,'price':90,'level':1},
+    {'name':'Овчинный тулуп','warm':30,'price':220,'level':4},
+    {'name':'Арктический комплект','warm':45,'price':480,'level':10},
+]
+BACKPACKS = [
+    {'name':'Карманы','slots':6,'price':0,'level':1},
+    {'name':'Сумка через плечо','slots':12,'price':60,'level':1},
+    {'name':'Туристический рюкзак','slots':20,'price':180,'level':3},
+    {'name':'Армейский рюкзак','slots':30,'price':400,'level':8},
+]
+# Personal items: each takes one slot in the backpack.
+ITEMS = {
+    'canned': {'name':'Тушёнка','desc':'Сытость +40.','price':15,'food':40},
+    'crackers': {'name':'Сухари','desc':'Сытость +20, жажда +5.','price':8,'food':20,'water':-5},
+    'water': {'name':'Бутылка воды','desc':'Жажда утолена на 45.','price':10,'water':45},
+    'tea': {'name':'Термос с чаем','desc':'Жажда +25, тепло +35.','price':25,'water':25,'warmth':35},
+    'bandage': {'name':'Бинт','desc':'Останавливает кровотечение, +5 здоровья.','price':12,'hp':5,'stop_bleed':True},
+    'medkit': {'name':'Аптечка','desc':'+60 здоровья и останавливает кровотечение.','price':35,'hp':60,'stop_bleed':True},
+    'pills': {'name':'Антибиотики','desc':'Лечат отравление.','price':30,'cure':True},
+    'repairkit': {'name':'Ремкомплект','desc':'Чинит машину в любом месте (R рядом с машиной).','price':45},
+}
+LOOT_ITEMS = ['canned', 'crackers', 'water', 'water', 'bandage', 'crackers', 'pills', 'canned', 'tea', 'medkit']
+# Shop goods paid in coins that go straight to the faction stock.
 SHOP_ITEMS = {
-    'medkit': {'name':'Аптечка','desc':'+60 здоровья по H, расходуется раньше припасов.','price':35,'max':5},
-    'repairkit': {'name':'Ремкомплект','desc':'Чинит машину в любом месте (R рядом с машиной).','price':45,'max':3},
     'supplies': {'name':'Ящик снабжения','desc':'+20 припасов и +15 топлива в запас фракции.','price':60},
     'materials': {'name':'Стройматериалы','desc':'+30 древесины, +25 камня, +15 металла фракции.','price':90},
 }
@@ -348,11 +381,11 @@ WEATHER = {'clear':'Ясно', 'rain':'Дождь', 'fog':'Туман', 'storm':
 DAY_SECONDS = 1440 / 1.4           # one in-game day in real seconds
 
 def config():
-    return {'version':VERSION,'width':WORLD_SIZE[0],'height':WORLD_SIZE[1],
+    return {'version':VERSION,'width':WORLD_SIZE[0],'height':WORLD_SIZE[1],'scale':WORLD_SCALE,
             'factions':FACTIONS,'resources':RESOURCES,'buildings':BUILDINGS,
             'bases':BASES,'roads':ROADS,'regions':REGIONS,'rivers':RIVERS,'lakes':LAKES,'hills':HILLS,
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'posts':POSTS,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
-            'perks':PERKS,'shop':SHOP_ITEMS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
+            'perks':PERKS,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}

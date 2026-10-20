@@ -105,6 +105,11 @@ class NpcMixin:
                     self._wreck_car(target)
                     amount += 15
             self._damage(target, amount)
+            # Gunshots open wounds; armor makes it less likely.
+            if target['hp'] > 0 and amount >= 6 and not target['bleeding'] and \
+                    self.rng.random() < .3 - ARMOR[target['gear']['armor']]['reduce'] * .5:
+                target['bleeding'] = True
+                self._notice('Кровотечение', 'Перевяжись: H (бинт или аптечка).', player=target['id'], tone='error')
             if target['hp'] <= 0 and attacker is not None:
                 self._credit_kill(attacker, target)
                 return True
@@ -167,6 +172,8 @@ class NpcMixin:
             return
         if f in FACTIONS:
             self._reward(f, NPC_TYPES[npc['type']]['loot'])
+            if attacker is not None and 'stats' in attacker and self.rng.random() < .25:
+                self._loot_items(attacker, 1)
             self._credit_kill(attacker, npc)
 
     def _wreck_car(self, p):

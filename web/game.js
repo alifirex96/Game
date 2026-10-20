@@ -31,6 +31,9 @@ const pathIcons={
  check:'m4 12 5 5 11-11',
  coin:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v10M9 9.5c0-1 1.3-1.8 3-1.8s3 .8 3 1.8-1.3 1.6-3 1.8-3 .8-3 1.8 1.3 1.8 3 1.8 3-.8 3-1.8',
  bag:'M5 8h14l-1 13H6ZM9 8V6a3 3 0 0 1 6 0v2',
+ drop:'M12 3s7 7.5 7 12a7 7 0 0 1-14 0c0-4.5 7-12 7-12Z',
+ thermo:'M14 14V5a2 2 0 0 0-4 0v9a4 4 0 1 0 4 0ZM12 9v7',
+ bowl:'M3 11h18a9 9 0 0 1-18 0ZM8 7c0-2 2-2 2-4M13 7c0-2 2-2 2-4',
  gun:'M2 9h17l2-2v5h-6l-2 4h-3l1-4H6l-2 3H2Z',
  vest:'M7 3 4 6v15h16V6l-3-3-2 3h-6ZM9 10h6M9 14h6',
  trade:'M4 8h13l-3-3M20 16H7l3 3',
@@ -112,6 +115,9 @@ addEventListener('keydown',e=>{
  if(e.code==='KeyF')action('vehicle').then(r=>{if(r)beep('door');});
  if(e.code==='KeyH')action('heal');
  if(e.code==='KeyR')action('repair',{kit:true});
+ if(e.code==='KeyI'||e.code==='Tab')showInventory();
+ if(e.code==='KeyG')quickUse(['canned','crackers'],'Нечего есть. Еду продают в магазине, находят в тайниках и на складах с припасами.');
+ if(e.code==='KeyV'){if(state&&R.water(state.me.x,state.me.y,70)&&!state.me.vehicle)action('drink');else quickUse(['water','tea'],'Нет воды. Подойди к реке или купи бутылку в магазине.');}
  if(e.code==='KeyQ'&&state){const own=state.me.weapons.slice().sort((a,b)=>a-b),i=own.indexOf(state.me.gear.weapon);equip(own[(i+1)%own.length]);}
  if(/^Digit[1-7]$/.test(e.code)&&state){const own=state.me.weapons.slice().sort((a,b)=>a-b),n=Number(e.code.slice(5))-1;if(own[n]!=null)equip(own[n]);}
  if(e.code==='KeyB')confirmPost();
@@ -123,6 +129,13 @@ function updateAim(){const p=state&&drawPlayers[state.me.id];if(p){const dx=poin
 canvas.addEventListener('mousedown',e=>{if(e.button===0&&!panel){holdMouse=true;shoot();}});addEventListener('mouseup',()=>holdMouse=false);
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=clamp(zoom*(e.deltaY<0?1.1:1/1.1),.7,2);writeStorage('as-zoom',String(zoom));},{passive:false});
+function quickUse(list,empty){if(!state)return;const item=list.find(k=>state.me.items[k]>0);if(!item){notify('Пусто',empty,true);return;}action('use',{item});}
+function showInventory(){if(!state)return;const me=state.me,used=Object.values(me.items).reduce((a,b)=>a+b,0),room=cfg.backpacks[me.gear.backpack].slots;
+ let h='<div class="modal-body">'+vitalsHtml(true)+'<span class="eyebrow shop-eyebrow">СНАРЯЖЕНИЕ</span><div class="gear-list"><span>'+icon('gun')+esc(cfg.weapons[me.gear.weapon].name)+'</span><span>'+icon('vest')+esc(cfg.armor[me.gear.armor].name)+'</span><span>'+icon('thermo')+esc(cfg.clothes[me.gear.clothes].name)+' · тепло +'+cfg.clothes[me.gear.clothes].warm+'</span><span>'+icon('bag')+esc(cfg.backpacks[me.gear.backpack].name)+' · '+room+' мест</span></div>';
+ h+='<span class="eyebrow shop-eyebrow">РЮКЗАК · '+used+' / '+room+'</span>'+(used?'<div class="craft-grid">'+Object.keys(me.items).map(k=>'<button class="decision" data-use="'+k+'" '+(k==='repairkit'?'disabled':'')+'><div><b>'+esc(cfg.items[k].name)+'</b><strong>×'+me.items[k]+'</strong></div><small>'+esc(cfg.items[k].desc)+'</small><span class="decision-cost">'+(k==='repairkit'?'R рядом с машиной':'Использовать')+'</span></button>').join('')+'</div>':'<p class="small muted">Пусто. Еду, воду и медицину продают в магазине на площадях, их находят в тайниках и у мародёров.</p>')+'<p class="small muted" style="margin-top:14px">G — поесть, V — попить (у реки — из реки), H — лечение. В своём поселении на площади есть столовая и колодец.</p></div>';
+ modal('inventory','<span class="eyebrow">ПЕРСОНАЖ</span><h2>Рюкзак и состояние</h2>',h);screen.querySelectorAll('[data-use]').forEach(b=>b.onclick=async()=>{await action('use',{item:b.dataset.use});showInventory();});}
+function vitalsHtml(big){const me=state.me,bar=(ic,v,label,cls)=>'<div class="vital '+cls+(v<25?' low':'')+'" title="'+label+'">'+icon(ic)+'<i><em style="width:'+Math.round(v)+'%"></em></i>'+(big?'<b>'+label+' '+Math.round(v)+'%</b>':'')+'</div>';
+ return '<div class="vitals'+(big?' big':'')+'">'+bar('bowl',me.food,'Сытость','food')+bar('drop',me.water,'Вода','water')+bar('thermo',me.warmth,'Тепло','warm')+(me.bleeding?'<span class="chip bad">Кровотечение · H</span>':'')+(me.sick>state.time?'<span class="chip bad">Отравление</span>':'')+'</div>';}
 function equip(idx){if(!state||idx===state.me.gear.weapon)return;action('equip',{weapon:idx}).then(r=>{if(r){notify(cfg.weapons[idx].name,'Оружие в руках.');beep('door');}});}
 function weaponCd(){return state?cfg.weapons[state.me.gear.weapon].cd*1000+20:490;}
 function shoot(){if(!state||panel||state.me.vehicle||state.me.hp<=0)return;const now=performance.now();lastAimAt=now;if(now-lastShot<weaponCd())return;lastShot=now;action('shoot');}
@@ -149,7 +162,7 @@ function showSettings(){modal('settings','<span class="eyebrow">ЭТОТ КОМ�
  $('settings-done').onclick=closePanel;
 }
 function showHelp(fromTitle){modal('help','<span class="eyebrow">ПОЛЕВОЕ РУКОВОДСТВО</span><h2>Твой первый день</h2>',
- '<div class="modal-body"><div class="controls-grid"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd></span><span>Движение пешком и на машине</span><span><kbd>Shift</kbd></span><span>Бег; выносливость восстанавливается</span><span><kbd>E</kbd></span><span>Собрать, открыть здание, площадь, тайник; потушить пожар</span><span><kbd>F</kbd></span><span>Сесть в свою машину / выйти рядом с ней</span><span><kbd>H</kbd></span><span>Аптечка, если есть, иначе перевязка за 5 припасов</span><span><kbd>Q</kbd> / <kbd>1</kbd>–<kbd>7</kbd></span><span>Сменить оружие</span><span><kbd>R</kbd></span><span>Починить машину ремкомплектом</span><span><kbd>B</kbd></span><span>Поставить пост или блокпост на трассе</span><span><kbd>M</kbd> / <kbd>J</kbd></span><span>Карта (колесо — масштаб) / журнал и сюжет</span><span>Мышь + ЛКМ / <kbd>Space</kbd></span><span>Прицел и выстрел; союзники защищены</span><span><kbd>Esc</kbd></span><span>Меню: дипломатия, настройки</span></div>'+
+ '<div class="modal-body"><div class="controls-grid"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd></span><span>Движение пешком и на машине</span><span><kbd>Shift</kbd></span><span>Бег; выносливость восстанавливается</span><span><kbd>E</kbd></span><span>Собрать, открыть здание, площадь, тайник; потушить пожар</span><span><kbd>F</kbd></span><span>Сесть в свою машину / выйти рядом с ней</span><span><kbd>H</kbd></span><span>Аптечка, если есть, иначе перевязка за 5 припасов</span><span><kbd>I</kbd> / <kbd>G</kbd> / <kbd>V</kbd></span><span>Рюкзак / поесть / попить (у реки — из реки)</span><span><kbd>Q</kbd> / <kbd>1</kbd>–<kbd>7</kbd></span><span>Сменить оружие</span><span><kbd>R</kbd></span><span>Починить машину ремкомплектом</span><span><kbd>B</kbd></span><span>Поставить пост или блокпост на трассе</span><span><kbd>M</kbd> / <kbd>J</kbd></span><span>Карта (колесо — масштаб) / журнал и сюжет</span><span>Мышь + ЛКМ / <kbd>Space</kbd></span><span>Прицел и выстрел; союзники защищены</span><span><kbd>Esc</kbd></span><span>Меню: дипломатия, настройки</span></div>'+
  '<p class="control-note">Начни с ресурсов рядом с убежищем, затем восстанови ферму и лесопилку. Стройка занимает время; союзники рядом ускоряют её в полтора раза каждый. Дома дают рабочих; без рабочих производство простаивает, без еды — падает вдвое. Склад поднимает предел запасов.</p>'+
  '<p class="control-note" style="margin-top:12px">Дальние поселения отправляют часть выпуска грузовиком в убежище. Колонну могут перехватить враги и мародёры — сопровождай её. Бандиты ставят блокпосты и берут пошлину с чужих колонн.</p>'+
  '<p class="control-note" style="margin-top:12px">На площади доступны события, торговля, помощь жителям, разведка и захват: переговоры, подкуп или штурм. При штурме поднимается ополчение, сторожевая вышка стреляет по атакующим. После успеха удерживай круг 30 секунд.</p>'+
@@ -189,7 +202,7 @@ function showTown(id,tab){if(!state)return;const t=state.towns[id],f=state.me.fa
   html+='<p>Местные меняют товары по ценам региона. '+(own?'В своём поселении курс лучше с ростом лояльности.':'Нейтральные торговцы берут наценку.')+'</p>'+(hostile?'<div class="notice">Торговцы чужой стороны не меняются с вами без перемирия.</div>':'')+'<div class="price-row">'+Object.keys(cfg.resources).map(k=>'<span>'+icon(k)+'<b>'+prices[k].toFixed(2)+'</b></span>').join('')+'</div><div class="trade-form"><label>Отдать<select id="give">'+Object.keys(cfg.resources).map(k=>'<option value="'+k+'">'+cfg.resources[k]+'</option>').join('')+'</select></label><label>Количество<select id="amount"><option>10</option><option>25</option><option>50</option></select></label><label>Получить<select id="get">'+Object.keys(cfg.resources).map(k=>'<option value="'+k+'" '+(k==='food'?'selected':'')+'>'+cfg.resources[k]+'</option>').join('')+'</select></label></div><div class="trade-preview" id="trade-preview"></div><button class="primary" id="trade" '+(hostile?'disabled':'')+' style="width:100%">'+icon('trade')+' Обменять</button>';
  }else{
  if(cap)html+='<div class="notice"><b>'+cfg.factions[cap.faction]+' захватывают площадь</b><br>'+Math.max(0,Math.floor(cap.progress))+' / 30 сек. '+(cap.contested?'Присутствует противник — прогресс остановлен.':'Закрой окно и удерживай круг пешком.')+'</div>';
- if(own){html+='<div class="town-buttons"><button class="secondary" id="aid">Помочь жителям <span>8 припасов · +14 лояльности</span></button>'+(f==='bandits'&&!base?'<button class="secondary" id="tax">Собрать дань <span>+12 металла и припасов · −18 лояльности</span></button>':'')+'</div>';
+ if(own){html+='<div class="town-buttons"><button class="secondary" id="canteen">Столовая и колодец <span>Сытость +50, вода +70 · 3 припаса фракции</span></button><button class="secondary" id="aid">Помочь жителям <span>8 припасов · +14 лояльности</span></button>'+(f==='bandits'&&!base?'<button class="secondary" id="tax">Собрать дань <span>+12 металла и припасов · −18 лояльности</span></button>':'')+'</div>';
   const cargo=Object.values(t.cargo||{}).reduce((a,b)=>a+b,0);if(!base)html+='<p class="small muted" style="margin-top:10px">Груз для отправки в убежище: '+Math.floor(cargo)+'. Колонна выходит, когда наберётся 10 единиц.</p>';}
  else if(!base&&!cap){
   const truce=state.truce.until>state.time&&t.owner;
@@ -210,6 +223,7 @@ function showTown(id,tab){if(!state)return;const t=state.towns[id],f=state.me.fa
  if(tab==='shop'){screen.querySelectorAll('[data-buy]').forEach(b=>b.onclick=async()=>{const r=await action('buy',{town:id,kind:b.dataset.buy,index:Number(b.dataset.index||0)});if(r)showTown(id,'shop');});screen.querySelectorAll('[data-equip]').forEach(b=>b.onclick=()=>{equip(Number(b.dataset.equip));setTimeout(()=>showTown(id,'shop'),300);});return;}
  if(tab==='trade'){const prices=cfg.prices[t.region]||cfg.prices.default;const upd=()=>{const g=$('give').value,r=$('get').value,a=Number($('amount').value),mod=own?.86+t.loyalty*.001:.78,n=g===r?0:Math.floor(a*prices[g]/prices[r]*mod);$('trade-preview').innerHTML=g===r?'Выбери разные товары.':'−'+a+' '+cfg.resources[g].toLowerCase()+' → <b>+'+n+' '+cfg.resources[r].toLowerCase()+'</b>';};['give','get','amount'].forEach(k=>$(k).onchange=upd);upd();
   $('trade').onclick=async()=>{await action('trade',{town:id,give:$('give').value,get:$('get').value,amount:Number($('amount').value)});};return;}
+ if($('canteen'))$('canteen').onclick=async()=>{await action('canteen',{town:id});showTown(id);};
  if($('aid'))$('aid').onclick=async()=>{await action('aid',{town:id});showTown(id);};
  if($('tax'))$('tax').onclick=async()=>{await action('tax',{town:id});showTown(id);};
  if($('raid'))$('raid').onclick=async()=>{await action('raid',{town:id});showTown(id);};
@@ -222,7 +236,11 @@ function shopHtml(t,own){const me=state.me,hostile=t.owner&&!own&&!(state.truce.
  const row=(kind,idx,it,stat,owned)=>{const lock=me.level<(it.level||1),poor=me.coins<it.price;return '<button class="decision" data-buy="'+kind+'" data-index="'+idx+'" '+(owned||lock||poor||hostile?'disabled':'')+'><div><b>'+esc(it.name)+'</b><strong>'+(owned?'есть':icon('coin')+' '+it.price)+'</strong></div><small>'+stat+'</small><span class="decision-cost">'+(lock?'Нужен уровень '+it.level:poor&&!owned?'Не хватает монет':'')+'</span></button>';};
  h+='<span class="eyebrow shop-eyebrow">ОРУЖИЕ</span><div class="craft-grid">';cfg.weapons.forEach((w,i)=>{if(i)h+=row('weapon',i,w,'Урон '+w.dmg+' · дальность '+w.range+' · '+(w.cd<.3?'очереди':w.cd>1.2?'медленный, точный':'одиночные'),me.weapons.includes(i));});h+='</div>';
  h+='<span class="eyebrow shop-eyebrow">БРОНЯ</span><div class="craft-grid">';cfg.armor.forEach((a,i)=>{if(i)h+=row('armor',i,a,'Снижает урон на '+Math.round(a.reduce*100)+'%',me.gear.armor>=i);});h+='</div>';
- h+='<span class="eyebrow shop-eyebrow">ПРИПАСЫ</span><div class="craft-grid">';Object.keys(cfg.shop).forEach(k=>{const it=cfg.shop[k];h+=row(k,0,it,esc(it.desc)+(it.max?' Есть: '+(me.items[k]||0)+' / '+it.max+'.':''),false);});h+='</div>';
+ h+='<span class="eyebrow shop-eyebrow">ОДЕЖДА · ЗАЩИТА ОТ ХОЛОДА</span><div class="craft-grid">';cfg.clothes.forEach((a,i)=>{if(i)h+=row('clothes',i,a,'Тепло +'+a.warm+'. Нужна в Сибири и на Севере, ночью и в непогоду.',me.gear.clothes>=i);});h+='</div>';
+ h+='<span class="eyebrow shop-eyebrow">РЮКЗАКИ</span><div class="craft-grid">';cfg.backpacks.forEach((a,i)=>{if(i)h+=row('backpack',i,a,a.slots+' мест для вещей',me.gear.backpack>=i);});h+='</div>';
+ const used=Object.values(me.items).reduce((a,b)=>a+b,0),room=cfg.backpacks[me.gear.backpack].slots;
+ h+='<span class="eyebrow shop-eyebrow">ЕДА, ВОДА, МЕДИЦИНА · РЮКЗАК '+used+' / '+room+'</span><div class="craft-grid">';Object.keys(cfg.items).forEach(k=>{const it=cfg.items[k];h+=row(k,0,it,esc(it.desc)+' Есть: '+(me.items[k]||0)+'.',false);});h+='</div>';
+ h+='<span class="eyebrow shop-eyebrow">ДЛЯ ФРАКЦИИ</span><div class="craft-grid">';Object.keys(cfg.shop).forEach(k=>{const it=cfg.shop[k];h+=row(k,0,it,esc(it.desc),false);});h+='</div>';
  h+='<span class="eyebrow shop-eyebrow">ТВОЁ ОРУЖИЕ · Q ИЛИ 1–7</span><div class="owned">'+me.weapons.slice().sort((a,b)=>a-b).map((i,n)=>'<button class="'+(i===me.gear.weapon?'primary':'secondary')+'" data-equip="'+i+'">'+(n+1)+' · '+esc(cfg.weapons[i].name)+'</button>').join('')+'</div>';
  return h;}
 function showEvent(ev){let html='<div class="modal-body"><p>'+esc(ev.text)+'</p><div class="event-options">';
@@ -299,7 +317,8 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
  const minutes=8*60+Math.floor(state.time*1.4),days=1+Math.floor(minutes/1440),hour=Math.floor(minutes/60)%24,w=state.weather.kind;
  $('clock').innerHTML=icon(hour>=6&&hour<20?WEATHER_ICON[w]:(w==='clear'?'moon':WEATHER_ICON[w]))+'<span>ДЕНЬ '+String(days).padStart(2,'0')+' / '+String(hour).padStart(2,'0')+':'+String(minutes%60).padStart(2,'0')+' · '+esc(cfg.weather_names[w].toUpperCase())+'</span>';
  const need=cfg.xp_table[p.level-1]||1,maxLv=p.level>=cfg.max_level;
- $('coins').innerHTML=icon('coin')+'<b>'+p.coins+'</b>'+(p.items.medkit?'<span title="Аптечки">'+icon('heart')+'×'+p.items.medkit+'</span>':'')+(p.items.repairkit?'<span title="Ремкомплекты">'+icon('tool')+'×'+p.items.repairkit+'</span>':'');
+ $('coins').innerHTML=icon('coin')+'<b>'+p.coins+'</b><span title="Рюкзак: I">'+icon('bag')+Object.values(p.items).reduce((a,b)=>a+b,0)+' / '+cfg.backpacks[p.gear.backpack].slots+'</span>';
+ $('vitals').innerHTML=vitalsHtml(false);
  $('level').innerHTML='<b>'+p.level+'</b><span>УР.</span><i><em style="width:'+(maxLv?100:Math.round(p.xp/need*100))+'%"></em></i><small>'+(maxLv?'максимум':p.xp+' / '+need+' опыта')+'</small>';
  $('mode').innerHTML=icon(p.vehicle?'car':'walk')+'<span>'+(p.vehicle?'За рулём · '+Math.round(p.car.hp)+'%':'Пешком')+'</span><span class="hp">'+icon('heart')+Math.ceil(p.hp)+' / '+p.max_hp+'</span><span class="gear">'+icon('gun')+esc(cfg.weapons[p.gear.weapon].name)+'</span><span class="gear">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</span>';
  $('stamina').firstElementChild.style.width=p.stamina+'%';$('autosave').textContent=netFailures?'Соединение с ведущим потеряно':'Мир сохраняется у ведущего · '+state.players.length+' / 4 игрока'+(state.ai[p.faction==='survivors'?'bandits':'survivors']?' · соперник: компьютер':'');
@@ -322,6 +341,7 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
  if(p.vehicle)hint.innerHTML='<kbd>F</kbd> Выйти из машины<small>'+(state.stock.fuel<1?'Топливо закончилось. Собери канистры пешком.':'Топливо '+Math.floor(state.stock.fuel)+' · машина '+Math.round(p.car.hp)+'%')+'</small>';
  else if(nearest){const o=nearest.obj,t=nearest.type==='building'&&state.towns[o.town];let name=nearest.type==='building'?(t.fires&&t.fires[o.kind]?'Потушить: ':'')+cfg.buildings[o.kind].name:nearest.type==='town'?'Площадь · '+o.name:nearest.type==='poi'?'Обыскать тайник · '+o.name:nearest.type==='drop'?'Забрать сброшенный груз':'Собрать: '+cfg.resources[o.kind].toLowerCase();
   hint.innerHTML='<kbd>E</kbd>'+esc(name)+'<small>'+(nearest.type==='building'?(o.kind==='workshop'&&t.owner===p.faction?'Стройка и снаряжение':o.kind==='garage'&&t.owner===p.faction?'Стройка и ремонт машины':'Восстановить или улучшить'):nearest.type==='town'?'События · торговля · управление · захват':nearest.type==='poi'?costText(cfg.poi_kinds[o.kind].loot).replace(/<[^>]+>/g,'')+' · охраняют мародёры':nearest.type==='drop'?'Металл, топливо, припасы':'+'+o.amount+' в запас фракции')+'</small>';}
+ else if(!p.vehicle&&R.water(p.x,p.y,70))hint.innerHTML='<kbd>V</kbd> Попить из реки<small>Сырая вода может вызвать отравление</small>';
  else if(carNear)hint.innerHTML='<kbd>F</kbd> Сесть в машину<small>'+(p.faction==='bandits'?'Твой пикап':'Твой внедорожник')+' · '+Math.round(p.car.hp)+'%</small>';
  if(p.hp<=0)hint.classList.remove('hidden'),hint.innerHTML='Возвращение в убежище<small>'+Math.ceil(Math.max(0,p.dead_until-state.time))+' секунд</small>';
 }
@@ -331,6 +351,10 @@ function interpolate(list,store,dt){const seen={};list.forEach(p=>{seen[p.id]=1;
  const ox=r.x,oy=r.y;r.x+=(p.x-r.x)*Math.min(1,dt*14);r.y+=(p.y-r.y)*Math.min(1,dt*14);const sp=Math.hypot(r.x-ox,r.y-oy)/Math.max(dt,.001);r.moving=sp>12;r.phase+=dt*(sp>170?13:9)*(r.moving?1:0);
  let da=(p.angle-r.ang+Math.PI)%(Math.PI*2);if(da<0)da+=Math.PI*2;r.ang+=(da-Math.PI)*Math.min(1,dt*12);});Object.keys(store).forEach(k=>{if(!seen[k])delete store[k];});}
 let slowFrames=0,measured=0;
+// Cold frosts the screen edges; bleeding pulses red.
+function conditionOverlay(now){const me=state.me;const cold=clamp((35-me.warmth)/35,0,1),blood=me.bleeding?.35+Math.sin(now/260)*.15:0,low=me.hp<me.max_hp*.3?.25:0;
+ if(cold>0){const g=ctx.createRadialGradient(cw/2,ch/2,Math.min(cw,ch)*.3,cw/2,ch/2,Math.max(cw,ch)*.7);g.addColorStop(0,'rgba(200,225,240,0)');g.addColorStop(1,'rgba(200,225,240,'+(.55*cold)+')');ctx.fillStyle=g;ctx.fillRect(0,0,cw,ch);}
+ if(blood+low>0){const g=ctx.createRadialGradient(cw/2,ch/2,Math.min(cw,ch)*.35,cw/2,ch/2,Math.max(cw,ch)*.72);g.addColorStop(0,'rgba(120,10,10,0)');g.addColorStop(1,'rgba(120,10,10,'+(blood+low)+')');ctx.fillStyle=g;ctx.fillRect(0,0,cw,ch);}}
 function render(now){const raw=(now-last)/1000,dt=Math.min(raw,.05);last=now;frame++;
  // On a slow computer switch to economical graphics once, unless the player chose a mode.
  if(state&&!panel&&measured<240&&!readStorage('as-quality')){measured++;if(raw>.042)slowFrames++;if(measured===240&&slowFrames>140&&R.quality!=='low'){R.quality='low';resize();notify('Экономная графика','Компьютер не успевает за полной графикой. Вернуть можно в Esc → Настройки.');}}
@@ -338,6 +362,7 @@ function render(now){const raw=(now-last)/1000,dt=Math.min(raw,.05);last=now;fra
  ctx.setTransform(dpr,0,0,dpr,0,0);
  const view={cam,cw,ch,zoom,state,drawPlayers,drawNpcs,nearest,panel,aim,now:now/1000,dt,dpr,waypoint,holdAim:holdMouse||keys.Space||now-lastAimAt<900,dark:0};
  if(cfg)R.draw(ctx,view);
+ if(state)conditionOverlay(now);
  if(state&&waypoint&&!panel){const dx=waypoint.x-cam.x,dy=waypoint.y-cam.y,len=Math.hypot(dx,dy);if(len*zoom>Math.min(cw,ch)*.3){const angle=Math.atan2(dy,dx),r=Math.min(cw*.31,ch*.31),x=cw/2+Math.cos(angle)*r,y=ch/2+Math.sin(angle)*r;ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.fillStyle='#e5b378';ctx.beginPath();ctx.moveTo(10,0);ctx.lineTo(-6,-6);ctx.lineTo(-3,0);ctx.lineTo(-6,6);ctx.fill();ctx.restore();R.pill(ctx,(waypoint.name||'Цель')+' · '+Math.round(len/100)/10+' км',x,y+23,'#ead6b4');}}
  if(state){SND.update(view);if(now-lastHud>180){updateHud();lastHud=now;}if(frame%3===0)R.drawMap($('minimap'),false,view,mapState);if(panel==='map'&&frame%3===0)mapTr=R.drawMap($('big-map'),true,view,mapState);if(holdMouse||keys.Space)shoot();}
  requestAnimationFrame(render);

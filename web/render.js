@@ -4,7 +4,7 @@
 const AS = window.AS = window.AS || {};
 const { hash, rng, strSeed, rr, mix, shade, canvas } = AS.util;
 const S = AS.sprites, COL = AS.colors;
-const CHUNK = 512, TOWN_HALF = [480, 420];
+const CHUNK = 512, TOWN_HALF = [480, 420], BM = 100;   // world pixels per biome-map pixel
 const BIOME = { mixed: '#4b5a37', steppe: '#6d6a42', ural: '#46523a', taiga: '#3a4931', tundra: '#7d8577' };
 const TREES = {
   mixed: { d: .42, kinds: ['birch', 'birch', 'pine', 'spruce', 'bush', 'birch', 'autumn', 'bush'] },
@@ -43,7 +43,7 @@ R.init = function (config) {
 };
 
 function makeBiomeMap() {
-  const scale = 50, w = cfg.width / scale, h = cfg.height / scale;
+  const scale = BM, w = cfg.width / scale, h = cfg.height / scale;
   biomeMap = canvas(w, h); const c = biomeMap.getContext('2d'); const img = c.createImageData(w, h);
   const hex = s => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
   const cols = {}; Object.keys(BIOME).forEach(k => cols[k] = hex(BIOME[k]));
@@ -70,7 +70,8 @@ function makeWorldMap() {
   c.strokeStyle = '#d9cfa955'; c.lineWidth = 2.2; roads.forEach(r => { c.beginPath(); c.moveTo(r.ax * s, r.ay * s); c.lineTo(r.bx * s, r.by * s); c.stroke(); });
   c.strokeStyle = '#2a2b2499'; c.lineWidth = .8; roads.forEach(r => { c.setLineDash([3, 3]); c.beginPath(); c.moveTo(r.ax * s, r.ay * s); c.lineTo(r.bx * s, r.by * s); c.stroke(); }); c.setLineDash([]);
   c.font = 'bold 11px Segoe UI, Arial'; c.fillStyle = '#e3dcc433'; c.textAlign = 'center';
-  [['ЕВРОПЕЙСКАЯ ЧАСТЬ', 2600, 5600], ['УРАЛ', 6650, 5000], ['ЗАПАДНАЯ СИБИРЬ', 10300, 3000], ['ВОСТОЧНАЯ СИБИРЬ', 14400, 2000], ['ДАЛЬНИЙ ВОСТОК', 18300, 6800], ['СЕВЕР', 5600, 600]].forEach(a => c.fillText(a[0], a[1] * s, a[2] * s));
+  const k = cfg.scale || 1;
+  [['ЕВРОПЕЙСКАЯ ЧАСТЬ', 2600, 5600], ['УРАЛ', 6650, 5000], ['ЗАПАДНАЯ СИБИРЬ', 10300, 3000], ['ВОСТОЧНАЯ СИБИРЬ', 14400, 2000], ['ДАЛЬНИЙ ВОСТОК', 18300, 6800], ['СЕВЕР', 5600, 600]].forEach(a => c.fillText(a[0], a[1] * k * s, a[2] * k * s));
 }
 
 /* ---------- terrain chunks ---------- */
@@ -86,7 +87,7 @@ function getChunk(cx, cy) {
 function buildChunk(cx, cy) {
   const x0 = cx * CHUNK, y0 = cy * CHUNK, im = canvas(CHUNK, CHUNK), c = im.getContext('2d'), r = rng(hash(cx, cy) * .9 + .05);
   c.imageSmoothingEnabled = true;
-  c.drawImage(biomeMap, x0 / 50 - .5, y0 / 50 - .5, CHUNK / 50 + 1, CHUNK / 50 + 1, -25, -25, CHUNK + 50, CHUNK + 50);
+  c.drawImage(biomeMap, x0 / BM - .5, y0 / BM - .5, CHUNK / BM + 1, CHUNK / BM + 1, -BM / 2, -BM / 2, CHUNK + BM, CHUNK + BM);
   c.translate(-x0, -y0);
   const biome = biomeAt(x0 + CHUNK / 2, y0 + CHUNK / 2);
   // Decorations come from a world-aligned grid, so neighbouring chunks paint the same shapes and no seams show.
@@ -267,7 +268,7 @@ R.draw = function (c, v) {
   c.save(); c.translate(v.cw / 2, v.ch / 2); c.scale(Z, Z); c.translate(-Math.round(cam.x), -Math.round(cam.y));
   const cx0 = Math.floor((cam.x - cw / 2) / CHUNK), cx1 = Math.floor((cam.x + cw / 2) / CHUNK), cy0 = Math.floor((cam.y - ch / 2) / CHUNK), cy1 = Math.floor((cam.y + ch / 2) / CHUNK);
   const visibleChunks = [];
-  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) { if (cx < 0 || cy < 0 || cx * CHUNK >= cfg.width || cy * CHUNK >= cfg.height) continue; const k = getChunk(cx, cy); if (k) { c.drawImage(k.im, cx * CHUNK, cy * CHUNK); visibleChunks.push(k); } else { c.drawImage(biomeMap, cx * CHUNK / 50, cy * CHUNK / 50, CHUNK / 50, CHUNK / 50, cx * CHUNK, cy * CHUNK, CHUNK, CHUNK); } }
+  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) { if (cx < 0 || cy < 0 || cx * CHUNK >= cfg.width || cy * CHUNK >= cfg.height) continue; const k = getChunk(cx, cy); if (k) { c.drawImage(k.im, cx * CHUNK, cy * CHUNK); visibleChunks.push(k); } else { c.drawImage(biomeMap, cx * CHUNK / BM, cy * CHUNK / BM, CHUNK / BM, CHUNK / BM, cx * CHUNK, cy * CHUNK, CHUNK, CHUNK); } }
   // Animated water glints.
   c.strokeStyle = '#b8d4d633'; c.lineWidth = 1;
   visibleChunks.forEach(k => k.waterPts.forEach(p => { const s = Math.sin(now * 1.3 + p[2] * 20); if (s > .3) { c.beginPath(); c.moveTo(p[0] + s * 6, p[1]); c.lineTo(p[0] + s * 6 + 14, p[1]); c.stroke(); } }));
@@ -370,7 +371,7 @@ function drawPlayer(c, p, r, v) {
   const ang = isMe && !p.vehicle ? Math.atan2(v.aim.y, v.aim.x) : (t - p.shot < .6 ? p.angle : p.angle);
   const dead = p.hp <= 0;
   c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (isMe ? ang : (r.ang != null ? r.ang : p.angle)));
-  S.person(c, { faction: p.faction, armor: p.gear ? p.gear.armor : 0, weapon: p.gear ? p.gear.weapon : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: isMe && v.holdAim, shot: t - p.shot < .25, flash: t - p.shot < .07, busy: t - p.busy < .8, dead, seed: AS.util.strSeed(p.id) });
+  S.person(c, { faction: p.faction, armor: p.gear ? p.gear.armor : 0, weapon: p.gear ? p.gear.weapon : 0, clothes: p.gear ? p.gear.clothes : 0, pack: p.gear ? p.gear.backpack : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: isMe && v.holdAim, shot: t - p.shot < .25, flash: t - p.shot < .07, busy: t - p.busy < .8, dead, seed: AS.util.strSeed(p.id) });
   c.restore();
   if (dead) return;
   const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
