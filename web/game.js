@@ -2,7 +2,7 @@
 (function () {
 'use strict';
 const AS = window.AS, R = AS.render, SND = AS.audio;
-const $=id=>document.getElementById(id), canvas=$('world'), ctx=canvas.getContext('2d');
+const $=id=>document.getElementById(id), canvas=$('world'), ctx=canvas.getContext('2d',{alpha:false});
 const screen=$('screen'), keys={}, pointer={x:0,y:0};
 let cfg=null, state=null, token='', connected=false, joining=false, busy=false, panel='title', selected=null;
 let cw=innerWidth,ch=innerHeight,dpr=1,cam={x:7300,y:5200}, drawPlayers={}, drawNpcs={};
@@ -51,7 +51,7 @@ function readStorage(key){try{return localStorage.getItem(key)||'';}catch(e){ret
 function writeStorage(key,v){try{localStorage.setItem(key,v);}catch(e){}}
 function notify(title,text,error){const div=document.createElement('div');div.className='toast'+(error?' error':'');div.innerHTML='<b>'+esc(title)+'</b>'+(text?'<p>'+esc(text)+'</p>':'');$('toast-stack').appendChild(div);while($('toast-stack').children.length>4)$('toast-stack').firstChild.remove();setTimeout(()=>div.remove(),5600);}
 function beep(kind){SND.play(kind);}
-function resize(){cw=innerWidth;ch=innerHeight;dpr=Math.min(devicePixelRatio||1,R.quality==='low'?1:1.5);canvas.width=Math.round(cw*dpr);canvas.height=Math.round(ch*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+function resize(){cw=innerWidth;ch=innerHeight;dpr=R.quality==='low'?.7:Math.min(devicePixelRatio||1,1.5);canvas.width=Math.round(cw*dpr);canvas.height=Math.round(ch*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
 // Preferences live in this browser only.
 (function prefs(){const q=readStorage('as-quality');if(q)R.quality=q;const m=readStorage('as-music'),s=readStorage('as-sfx');if(m!=='')SND.music=Number(m);if(s!=='')SND.sfx=Number(s);if(readStorage('as-sound')==='off')SND.enabled=false;})();
 addEventListener('resize',resize);resize();
@@ -308,7 +308,10 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
 function interpolate(list,store,dt){const seen={};list.forEach(p=>{seen[p.id]=1;let r=store[p.id];if(!r||distance(r,p)>500)r=store[p.id]={x:p.x,y:p.y,phase:Math.random()*6,ang:p.angle};
  const ox=r.x,oy=r.y;r.x+=(p.x-r.x)*Math.min(1,dt*14);r.y+=(p.y-r.y)*Math.min(1,dt*14);const sp=Math.hypot(r.x-ox,r.y-oy)/Math.max(dt,.001);r.moving=sp>12;r.phase+=dt*(sp>170?13:9)*(r.moving?1:0);
  let da=(p.angle-r.ang+Math.PI)%(Math.PI*2);if(da<0)da+=Math.PI*2;r.ang+=(da-Math.PI)*Math.min(1,dt*12);});Object.keys(store).forEach(k=>{if(!seen[k])delete store[k];});}
-function render(now){const dt=Math.min((now-last)/1000,.05);last=now;frame++;
+let slowFrames=0,measured=0;
+function render(now){const raw=(now-last)/1000,dt=Math.min(raw,.05);last=now;frame++;
+ // On a slow computer switch to economical graphics once, unless the player chose a mode.
+ if(state&&!panel&&measured<240&&!readStorage('as-quality')){measured++;if(raw>.042)slowFrames++;if(measured===240&&slowFrames>140&&R.quality!=='low'){R.quality='low';resize();notify('Экономная графика','Компьютер не успевает за полной графикой. Вернуть можно в Esc → Настройки.');}}
  if(state){interpolate(state.players,drawPlayers,dt);interpolate(state.npcs||[],drawNpcs,dt);const me=drawPlayers[state.me.id];if(me){const look=state.me.vehicle?120:0;const tx=me.x+(state.me.vehicle?Math.cos(state.me.angle)*look:0),ty=me.y+(state.me.vehicle?Math.sin(state.me.angle)*look:0);cam.x+=(tx-cam.x)*Math.min(1,dt*6);cam.y+=(ty-cam.y)*Math.min(1,dt*6);}updateAim();}
  ctx.setTransform(dpr,0,0,dpr,0,0);
  const view={cam,cw,ch,zoom,state,drawPlayers,drawNpcs,nearest,panel,aim,now:now/1000,dt,dpr,waypoint,holdAim:holdMouse||keys.Space||now-lastAimAt<900,dark:0};

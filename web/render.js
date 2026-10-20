@@ -412,8 +412,8 @@ function emitters(c, state, v, dt, vis) {
 }
 function labels(c, state, v, vis) {
   c.font = '11px Segoe UI, Arial'; c.textAlign = 'center';
-  cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 200)) return; const t = state.towns[t0.id]; pill(c, t0.name.toUpperCase(), t0.x, t0.y - 104, COL[t.owner || 'neutral']); if (!v.panel) pill(c, 'E · ПЛОЩАДЬ', t0.x, t0.y + 40, '#d9d6bb'); });
   const me = v.drawPlayers[state.me.id];
+  cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 200)) return; const t = state.towns[t0.id]; pill(c, t0.name.toUpperCase(), t0.x, t0.y - 104, COL[t.owner || 'neutral']); if (!v.panel && me && Math.hypot(me.x - t0.x, me.y - t0.y) > 170) pill(c, 'E · ПЛОЩАДЬ', t0.x, t0.y + 136, '#d9d6bb'); });
   cfg.buildings_world.forEach(b => { if (!me || Math.abs(b.x - me.x) > 260 || Math.abs(b.y - me.y) > 220) return; const t = state.towns[b.town], L = t.levels[b.kind]; pill(c, cfg.buildings[b.kind].name + (L ? ' · ' + L : ' · руины') + (t.construct && t.construct[b.kind] ? ' · стройка' : ''), b.x, b.y - b.h / 2 - 22, L ? '#dce1cf' : '#c8c6b1'); });
   pois.forEach(p => { if (vis(p.x, p.y, 100)) pill(c, p.name.toUpperCase() + ' · ' + p.kind_name.toLowerCase(), p.x, p.y - 196, '#d8c79c'); });
   state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y)) return; pill(c, p.name + (p.id === state.me.id ? ' · ты' : ''), r.x, r.y - 34, COL[p.faction]); });

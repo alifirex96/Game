@@ -56,7 +56,9 @@ def find_rooms(timeout=1.3):
         sock.close()
     except OSError:
         pass
-    return list(rooms.values())
+    # The host also answers on loopback; keep its network address when both arrive.
+    lan = {(r.get('name'), r.get('port')) for r in rooms.values() if not r['ip'].startswith('127.')}
+    return [r for r in rooms.values() if not (r['ip'].startswith('127.') and (r.get('name'), r.get('port')) in lan)]
 
 def server_command(mode):
     if mode == 'solo':
