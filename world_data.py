@@ -131,7 +131,7 @@ SLOTS = [('depot',-185,-150),('house',145,-155),('sawmill',-360,100),
          ('quarry',350,100),('workshop',-185,185),('farm',160,190),
          ('garage',-360,285),('radio',350,285),('guard',95,-340),('warehouse',160,335)]
 TOWN_GATE = (480, 420)             # highways meet the town streets at these edge points
-# Every settlement has its own recognisable landmark in the north-west block.
+# Every settlement has a real landmark of the city or its surroundings in the north-west block.
 LANDMARK_POS = (-345, -290)
 LANDMARKS = {
     'petersburg': ('Адмиралтейство', 170, 110), 'moscow': ('Спасская башня', 150, 130),
@@ -140,11 +140,11 @@ LANDMARKS = {
     'shabrovsky': ('Тальков камень', 170, 130), 'ekaterinburg': ('Храм на Крови', 150, 130),
     'tyumen': ('Мост влюблённых', 170, 120), 'novosibirsk': ('Оперный театр', 170, 130),
     'krasnoyarsk': ('Часовня Параскевы Пятницы', 140, 120), 'irkutsk': ('Ледокол «Ангара»', 170, 110),
-    'yakutsk': ('Мамонт', 140, 110), 'khabarovsk': ('Утёс с беседкой', 160, 130),
+    'yakutsk': ('Башня Якутского острога', 140, 120), 'khabarovsk': ('Амурский утёс', 160, 130),
     'vladivostok': ('Золотой мост', 170, 120), 'murmansk': ('Памятник «Алёша»', 130, 120),
-    'arkhangelsk': ('Деревянная церковь', 140, 120), 'vorkuta': ('Шахтный копёр', 140, 120),
-    'norilsk': ('Трубы комбината', 150, 120), 'tagil': ('Танк Т-34 на постаменте', 140, 110),
-    'revda': ('Демидовская плотина', 170, 110), 'polevskoy': ('Хозяйка Медной горы', 140, 120),
+    'arkhangelsk': ('Церковь Вознесения, Малые Корелы', 140, 120), 'vorkuta': ('Копёр шахты «Воркутинская»', 140, 120),
+    'norilsk': ('Трубы Медного завода', 150, 120), 'tagil': ('Памятник танку Т-34', 140, 110),
+    'revda': ('Плотина Ревдинского пруда', 170, 110), 'polevskoy': ('Хозяйка Медной горы', 140, 120),
     'omsk': ('Тарские ворота', 160, 100), 'magadan': ('Маска скорби', 140, 130),
 }
 BUILD_TIME = [12, 28, 50]          # seconds to finish level 1, 2, 3
