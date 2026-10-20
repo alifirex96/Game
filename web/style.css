@@ -14,3 +14,31 @@
 @media(max-width:860px){.room-card{width:240px;right:20px;bottom:65px;padding:18px}.room-card b{font-size:21px}.title-layout h1{font-size:65px}.title-layout .story{font-size:12px}.title-layout{gap:15px}.lobby{width:270px}}
 @media(max-height:720px){.title-layout{gap:12px}.title-layout h1{font-size:65px}.title-layout .story{font-size:12px;line-height:1.6}.lobby{gap:7px}.lobby input,.lobby select{padding:8px 12px}.title-layout .meta{font-size:9px}.title-footer{bottom:15px}.title-layout .overline{font-size:9px}}
 .dialog-open #toast-stack{top:auto;bottom:20px;left:20px;transform:none;width:285px}
+/* 0.2: settings, trade, crafting, story, map zoom */
+#clock{display:flex;align-items:center;gap:7px}#clock svg{width:16px;height:16px;color:var(--gold)}
+.resource.full b{color:var(--gold)}
+#mode .gear{display:inline-flex;align-items:center;gap:5px;color:#aeb7a5}
+.modal.wide{width:680px}
+.setting{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;font-size:12px;color:var(--muted)}
+.setting input[type=range]{accent-color:var(--orange)}
+.setting select,.trade-form select{background:#0e1714;color:var(--ink);border:1px solid #ffffff26;border-radius:5px;padding:9px 10px;font:inherit}
+.setting.check{flex-direction:row;align-items:center;color:var(--ink)}
+.tabs{display:flex;gap:6px;margin:4px 0 16px;border-bottom:1px solid var(--line)}
+.tab{background:none;padding:9px 14px;color:var(--muted);border-bottom:2px solid transparent;display:inline-flex;gap:7px;align-items:center}
+.tab svg{width:16px;height:16px}.tab.on{color:var(--ink);border-bottom-color:var(--orange)}
+.price-row{display:flex;gap:14px;flex-wrap:wrap;margin:12px 0;font-size:12px}
+.price-row span{display:flex;align-items:center;gap:5px}.price-row svg{width:16px;height:16px;color:var(--orange)}
+.trade-form{display:grid;grid-template-columns:1fr 100px 1fr;gap:10px;margin:14px 0}
+.trade-form label{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--muted)}
+.trade-preview{margin:6px 0 14px;font-size:13px;color:#cfd4c5}
+.craft-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:12px 0 4px}
+.craft-grid .decision b{display:flex;align-items:center;gap:6px}.craft-grid svg{width:16px;height:16px}
+.story-card{padding:16px 18px;background:#e7a5680b;border:1px solid #e7a56833;border-left:3px solid var(--orange);border-radius:5px}
+.story-card h3{font-size:19px;font-weight:550;margin:8px 0}.story-card p{font-size:13px;color:#b6c0ac;line-height:1.7}
+.story-card .event-options{margin-top:14px}
+.map-zoom{position:absolute;right:28px;top:28px;display:flex;flex-direction:column;gap:6px}
+.map-zoom button{padding:6px 10px;min-width:36px;background:#101b17dd}
+.map-legend i.diamond{border-radius:0;transform:rotate(45deg);background:#d8c79c!important}
+.danger-notice{border-left-color:#e08e79;background:#e08e790f;display:block}.danger-notice svg{width:16px;height:16px;vertical-align:-3px;color:#e08e79}
+.bar.big{height:7px;margin:10px 0 6px}.bar.big i{background:var(--orange)}
+#big-map{cursor:crosshair}

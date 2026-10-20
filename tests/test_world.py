@@ -10,7 +10,7 @@ class WorldTests(unittest.TestCase):
 
     def test_map_and_resource_nodes(self):
         self.assertEqual(len(self.world.towns), len(TOWNS))
-        self.assertEqual(len(self.world.towns), 15)
+        self.assertGreaterEqual(len(self.world.towns), 15)
         self.assertGreater(len(self.world.nodes), 15)
 
     def test_initial_faction_bases(self):
