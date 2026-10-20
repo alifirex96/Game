@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 from world_data import (VERSION, WORLD_SIZE, FACTIONS, RESOURCES, TOWNS, REGIONS,
                         BASES, BUILDINGS, EVENTS, QUESTS, STORY, WEAPONS, ARMOR, POI_KINDS,
                         POSTS, POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
-                        WEATHER, config)
+                        WEATHER, MAX_LEVEL, XP, PERKS, xp_to_next, max_hp, config)
 from terrain import Terrain, town_buildings, resource_nodes
 from npc import NpcMixin, other_faction
 
@@ -106,13 +106,14 @@ class World(NpcMixin):
                 if part['sprite']!='pump':self.terrain.add_rect(part)
         self.nodes = resource_nodes(self.terrain)
 
-    def _notice(self, title, text='', faction=None, player=None, tone='info'):
+    def _notice(self, title, text='', faction=None, player=None, tone='info', skip=None):
         self.seq += 1
-        self.log.append({'id':self.seq,'title':title,'text':text,'faction':faction,'player':player,'tone':tone})
+        self.log.append({'id':self.seq,'title':title,'text':text,'faction':faction,'player':player,'tone':tone,'skip':skip})
         self.log=self.log[-60:]
 
     def _public_player(self, p):
-        out={k:p[k] for k in ('id','name','faction','x','y','angle','hp','stamina','vehicle','dead_until','gear')}
+        out={k:p[k] for k in ('id','name','faction','x','y','angle','hp','stamina','vehicle','dead_until','gear','level','xp')}
+        out['max_hp']=max_hp(p['level'])
         out['car']={k:p['car'].get(k,0) for k in ('x','y','angle','hp','wrecked_until')}
         out['shot']=p.get('shot',-10);out['busy']=p.get('busy',-10);out['moving']=bool(p['input'][0] or p['input'][1])
         out['sprint']=bool(p['input'][2])
@@ -143,14 +144,63 @@ class World(NpcMixin):
            'car':{'x':town['x']+90+slot*65,'y':town['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0},
            'dead_until':0.0,'last_seen':now,'last_input':now,'input':[0,0,False],
            'aim':[0,1],'paused':False,'last_action':{},'receipts':OrderedDict(),
-           'stats':{k:0 for k in STAT_KEYS},'gear':{'weapon':0,'armor':0},
+           'stats':{k:0 for k in STAT_KEYS},'gear':{'weapon':0,'armor':0},'level':1,'xp':0,
            'visited':[tid],'quests':[],'quest_serial':0,'completed':0,'pending':None}
+        self._place_randomly(p)
         for q in range(3):
             p['quests'].append(self._quest(p,q))
         self.players[token]=p
         self._notice(name+' присоединился',FACTIONS[faction])
         self.dirty=True
         return token
+
+    def _spawn_point(self,p):
+        """A random roadside spot away from enemies; every player starts somewhere different."""
+        f=p['faction']
+        enemies=[o for o in self.players.values() if o is not p and o['faction']!=f]
+        for attempt in range(80):
+            ax,ay,bx,by,a,b=self.rng.choice(self.terrain.road_segments)
+            u=self.rng.uniform(.12,.88);length=math.hypot(bx-ax,by-ay) or 1
+            nx,ny=-(by-ay)/length,(bx-ax)/length;side=self.rng.choice((-1,1))*self.rng.uniform(70,150)
+            x=ax+(bx-ax)*u+nx*side;y=ay+(by-ay)*u+ny*side
+            if not self.terrain.free_spot(x,y,30) or self.terrain.water(x,y,40):continue
+            pos={'x':x,'y':y}
+            if any(dist(o,pos)<1500 for o in enemies):continue
+            if any(t['owner'] not in (None,f) and dist(t,pos)<1000 for t in self.towns.values()):continue
+            if any(n['hp']>0 and n['type']!='convoy' and self.hostile(n,p) and dist(n,pos)<700 for n in self.npcs.values()):continue
+            # Leave room for the car beside the player.
+            for k in range(8):
+                ang=k*math.pi/4;cx=x+math.cos(ang)*70;cy=y+math.sin(ang)*70
+                if self.terrain.free_spot(cx,cy,24) and not self.terrain.water(cx,cy,30):
+                    return x,y,cx,cy
+        t=self.towns[BASES[f]]
+        return t['x'],t['y']+70,t['x']+90,t['y']+25
+
+    def _place_randomly(self,p):
+        x,y,cx,cy=self._spawn_point(p)
+        p['x']=x;p['y']=y;p['vehicle']=False
+        p['car']={'x':cx,'y':cy,'angle':self.rng.uniform(-math.pi,math.pi),'hp':100.0,'wrecked_until':0.0}
+        near=min(self.towns.values(),key=lambda t:dist(t,p))
+        self._notice('Ты очнулся у дороги','Рядом: '+near['name']+'. Убежище: '+self.towns[BASES[p['faction']]]['name']+' — метка на карте M.',player=p['id'])
+
+    def max_hp(self,p):
+        return max_hp(p['level'])
+
+    def has_perk(self,p,level):
+        return p['level']>=level
+
+    def gain_xp(self,p,reason):
+        """Award experience on the host; levels raise health and damage and unlock perks."""
+        if 'stats' not in p or p['level']>=MAX_LEVEL:return
+        p['xp']+=XP.get(reason,0)
+        while p['level']<MAX_LEVEL and p['xp']>=xp_to_next(p['level']):
+            p['xp']-=xp_to_next(p['level']);p['level']+=1
+            p['hp']=self.max_hp(p)
+            perk=next((k for k in PERKS if k['level']==p['level']),None)
+            self.effects.append({'id':secrets.token_hex(4),'kind':'levelup','x':p['x'],'y':p['y'],'ex':p['x'],'ey':p['y'],'until':self.elapsed+1.5,'faction':p['faction'],'player':p['id']})
+            self._notice('Новый уровень: '+str(p['level']),'Здоровье '+str(int(self.max_hp(p)))+', урон +'+str(3*(p['level']-1))+'%.'+(' Навык: '+perk['name']+' — '+perk['desc'] if perk else ''),player=p['id'])
+            self._notice(p['name']+' достиг уровня '+str(p['level']),'',faction=p['faction'],skip=p['id'])
+        if p['level']>=MAX_LEVEL:p['xp']=0
 
     def _quest(self,p,index):
         q=copy.deepcopy(QUESTS[index%len(QUESTS)])
@@ -239,7 +289,9 @@ class World(NpcMixin):
         f=p['faction']
         allies=sum(1 for o in self.players.values() if o['faction']==f and o['hp']>0 and dist(o,t)<240 and time.monotonic()-o['last_seen']<8)
         allies+=sum(1 for n in self.npcs.values() if n['faction']==f and n['hp']>0 and n['type'] in ('ranger','raider') and dist(n,t)<240)
-        return self.chance_for(f,t,method,allies,p['gear']['weapon'])
+        value=self.chance_for(f,t,method,allies,p['gear']['weapon'])
+        if self.has_perk(p,25) and method in ('talk','bribe','assault'):value=min(95,value+5)
+        return value
 
     def town_view(self,p,t):
         population,workers,active=self.economy(t)
@@ -272,7 +324,7 @@ class World(NpcMixin):
                 'story':{'index':story['index'],'flags':story['flags'],'chapter':chapter,'ready':self._story_ready(f),
                          'progress':self._story_progress(f)},
                 'fstats':self.fstats[f],'ai':{g:self.ai_faction(g) for g in FACTIONS},
-                'messages':[e for e in self.log if (e['faction'] in (None,f)) and (e['player'] in (None,p['id']))],
+                'messages':[e for e in self.log if (e['faction'] in (None,f)) and (e['player'] in (None,p['id'])) and e.get('skip')!=p['id']],
                 'effects':self.effects[-40:],'winner':self.winner,'load_warning':self.load_warning,'full':full}
         if not full:
             # Light snapshots between full ones: settlements change slowly, characters move fast.
@@ -341,9 +393,10 @@ class World(NpcMixin):
             if p['vehicle']: raise GameError('Выйди из машины, чтобы собрать ресурсы.')
             if self.harvested.get(n['id'],0)>self.elapsed: raise GameError('Здесь пока нечего собирать. Запасы восстановятся позже.')
             self._cooldown(p,'harvest',.7)
-            self._reward(f,{n['kind']:n['amount']}); self.harvested[n['id']]=self.elapsed+100
-            p['stats']['harvest']+=1
-            return {'title':'+'+str(n['amount'])+' · '+RESOURCES[n['kind']],'success':True}
+            amount=n['amount']+(2 if self.has_perk(p,5) else 0)
+            self._reward(f,{n['kind']:amount}); self.harvested[n['id']]=self.elapsed+100
+            p['stats']['harvest']+=1;self.gain_xp(p,'harvest')
+            return {'title':'+'+str(amount)+' · '+RESOURCES[n['kind']],'success':True}
         if op=='build':
             b=self.buildings.get(str(data.get('id')))
             if not b: raise GameError('Здание не найдено.')
@@ -359,7 +412,7 @@ class World(NpcMixin):
             population,workers,active=self.economy(t)
             if level>=1 and population-workers<1: raise GameError('Нет свободных рабочих для стройки. Восстанови жилой дом.')
             self._pay(f,self.build_cost(t,k));self.start_construction(t,k,p)
-            p['stats']['build']+=1
+            p['stats']['build']+=1;self.gain_xp(p,'build')
             return {'title':BUILDINGS[k]['name']+': работы начаты','text':'Уровень '+str(level+1)+' через '+str(BUILD_TIME[level])+' сек. Союзники рядом ускоряют стройку.','success':True}
         if op=='vehicle':
             self._cooldown(p,'vehicle',.4)
@@ -382,9 +435,10 @@ class World(NpcMixin):
             self._pay(f,{'metal':4});p['car']['hp']=100.0
             return {'title':'Машина отремонтирована','text':'−4 металла','success':True}
         if op=='heal':
-            if p['hp']>=100: raise GameError('Ты не ранен.')
-            self._cooldown(p,'heal',6);self._pay(f,{'food':5});p['hp']=min(100,p['hp']+35)
-            return {'title':'Перевязка','text':'Здоровье +35, −5 припасов','success':True}
+            if p['hp']>=self.max_hp(p): raise GameError('Ты не ранен.')
+            medic=self.has_perk(p,10);cost=3 if medic else 5;amount=45 if medic else 35
+            self._cooldown(p,'heal',6);self._pay(f,{'food':cost});p['hp']=min(self.max_hp(p),p['hp']+amount)
+            return {'title':'Перевязка','text':'Здоровье +'+str(amount)+', −'+str(cost)+' припасов','success':True}
         if op=='craft':
             item=data.get('item');tier=data.get('tier')
             table={'weapon':WEAPONS,'armor':ARMOR}.get(item)
@@ -394,7 +448,7 @@ class World(NpcMixin):
             level=max(self.towns[b['town']]['levels']['workshop'] for b in ws)
             if level<table[tier]['workshop']: raise GameError('Нужна мастерская уровня '+str(table[tier]['workshop'])+'.')
             if p['gear'][item]>=tier: raise GameError('У тебя уже есть это или лучше.')
-            self._pay(f,table[tier]['cost']);p['gear'][item]=tier
+            self._pay(f,table[tier]['cost']);p['gear'][item]=tier;self.gain_xp(p,'craft')
             return {'title':table[tier]['name'],'text':'Снаряжение готово.','success':True}
         if op=='event_open':
             t=self._town_action(p,str(data.get('town')))
@@ -419,14 +473,14 @@ class World(NpcMixin):
             roll=self.rng.randint(1,100); ok=roll<=option['chance']
             self.events_done[key]=self.elapsed+180; p['pending']=None
             if ok:
-                self._reward(f,option['reward']); p['stats']['event']+=1
+                self._reward(f,option['reward']); p['stats']['event']+=1;self.gain_xp(p,'event')
                 self.reputation[f]=clamp(self.reputation[f]+option.get('rep',0),-100,100)
                 if t['owner']==f: t['loyalty']=clamp(t['loyalty']+option.get('rep',0)+option.get('loyalty',0),0,100)
                 elif option.get('loyalty'): t['loyalty']=clamp(t['loyalty']+option['loyalty'],0,100)
-                p['hp']=min(100,p['hp']+option.get('heal',0))
+                p['hp']=min(self.max_hp(p),p['hp']+option.get('heal',0))
                 if option.get('intel'): t['intel'][f]={'bonus':option['intel'],'until':self.elapsed+240}
             else:
-                self._damage(p,option['risk']); self.reputation[f]=max(-100,self.reputation[f]-2)
+                self._damage(p,option['risk']); self.reputation[f]=max(-100,self.reputation[f]-2);self.gain_xp(p,'event_fail')
             return {'title':'Решение сработало' if ok else 'Неудача','success':ok,'roll':roll,'chance':option['chance'],
                     'text':('Получено: '+self.resource_text(option['reward']) if ok else 'Затраченные ресурсы потеряны. Здоровье −'+str(option['risk']))+' · Бросок '+str(roll)+' из 100.'}
         if op in ('capture','scout','aid','deliver','tax','trade','raid'):
@@ -434,7 +488,7 @@ class World(NpcMixin):
             if op=='deliver':
                 q=next((q for q in p['quests'] if q['kind']=='deliver' and q.get('town')==t['id'] and p['stats']['deliver']-q['start']<q['target']),None)
                 if not q: raise GameError('Для этого поселения нет активного задания на доставку.')
-                self._pay(f,{'food':12}); p['stats']['deliver']+=1
+                self._pay(f,{'food':12}); p['stats']['deliver']+=1;self.gain_xp(p,'deliver')
                 self.reputation[f]=min(100,self.reputation[f]+4)
                 return {'title':'Припасы доставлены','text':'Забери награду в журнале J.','success':True}
             if op=='trade':
@@ -444,7 +498,7 @@ class World(NpcMixin):
                 key='aid:'+f
                 if self.elapsed<t['cooldowns'].get(key,0): raise GameError('Жители ещё распределяют предыдущую помощь.')
                 self._pay(f,{'food':8});t['loyalty']=min(100,t['loyalty']+14)
-                p['stats']['aid']+=1;self.reputation[f]=min(100,self.reputation[f]+3)
+                p['stats']['aid']+=1;self.reputation[f]=min(100,self.reputation[f]+3);self.gain_xp(p,'aid')
                 t['cooldowns'][key]=self.elapsed+40
                 return {'title':'Жители получили помощь','text':'Лояльность +14.','success':True}
             if op=='tax':
@@ -453,7 +507,7 @@ class World(NpcMixin):
                 penalty=12 if self.flag(f,'fair_share') else 18
                 bonus=4 if self.flag(f,'iron_hand') else 0
                 t['cooldowns']['tax']=self.elapsed+60;t['loyalty']-=penalty
-                self._reward(f,{'metal':12+bonus,'food':12});self.fstats[f]['tribute']+=1
+                self._reward(f,{'metal':12+bonus,'food':12});self.fstats[f]['tribute']+=1;self.gain_xp(p,'tax')
                 if t['loyalty']<20:
                     self._set_owner(t,None);t['loyalty']=45
                     self._notice('Бунт в поселении',t['name']+' снова независимо.')
@@ -496,7 +550,7 @@ class World(NpcMixin):
             next_index=(p['completed']+2)%len(QUESTS)
             active_kinds={item['kind'] for item in p['quests'] if item is not q}
             while QUESTS[next_index]['kind'] in active_kinds: next_index=(next_index+1)%len(QUESTS)
-            p['quests'][idx]=self._quest(p,next_index)
+            p['quests'][idx]=self._quest(p,next_index);self.gain_xp(p,'quest')
             return {'title':'Задание выполнено','text':self.resource_text(q['reward']),'success':True}
         if op=='story_choice':
             if not self._story_ready(f): raise GameError('Глава ещё не завершена.')
@@ -509,18 +563,18 @@ class World(NpcMixin):
             if opt.get('loyalty'):
                 for t in self.towns.values():
                     if t['owner']==f:t['loyalty']=clamp(t['loyalty']+opt['loyalty'],0,100)
-            self.story[f]['index']+=1;self._story_start(f)
+            self.story[f]['index']+=1;self._story_start(f);self.gain_xp(p,'story')
             self._notice('Глава завершена: '+c['title'],p['name']+' выбрал: '+opt['name'],faction=f)
             return {'title':opt['name'],'text':opt['text'],'success':True}
         if op=='shoot':
             if p['vehicle']: raise GameError('Стрелять можно только пешком.')
             weapon=WEAPONS[p['gear']['weapon']]
             self._cooldown(p,'shoot',weapon['cd']*.92)
-            self._pay(f,{'metal':weapon['ammo']})
+            self._pay(f,{'metal':weapon['ammo']*(.6 if self.has_perk(p,15) else 1)})
             ax,ay=p['aim'];length=math.hypot(ax,ay) or 1;ax/=length;ay/=length
             if p['gear']['weapon']==2:
                 spread=self.rng.uniform(-.05,.05);ax,ay=ax*math.cos(spread)-ay*math.sin(spread),ax*math.sin(spread)+ay*math.cos(spread)
-            end=self.shoot_line(p,ax,ay,weapon['range'],weapon['dmg'],28 if p['gear']['weapon']==1 else 20)
+            end=self.shoot_line(p,ax,ay,weapon['range'],weapon['dmg']*(1+.03*(p['level']-1)),28 if p['gear']['weapon']==1 else 20)
             p['shot']=self.elapsed
             self.effects.append({'id':secrets.token_hex(4),'kind':'shot','x':p['x'],'y':p['y'],'ex':end['x'],'ey':end['y'],'until':self.elapsed+.22,'faction':f,'weapon':p['gear']['weapon']})
             return {'quiet':True}
@@ -533,13 +587,13 @@ class World(NpcMixin):
             if st.get(f,0)>self.elapsed: raise GameError('Тайник уже обыскан. Запасы появятся через '+str(int(st[f]-self.elapsed))+' сек.')
             if any(n['type']=='marauder' and n['hp']>0 and dist(n,poi)<330 for n in self.npcs.values()): raise GameError('Сначала разберись с мародёрами у тайника.')
             loot=POI_KINDS[poi['kind']]['loot'];st[f]=self.elapsed+300
-            self._reward(f,loot);p['stats']['loot']+=1
+            self._reward(f,loot);p['stats']['loot']+=1;self.gain_xp(p,'loot')
             return {'title':'Тайник: '+poi['name'],'text':self.resource_text(loot),'success':True}
         if op=='airdrop':
             drop=self.airdrops.get(str(data.get('id')))
             if not drop: raise GameError('Груз уже забрали.')
             self._near(p,drop,80)
-            del self.airdrops[drop['id']];self._reward(f,drop['loot']);p['stats']['loot']+=1
+            del self.airdrops[drop['id']];self._reward(f,drop['loot']);p['stats']['loot']+=1;self.gain_xp(p,'airdrop')
             self._notice('Груз найден',p['name']+' · '+FACTIONS[f])
             return {'title':'Сброшенный груз','text':self.resource_text(drop['loot']),'success':True}
         if op=='extinguish':
@@ -547,7 +601,7 @@ class World(NpcMixin):
             if not b: raise GameError('Здание не найдено.')
             self._near(p,b,160);t=self.towns[b['town']]
             if b['kind'] not in t['fires']: raise GameError('Здесь не горит.')
-            del t['fires'][b['kind']];self.reputation[f]=min(100,self.reputation[f]+2)
+            del t['fires'][b['kind']];self.reputation[f]=min(100,self.reputation[f]+2);self.gain_xp(p,'extinguish')
             if t['owner']==f:t['loyalty']=min(100,t['loyalty']+5)
             return {'title':'Пожар потушен','text':'Жители благодарны: репутация +2.','success':True}
         if op=='post':
@@ -558,7 +612,7 @@ class World(NpcMixin):
             if sum(1 for o in self.posts.values() if o['faction']==f)>=3: raise GameError('У фракции уже три поста.')
             self._pay(f,POST_COST)
             post={'id':secrets.token_hex(5),'faction':f,'x':round(p['x'],1),'y':round(p['y'],1),'hp':220,'built':self.elapsed,'name':POSTS[f]['name']}
-            self.posts[post['id']]=post;self.fstats[f]['post']+=1
+            self.posts[post['id']]=post;self.fstats[f]['post']+=1;self.gain_xp(p,'post')
             self._notice(POSTS[f]['name']+' поставлен',p['name']+' контролирует трассу.',faction=f)
             return {'title':POSTS[f]['name'],'text':POSTS[f]['desc'],'success':True}
         if op=='truce_propose':
@@ -603,7 +657,7 @@ class World(NpcMixin):
         receive=int(amount*prices[give]/prices[get]*mod)
         if receive<1: raise GameError('Слишком невыгодный обмен.')
         self._pay(f,{give:amount});self._reward(f,{get:receive})
-        p['stats']['trade']+=1;self.fstats[f]['trade']+=1
+        p['stats']['trade']+=1;self.fstats[f]['trade']+=1;self.gain_xp(p,'trade')
         return {'title':'Обмен совершён','text':'−'+str(amount)+' '+RESOURCES[give].lower()+' → +'+str(receive)+' '+RESOURCES[get].lower(),'success':True}
 
     def _raid(self,p,t):
@@ -620,7 +674,7 @@ class World(NpcMixin):
             return {'title':'Набег отбит','text':'Здоровье −20.','success':False,'chance':chance,'roll':roll}
         loot={k:min(20,round(self.stocks[victim][k]*.15,1)) for k in ('food','metal','fuel')}
         for k,v in loot.items():self.stocks[victim][k]-=v
-        self._reward(f,loot);t['loyalty']=max(0,t['loyalty']-12);self.fstats[f]['tribute']+=1
+        self._reward(f,loot);t['loyalty']=max(0,t['loyalty']-12);self.fstats[f]['tribute']+=1;self.gain_xp(p,'raid')
         self._notice('Набег на '+t['name'],'Бандиты унесли: '+self.resource_text({k:int(v) for k,v in loot.items()}),faction=victim,tone='error')
         return {'title':'Набег удался','text':self.resource_text({k:int(v) for k,v in loot.items()}),'success':True,'chance':chance,'roll':roll}
 
@@ -674,10 +728,9 @@ class World(NpcMixin):
                 p['car']={'x':t['x']+90,'y':t['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0}
             if p['hp']<=0:
                 if self.elapsed>=p['dead_until']:
-                    t=self.towns[BASES[p['faction']]]
-                    p['x']=t['x'];p['y']=t['y']+70;p['hp']=100;p['dead_until']=0
-                    # Rescue returns the vehicle too, preventing a distant death from stranding it.
-                    p['car']={'x':t['x']+90,'y':t['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0}
+                    # Each respawn is a new random roadside spot; the car comes along so nobody is stranded.
+                    p['hp']=self.max_hp(p);p['dead_until']=0
+                    self._place_randomly(p)
                 continue
             x,y,sprint=p['input'] if now-p['last_input']<.65 and not p['paused'] else (0,0,False)
             length=math.hypot(x,y)
@@ -701,10 +754,10 @@ class World(NpcMixin):
             if p['vehicle']:p['car'].update(x=p['x'],y=p['y'],angle=p['angle'])
             for t in self.towns.values():
                 if dist(p,t)<650 and t['id'] not in p['visited']:
-                    p['visited'].append(t['id']);p['stats']['explore']+=1
+                    p['visited'].append(t['id']);p['stats']['explore']+=1;self.gain_xp(p,'explore')
                     self._notice('Новое место',t['name'],player=p['id'])
             home=self.towns[BASES[p['faction']]]
-            if dist(p,home)<220:p['hp']=min(100,p['hp']+dt*4)
+            if dist(p,home)<220:p['hp']=min(self.max_hp(p),p['hp']+dt*4)
         self.tick_npcs(dt,active)
         self.tick_squads()
         self.tick_defenses(dt)
@@ -738,6 +791,8 @@ class World(NpcMixin):
                 c['progress']+=dt*(1+.5*helpers)
                 if c['progress']>=c['total']:
                     del t['construct'][kind]
+                    builder=next((p for p in self.players.values() if p['id']==c.get('by')),None)
+                    if builder:self.gain_xp(builder,'built')
                     t['levels'][kind]=min(3,c['level']);t['loyalty']=min(100,t['loyalty']+4)
                     self._notice(BUILDINGS[kind]['name']+': уровень '+str(t['levels'][kind]),'Поселение: '+t['name'],faction=t['owner'])
                     self.dirty=True
@@ -764,7 +819,7 @@ class World(NpcMixin):
                     if candidates:t['levels'][self.rng.choice(candidates)]-=1
                 t['levels']['depot']=max(1,t['levels']['depot']);t['capture']=None
                 for p in active:
-                    if p['faction']==f:p['stats']['capture']+=1
+                    if p['faction']==f:p['stats']['capture']+=1;self.gain_xp(p,'capture')
                 self.fstats[f]['capture']+=1
                 self._notice('Поселение под контролем',t['name']+' · '+FACTIONS[f]);self.dirty=True;self.save()
 
@@ -887,6 +942,7 @@ class World(NpcMixin):
                 p['gear']={'weapon':int(clamp(finite(gear.get('weapon',0)),0,len(WEAPONS)-1)),'armor':int(clamp(finite(gear.get('armor',0)),0,len(ARMOR)-1))}
                 p['car'].setdefault('hp',100.0);p['car'].setdefault('wrecked_until',0.0)
                 for k in STAT_KEYS:p['stats'].setdefault(k,0)
+                p['level']=int(clamp(finite(p.get('level',1),1),1,MAX_LEVEL));p['xp']=max(0,int(finite(p.get('xp',0))))
                 players[token]=p
             self.elapsed=max(0,finite(raw['time']));self.production_clock=finite(raw.get('production_clock',0))%12
             self.towns=towns;self.stocks=stocks;self.players=players

@@ -250,3 +250,53 @@ class DiscoveryTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class SpawnAndLevelTests(unittest.TestCase):
+    def setUp(self):
+        self.world = World(rng=random.Random(5))
+
+    def test_each_player_spawns_at_a_random_free_spot(self):
+        spots = []
+        for i, faction in enumerate(('survivors', 'survivors', 'bandits', 'bandits')):
+            p = self.world.players[self.world.join('P' + str(i), faction)]
+            self.assertFalse(self.world.terrain.water(p['x'], p['y']))
+            self.assertFalse(self.world.terrain.solid(p['x'], p['y'], 10))
+            self.assertLess(((p['car']['x'] - p['x']) ** 2 + (p['car']['y'] - p['y']) ** 2) ** .5, 100)
+            spots.append((round(p['x']), round(p['y'])))
+        self.assertEqual(len(set(spots)), 4)
+        survivors = [p for p in self.world.players.values() if p['faction'] == 'survivors']
+        bandits = [p for p in self.world.players.values() if p['faction'] == 'bandits']
+        for s in survivors:
+            for b in bandits:
+                self.assertGreater(((s['x'] - b['x']) ** 2 + (s['y'] - b['y']) ** 2) ** .5, 1400)
+
+    def test_respawn_moves_to_a_new_random_spot(self):
+        token = self.world.join('A', 'survivors'); p = self.world.players[token]
+        before = (p['x'], p['y'])
+        self.world._damage(p, 999)
+        self.world.elapsed = p['dead_until']
+        run(self.world, .2)
+        self.assertEqual(p['hp'], self.world.max_hp(p))
+        self.assertNotEqual((p['x'], p['y']), before)
+
+    def test_experience_raises_level_health_and_perks(self):
+        token = self.world.join('A', 'survivors'); p = self.world.players[token]
+        self.assertEqual((p['level'], p['xp']), (1, 0))
+        for _ in range(20):
+            self.world.gain_xp(p, 'harvest')     # 80 xp
+        self.assertEqual(p['level'], 2)
+        self.assertEqual(self.world.max_hp(p), 105)
+        self.assertEqual(p['hp'], 105)
+        p['level'] = 10; p['hp'] = 50
+        self.world.stocks['survivors']['food'] = 50
+        self.world.command(token, {'op':'heal','request_id':'heal-1'})
+        self.assertEqual(p['hp'], 95)
+        self.assertEqual(self.world.stocks['survivors']['food'], 47)
+
+    def test_level_survives_save(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'w.json'
+            w = World(path, rng=random.Random(1))
+            token = w.join('A', 'bandits'); w.players[token].update(level=7, xp=33); w.save()
+            loaded = World(path)
+            self.assertEqual((loaded.players[token]['level'], loaded.players[token]['xp']), (7, 33))

@@ -237,6 +237,7 @@ function effectsFrom(state, v) {
     if (seenEffects.has(e.id)) continue; seenEffects.add(e.id); if (seenEffects.size > 600) seenEffects.delete(seenEffects.values().next().value);
     const near = Math.hypot(e.x - v.cam.x, e.y - v.cam.y);
     if (e.kind === 'boom') { for (let i = 0; i < 24; i++) { const a = Math.random() * 6.28, s = 40 + Math.random() * 160; puff('flame', e.x, e.y, Math.cos(a) * s * .4, Math.sin(a) * s * .4, .6 + Math.random() * .4, 14 + Math.random() * 10); puff('debris', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, .9, 2, '#2d2b27'); puff('smoke', e.x, e.y, Math.cos(a) * 20, Math.sin(a) * 20 - 10, 2.5, 10, '#3d3a36'); } if (R.onSound) R.onSound('boom', near); }
+    else if (e.kind === 'levelup') { for (let i = 0; i < 36; i++) { const a = i / 36 * 6.28; puff('spark', e.x, e.y, Math.cos(a) * 140, Math.sin(a) * 140, .8, 1); puff('flame', e.x + Math.cos(a) * 20, e.y + Math.sin(a) * 20, Math.cos(a) * 30, Math.sin(a) * 30 - 20, .7, 5, null); } if (R.onSound && v.state && e.player === v.state.me.id) R.onSound('levelup', 0); }
     else if (e.kind === 'fall') { for (let i = 0; i < 8; i++) puff('blood', e.x + (Math.random() - .5) * 10, e.y + (Math.random() - .5) * 10, 0, 0, 30, 2 + Math.random() * 3); }
     else { puff('smoke', e.x, e.y, (Math.random() - .5) * 10, -8, .6, 3, '#a8a69a'); for (let i = 0; i < 4; i++) puff('spark', e.ex, e.ey, (Math.random() - .5) * 120, (Math.random() - .5) * 120, .25, 1); puff('dust', e.ex, e.ey, 0, 0, .5, 5, '#8d8673'); if (R.onSound) R.onSound(e.kind === 'tower' ? 'tower' : 'shot' + (e.weapon || 0), near); }
   }
@@ -369,7 +370,7 @@ function drawPlayer(c, p, r, v) {
   S.person(c, { faction: p.faction, armor: p.gear ? p.gear.armor : 0, weapon: p.gear ? p.gear.weapon : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: isMe && v.holdAim, shot: t - p.shot < .25, flash: t - p.shot < .07, busy: t - p.busy < .8, dead, seed: AS.util.strSeed(p.id) });
   c.restore();
   if (dead) return;
-  if (p.hp < 100) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > 40 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / 100, 4); }
+  const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
 }
 function drawNpc(c, n, r, v) {
   if (n.type === 'convoy') {
@@ -416,7 +417,7 @@ function labels(c, state, v, vis) {
   cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 200)) return; const t = state.towns[t0.id]; pill(c, t0.name.toUpperCase(), t0.x, t0.y - 104, COL[t.owner || 'neutral']); if (!v.panel && me && Math.hypot(me.x - t0.x, me.y - t0.y) > 170) pill(c, 'E · ПЛОЩАДЬ', t0.x, t0.y + 136, '#d9d6bb'); });
   cfg.buildings_world.forEach(b => { if (!me || Math.abs(b.x - me.x) > 260 || Math.abs(b.y - me.y) > 220) return; const t = state.towns[b.town], L = t.levels[b.kind]; pill(c, cfg.buildings[b.kind].name + (L ? ' · ' + L : ' · руины') + (t.construct && t.construct[b.kind] ? ' · стройка' : ''), b.x, b.y - b.h / 2 - 22, L ? '#dce1cf' : '#c8c6b1'); });
   pois.forEach(p => { if (vis(p.x, p.y, 100)) pill(c, p.name.toUpperCase() + ' · ' + p.kind_name.toLowerCase(), p.x, p.y - 196, '#d8c79c'); });
-  state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y)) return; pill(c, p.name + (p.id === state.me.id ? ' · ты' : ''), r.x, r.y - 34, COL[p.faction]); });
+  state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y)) return; pill(c, p.name + ' · ' + (p.level || 1) + ' ур.' + (p.id === state.me.id ? ' · ты' : ''), r.x, r.y - 34, COL[p.faction]); });
   (state.posts || []).forEach(p => { if (vis(p.x, p.y)) pill(c, p.name, p.x, p.y - 48, COL[p.faction]); });
 }
 function pill(c, text, x, y, color, bg) { c.font = '11px Segoe UI, Arial'; const w = c.measureText(text).width + 18; rr(c, x - w / 2, y - 10, w, 21, 4); c.fillStyle = bg || '#142019e0'; c.fill(); c.fillStyle = color || '#e3e3d4'; c.textAlign = 'center'; c.fillText(text, x, y + 4); }

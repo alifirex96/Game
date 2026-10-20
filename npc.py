@@ -97,7 +97,7 @@ class NpcMixin:
             if attacker is not None and attacker.get('faction') != target['faction'] \
                     and self._dist(target, self.towns[BASES[target['faction']]]) < 240:
                 return False   # home shelters stay safe
-            amount *= 1 - ARMOR[target['gear']['armor']]['reduce']
+            amount *= 1 - ARMOR[target['gear']['armor']]['reduce'] - (.1 if target['level'] >= 20 else 0)
             if target['vehicle']:
                 car = target['car']
                 car['hp'] = max(0, car.get('hp', 100) - amount)
@@ -141,6 +141,8 @@ class NpcMixin:
         self.fstats[f]['kills'] += 1
         if 'stats' in attacker:
             attacker['stats']['kills'] += 1
+            self.gain_xp(attacker, 'kill_player' if 'stats' in victim else
+                         'kill_marauder' if victim.get('type') == 'marauder' else 'kill_fighter')
         if 'stats' in victim:
             self._notice(victim['name'] + ' ранен', 'Победа: ' + FACTIONS[f], faction=f)
 
@@ -161,6 +163,7 @@ class NpcMixin:
                     self.fstats[f]['tribute'] += 1
                 if 'stats' in attacker:
                     attacker['stats']['kills'] += 1
+                    self.gain_xp(attacker, 'kill_convoy')
                 self._notice('Груз перехвачен', self.resource_text({k:int(v) for k, v in loot.items()}) or 'Пустой кузов', faction=f)
             return
         if f in FACTIONS:
@@ -426,7 +429,7 @@ class NpcMixin:
             if f == 'survivors':
                 for p in entities:
                     if 'stats' in p and p['faction'] == f and self._dist(p, post) < 260:
-                        p['hp'] = min(100, p['hp'] + 4.5)
+                        p['hp'] = min(self.max_hp(p), p['hp'] + 4.5)
             # Bandit checkpoints take a quarter of passing enemy cargo once.
             if f == 'bandits' and not self.truce_active():
                 for n in self.npcs.values():

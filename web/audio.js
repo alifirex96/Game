@@ -54,6 +54,7 @@ A.play = function (kind, distance) {
   else if (kind === 'build') { [0, 220, 440].forEach(d => setTimeout(() => ctx && (tone(1800 + Math.random() * 300, .12, 'triangle', .14), burst(.05, 'highpass', 3000, .12)), d)); }
   else if (kind === 'door') { tone(180, .2, 'square', .06, sfx, 90); burst(.15, 'lowpass', 500, .2); }
   else if (kind === 'error') { tone(220, .18, 'triangle', .12, sfx, 160); }
+  else if (kind === 'levelup') { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => ctx && tone(f, .35, 'triangle', .12), i * 110)); }
   else if (kind === 'success') { tone(660, .14, 'triangle', .1); setTimeout(() => ctx && tone(990, .25, 'triangle', .1), 110); }
   else { tone(760, .12, 'sine', .07, sfx, 1100); }
 };

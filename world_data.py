@@ -1,5 +1,5 @@
 """Static game rules and the schematic map of Russia. Python 3.7+, standard library only."""
-VERSION = '0.2.0'
+VERSION = '0.2.1'
 WORLD_SIZE = (20000, 10000)
 FACTIONS = {'survivors': 'Выжившие', 'bandits': 'Бандиты'}
 RESOURCES = {'wood': 'Древесина', 'stone': 'Камень', 'metal': 'Металл',
@@ -292,6 +292,25 @@ STORY = {
    'goal':{'kind':'victory'},'choices':[]},
  ],
 }
+# Character progression: experience for actions, a level gives health and damage, perks unlock.
+MAX_LEVEL = 30
+XP = {'harvest':4,'build':15,'built':25,'event':20,'event_fail':5,'explore':30,'deliver':25,'aid':10,
+      'tax':10,'raid':25,'capture':60,'quest':40,'story':80,'kill_marauder':15,'kill_fighter':20,
+      'kill_player':35,'kill_convoy':30,'loot':25,'airdrop':20,'extinguish':15,'trade':3,'post':20,'craft':10}
+PERKS = [
+    {'level':5,'name':'Сноровка','desc':'Сбор ресурсов приносит на 2 единицы больше.'},
+    {'level':10,'name':'Полевой медик','desc':'Перевязка стоит 3 припаса и лечит на 45.'},
+    {'level':15,'name':'Экономный стрелок','desc':'Выстрел тратит на 40% меньше металла.'},
+    {'level':20,'name':'Закалка','desc':'Получаемый урон ниже ещё на 10%.'},
+    {'level':25,'name':'Авторитет','desc':'Шанс переговоров, подкупа и штурма +5%.'},
+]
+
+def xp_to_next(level):
+    return 80 + 60 * (level - 1)
+
+def max_hp(level):
+    return 100 + 5 * (level - 1)
+
 WORLD_EVENTS = ['refugees', 'fire', 'marauders', 'airdrop', 'weather']
 WEATHER = {'clear':'Ясно', 'rain':'Дождь', 'fog':'Туман', 'storm':'Гроза', 'snow':'Снег'}
 DAY_SECONDS = 1440 / 1.4           # one in-game day in real seconds
@@ -303,4 +322,5 @@ def config():
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'posts':POSTS,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
+            'perks':PERKS,'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}
