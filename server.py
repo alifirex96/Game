@@ -20,7 +20,7 @@ from world_data import (VERSION, WORLD_SIZE, FACTIONS, RESOURCES, TOWNS, REGIONS
                         BASES, BUILDINGS, EVENTS, QUESTS, STORY, WEAPONS, ARMOR, POI_KINDS,
                         POSTS, POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
                         WEATHER, MAX_LEVEL, XP, PERKS, xp_to_next, max_hp, config)
-from terrain import Terrain, town_buildings, resource_nodes
+from terrain import Terrain, town_buildings, resource_nodes, landmark_rect
 from npc import NpcMixin, other_faction
 
 ROOT = Path(__file__).resolve().parent
@@ -101,6 +101,8 @@ class World(NpcMixin):
             for b in town_buildings(tid,x,y):
                 self.buildings[b['id']]=b
                 self.terrain.add_rect(b)
+            lm=landmark_rect(tid,x,y)
+            if lm:self.terrain.add_rect(lm)
         for poi in self.terrain.pois.values():
             for part in poi['parts']:
                 if part['sprite']!='pump':self.terrain.add_rect(part)
@@ -1007,6 +1009,7 @@ class Handler(BaseHTTPRequestHandler):
             w=self.server.world
             cfg=config();cfg['buildings_world']=list(w.buildings.values());cfg['nodes']=list(w.nodes.values())
             cfg['pois']=list(w.terrain.pois.values())
+            cfg['road_lines']=[{'ax':s[0],'ay':s[1],'bx':s[2],'by':s[3],'a':s[4],'b':s[5]} for s in w.terrain.road_segments]
             cfg['join_code']=self.server.join_code if self._local() else None
             cfg['lan_addresses']=lan_addresses(self.server.server_port) if cfg['join_code'] else []
             cfg['host']=self._local()

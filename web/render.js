@@ -33,7 +33,8 @@ R.coldAt = (x, y) => { const t = nearestTown(x, y); return (cfg.regions[t.region
 
 R.init = function (config) {
   cfg = config; towns = cfg.towns.map(t => Object.assign({}, t)); townById = {}; towns.forEach(t => townById[t.id] = t);
-  roads = cfg.roads.map(e => { const a = townById[e[0]], b = townById[e[1]]; return { ax: a.x, ay: a.y, bx: b.x, by: b.y, a: e[0], b: e[1], len: Math.hypot(b.x - a.x, b.y - a.y) }; });
+  // Highways come from the host and end at town gates, continuing as the town's cross streets.
+  roads = cfg.road_lines.map(e => Object.assign({}, e, { len: Math.hypot(e.bx - e.ax, e.by - e.ay) }));
   waterSegs = []; cfg.rivers.forEach(r => { for (let i = 0; i < r[2].length - 1; i++) waterSegs.push([r[2][i][0], r[2][i][1], r[2][i + 1][0], r[2][i + 1][1], r[1] / 2, r[0]]); });
   lakes = cfg.lakes.map(l => l[1]); pois = cfg.pois || [];
   nodeGrid.clear(); cfg.nodes.forEach(n => { const k = Math.floor(n.x / 1000) + ',' + Math.floor(n.y / 1000); if (!nodeGrid.has(k)) nodeGrid.set(k, []); nodeGrid.get(k).push(n); });
@@ -201,7 +202,8 @@ function decor(t) {
   const dev = Math.min(3, Math.floor(townLevel(t) / 7)), key = t.id + dev + (t.owner || 'n');
   let d = townDecor.get(key); if (d) return d;
   const im = canvas(1000, 900), c = im.getContext('2d'); c.translate(500, 450); const r = rng(strSeed(t.id) + dev * .1);
-  const avoid = (x, y) => Math.hypot(x, y) < 140 || Math.abs(x) < 42 || Math.abs(y) < 42 || (cfg.buildings_world.some(b => b.town === t.id && Math.abs(b.x - t.x - x) < b.w / 2 + 26 && Math.abs(b.y - t.y - y) < b.h / 2 + 40));
+  const lmk = cfg.landmarks[t.id];
+  const avoid = (x, y) => Math.hypot(x, y) < 140 || (lmk && Math.abs(x - lmk.x) < lmk.w / 2 + 30 && Math.abs(y - lmk.y) < lmk.h / 2 + 40) || Math.abs(x) < 42 || Math.abs(y) < 42 || (cfg.buildings_world.some(b => b.town === t.id && Math.abs(b.x - t.x - x) < b.w / 2 + 26 && Math.abs(b.y - t.y - y) < b.h / 2 + 40));
   const spots = n => { const out = []; for (let i = 0; i < n * 6 && out.length < n; i++) { const x = (r() - .5) * 900, y = (r() - .5) * 800; if (!avoid(x, y)) out.push([x, y]); } return out; };
   // Debris shrinks as the town is rebuilt; lamps, benches and gardens appear.
   spots([26, 16, 8, 3][dev]).forEach(p => { for (let i = 0; i < 6; i++) { const s = 3 + r() * 6; c.fillStyle = ['#7a7466', '#8d8676', '#5f5a50', '#6d5444'][i % 4]; c.beginPath(); c.ellipse(p[0] + (r() - .5) * 30, p[1] + (r() - .5) * 20, s, s * .7, r(), 0, 7); c.fill(); } });
@@ -276,6 +278,7 @@ R.draw = function (c, v) {
   // Depth-sorted scene: buildings, ruins, nodes, posts, vehicles, people.
   const items = [];
   cfg.buildings_world.forEach(b => { if (!vis(b.x, b.y, 200)) return; const t = towns2 ? towns2[b.town] : null; items.push({ y: b.y + b.h / 2, f: () => drawBuilding(c, b, t, v) }); });
+  cfg.towns.forEach(t => { const lm = cfg.landmarks[t.id]; if (!lm || !vis(t.x + lm.x, t.y + lm.y, 260)) return; items.push({ y: t.y + lm.y + lm.h / 2, f: () => { const sp = S.landmark(t.id, lm.w, lm.h); c.drawImage(sp.im, t.x + lm.x - sp.ox, t.y + lm.y - sp.oy); } }); });
   pois.forEach(p => { if (!vis(p.x, p.y, 420)) return; p.parts.forEach((part, i) => items.push({ y: part.y + part.h / 2, f: () => { const sp = S.ruin(part.sprite, part.w, part.h, strSeed(p.id) + i * .13); c.drawImage(sp.im, part.x - sp.ox, part.y - sp.oy); } })); items.push({ y: p.y + 10, f: () => drawCache(c, p, state, v) }); });
   const gx0 = Math.floor((cam.x - cw / 2 - 100) / 1000), gx1 = Math.floor((cam.x + cw / 2 + 100) / 1000), gy0 = Math.floor((cam.y - ch / 2 - 100) / 1000), gy1 = Math.floor((cam.y + ch / 2 + 100) / 1000);
   for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) (nodeGrid.get(gx + ',' + gy) || []).forEach(n => { if (!vis(n.x, n.y, 60) || (state && state.harvested && state.harvested[n.id] > state.time)) return; items.push({ y: n.y, f: () => { const sp = S.node(n.kind, Math.floor(hash(n.x, n.y) * 3)); c.drawImage(sp.im, n.x - sp.ox, n.y - sp.oy); if (v.nearest && v.nearest.obj === n) { c.strokeStyle = '#e7ae6b'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(n.x, n.y + 8, 30, 15, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
@@ -416,6 +419,7 @@ function labels(c, state, v, vis) {
   const me = v.drawPlayers[state.me.id];
   cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 200)) return; const t = state.towns[t0.id]; pill(c, t0.name.toUpperCase(), t0.x, t0.y - 104, COL[t.owner || 'neutral']); if (!v.panel && me && Math.hypot(me.x - t0.x, me.y - t0.y) > 170) pill(c, 'E · ПЛОЩАДЬ', t0.x, t0.y + 136, '#d9d6bb'); });
   cfg.buildings_world.forEach(b => { if (!me || Math.abs(b.x - me.x) > 260 || Math.abs(b.y - me.y) > 220) return; const t = state.towns[b.town], L = t.levels[b.kind]; pill(c, cfg.buildings[b.kind].name + (L ? ' · ' + L : ' · руины') + (t.construct && t.construct[b.kind] ? ' · стройка' : ''), b.x, b.y - b.h / 2 - 22, L ? '#dce1cf' : '#c8c6b1'); });
+  cfg.towns.forEach(t => { const lm = cfg.landmarks[t.id]; if (lm && me && Math.hypot(me.x - t.x - lm.x, me.y - t.y - lm.y) < 420) pill(c, '★ ' + lm.name, t.x + lm.x, t.y + lm.y - lm.h / 2 - 24, '#ecd29a'); });
   pois.forEach(p => { if (vis(p.x, p.y, 100)) pill(c, p.name.toUpperCase() + ' · ' + p.kind_name.toLowerCase(), p.x, p.y - 196, '#d8c79c'); });
   state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y)) return; pill(c, p.name + ' · ' + (p.level || 1) + ' ур.' + (p.id === state.me.id ? ' · ты' : ''), r.x, r.y - 34, COL[p.faction]); });
   (state.posts || []).forEach(p => { if (vis(p.x, p.y)) pill(c, p.name, p.x, p.y - 48, COL[p.faction]); });

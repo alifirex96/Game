@@ -300,3 +300,25 @@ class SpawnAndLevelTests(unittest.TestCase):
             token = w.join('A', 'bandits'); w.players[token].update(level=7, xp=33); w.save()
             loaded = World(path)
             self.assertEqual((loaded.players[token]['level'], loaded.players[token]['xp']), (7, 33))
+
+class TownLayoutTests(unittest.TestCase):
+    def test_highways_meet_town_streets_and_streets_are_clear(self):
+        w = World()
+        from world_data import TOWN_GATE, LANDMARKS
+        for ax, ay, bx, by, a, b in w.terrain.road_segments:
+            for (x, y), tid in (((ax, ay), a), ((bx, by), b)):
+                t = w.towns[tid]
+                on_x = abs(abs(x - t['x']) - TOWN_GATE[0]) < 1 and abs(y - t['y']) < 1
+                on_y = abs(abs(y - t['y']) - TOWN_GATE[1]) < 1 and abs(x - t['x']) < 1
+                self.assertTrue(on_x or on_y, tid)
+        for t in w.towns.values():
+            for k in range(-460, 461, 20):
+                self.assertFalse(w.terrain.solid(t['x'] + k, t['y'], 12), t['id'])
+                self.assertFalse(w.terrain.solid(t['x'], t['y'] + k * 400 / 460, 12), t['id'])
+        self.assertEqual(set(LANDMARKS), set(w.towns))
+
+    def test_npc_routes_follow_gates(self):
+        w = World()
+        pts = w.terrain.route_points(['shabrovsky', 'revda'])
+        self.assertEqual(pts[0], list(w.terrain.gate('shabrovsky', 'revda')))
+        self.assertEqual(pts[-1], [w.towns['revda']['x'], w.towns['revda']['y']])

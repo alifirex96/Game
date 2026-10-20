@@ -64,9 +64,8 @@ class NpcMixin:
         self.npcs[npc['id']] = npc
         return npc
 
-    def _path_points(self, towns):
-        return [[self.towns[t]['x'] + self.rng.uniform(-20, 20), self.towns[t]['y'] + self.rng.uniform(-20, 20)]
-                for t in towns]
+    def _path_points(self, route):
+        return [[x + self.rng.uniform(-14, 14), y + self.rng.uniform(-14, 14)] for x, y in self.terrain.route_points(route)]
 
     def _target_alive(self, ref):
         if not ref:
@@ -471,7 +470,7 @@ class NpcMixin:
             if len(route) < 2:
                 self._reward(f, cargo)
                 continue
-            self.spawn_npc('convoy', f, t['x'], t['y'] + 40, mode='travel', path=self._path_points(route[1:]),
+            self.spawn_npc('convoy', f, t['x'], t['y'] + 40, mode='travel', path=self._path_points(route),
                            cargo=cargo, job={'kind':'convoy','from':t['id']})
             self._notice('Колонна вышла', t['name'] + ' → ' + self.towns[BASES[f]]['name'] + '. Груз можно сопроводить.', faction=f)
 
@@ -571,7 +570,7 @@ class NpcMixin:
         size = 2 + (owned >= 4) + (method == 'assault')
         for i in range(size):
             self.spawn_npc(kind, f, home['x'] + i * 24, home['y'] + 60, mode='travel',
-                           path=self._path_points(route[1:]),
+                           path=self._path_points(route),
                            job={'kind':'capture','town':target['id'],'method':method,'tries':0})
         self._notice('Отряд вышел в путь', FACTIONS[f] + ' направляются к поселению ' + target['name'] + '.',
                      faction=other_faction(f))
@@ -590,7 +589,7 @@ class NpcMixin:
             return
         for i in range(3):
             self.spawn_npc('raider', f, home['x'] + i * 24, home['y'] + 60, mode='travel',
-                           path=self._path_points(route[1:]), job={'kind':'raid','town':target['id']})
+                           path=self._path_points(route), job={'kind':'raid','town':target['id']})
         self._notice('Разведка заметила налётчиков', 'Бандиты идут к поселению ' + target['name'] + '. Защитите площадь.',
                      faction=other_faction(f), tone='error')
 

@@ -2,7 +2,7 @@
 import heapq
 import math
 from world_data import (WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS,
-                        RESOURCES, SLOTS, BUILDINGS)
+                        RESOURCES, SLOTS, BUILDINGS, TOWN_GATE, LANDMARKS, LANDMARK_POS)
 
 CELL = 1000
 TOWN_HALF = (480, 420)        # half-size of the cleared town area
@@ -38,8 +38,8 @@ POI_LAYOUTS = {
 class Terrain:
     def __init__(self):
         self.towns = {t[0]: {'id':t[0],'x':t[2],'y':t[3]} for t in TOWNS}
-        self.road_segments = [(self.towns[a]['x'], self.towns[a]['y'], self.towns[b]['x'], self.towns[b]['y'], a, b)
-                              for a, b in ROADS]
+        # Highways run between town gates, where the cross streets reach the edge of a settlement.
+        self.road_segments = [self.gate(a, b) + self.gate(b, a) + (a, b) for a, b in ROADS]
         self.water_segments = []
         for name, width, points in RIVERS:
             for i in range(len(points) - 1):
@@ -75,6 +75,21 @@ class Terrain:
         for a, b in ROADS:
             d = math.hypot(self.towns[a]['x'] - self.towns[b]['x'], self.towns[a]['y'] - self.towns[b]['y'])
             self.graph[a].append((b, d)); self.graph[b].append((a, d))
+
+    def gate(self, tid, other):
+        t = self.towns[tid]; o = self.towns[other]
+        dx = o['x'] - t['x']; dy = o['y'] - t['y']
+        if abs(dx) / TOWN_GATE[0] >= abs(dy) / TOWN_GATE[1]:
+            return (t['x'] + (TOWN_GATE[0] if dx > 0 else -TOWN_GATE[0]), t['y'])
+        return (t['x'], t['y'] + (TOWN_GATE[1] if dy > 0 else -TOWN_GATE[1]))
+
+    def route_points(self, towns):
+        """Waypoints that follow the highways: gate, gate, square for every hop."""
+        out = []
+        for i in range(len(towns) - 1):
+            a, b = towns[i], towns[i + 1]
+            out += [list(self.gate(a, b)), list(self.gate(b, a)), [self.towns[b]['x'], self.towns[b]['y']]]
+        return out
 
     def add_rect(self, rect):
         """Index a solid axis-aligned rectangle (dict with x, y, w, h centred)."""
@@ -155,6 +170,14 @@ def town_buildings(tid, x, y):
         out.append({'id':tid+':'+kind,'town':tid,'kind':kind,'x':x+dx,'y':y+dy,
                     'w':64 if small else 116,'h':64 if small else 86})
     return out
+
+
+def landmark_rect(tid, x, y):
+    if tid not in LANDMARKS:
+        return None
+    name, w, h = LANDMARKS[tid]
+    # The solid core is smaller than the drawing: people can walk around the plinth.
+    return {'id':tid+':landmark','x':x+LANDMARK_POS[0],'y':y+LANDMARK_POS[1],'w':w*.6,'h':h*.5}
 
 
 def resource_nodes(terrain):

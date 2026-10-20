@@ -126,9 +126,27 @@ BUILDINGS = {
               'desc':'Снижает шанс чужого захвата, вышка стреляет по врагам и мародёрам рядом с поселением.','workers':0},
 }
 # Buildings surround an open square. Coordinates are relative to the town centre.
-SLOTS = [('depot',-185,-150),('house',145,-155),('sawmill',-360,35),
-         ('quarry',350,20),('workshop',-185,185),('farm',160,190),
-         ('garage',-360,280),('radio',350,285),('guard',0,-340),('warehouse',0,335)]
+# The cross streets (x = 0 and y = 0) stay free: they continue the highways to the square.
+SLOTS = [('depot',-185,-150),('house',145,-155),('sawmill',-360,100),
+         ('quarry',350,100),('workshop',-185,185),('farm',160,190),
+         ('garage',-360,285),('radio',350,285),('guard',95,-340),('warehouse',160,335)]
+TOWN_GATE = (480, 420)             # highways meet the town streets at these edge points
+# Every settlement has its own recognisable landmark in the north-west block.
+LANDMARK_POS = (-345, -290)
+LANDMARKS = {
+    'petersburg': ('Адмиралтейство', 170, 110), 'moscow': ('Спасская башня', 150, 130),
+    'nizhny': ('Дмитриевская башня', 170, 120), 'kazan': ('Мечеть Кул-Шариф', 160, 130),
+    'perm': ('Спасо-Преображенский собор', 150, 120), 'pervouralsk': ('Обелиск «Европа — Азия»', 140, 120),
+    'shabrovsky': ('Тальков камень', 170, 130), 'ekaterinburg': ('Храм на Крови', 150, 130),
+    'tyumen': ('Мост влюблённых', 170, 120), 'novosibirsk': ('Оперный театр', 170, 130),
+    'krasnoyarsk': ('Часовня Параскевы Пятницы', 140, 120), 'irkutsk': ('Ледокол «Ангара»', 170, 110),
+    'yakutsk': ('Мамонт', 140, 110), 'khabarovsk': ('Утёс с беседкой', 160, 130),
+    'vladivostok': ('Золотой мост', 170, 120), 'murmansk': ('Памятник «Алёша»', 130, 120),
+    'arkhangelsk': ('Деревянная церковь', 140, 120), 'vorkuta': ('Шахтный копёр', 140, 120),
+    'norilsk': ('Трубы комбината', 150, 120), 'tagil': ('Танк Т-34 на постаменте', 140, 110),
+    'revda': ('Демидовская плотина', 170, 110), 'polevskoy': ('Хозяйка Медной горы', 140, 120),
+    'omsk': ('Тарские ворота', 160, 100), 'magadan': ('Маска скорби', 140, 130),
+}
 BUILD_TIME = [12, 28, 50]          # seconds to finish level 1, 2, 3
 STORAGE_BASE = 320
 STORAGE_PER_WAREHOUSE = 250
@@ -322,5 +340,5 @@ def config():
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'posts':POSTS,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
-            'perks':PERKS,'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
+            'perks':PERKS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}
