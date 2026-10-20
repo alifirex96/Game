@@ -1,10 +1,17 @@
 """Static game rules and the schematic map of Russia. Python 3.7+, standard library only."""
-VERSION = '0.3.0'
+VERSION = '0.4.0'
 # Map coordinates below are written at 1:1 and stretched by WORLD_SCALE, so settlements are far apart
 # while towns, roads and rivers keep their real size.
 WORLD_SCALE = 3
 WORLD_SIZE = (20000 * WORLD_SCALE, 10000 * WORLD_SCALE)
-FACTIONS = {'survivors': 'Выжившие', 'bandits': 'Бандиты'}
+# Everyone plays for themselves. Each player is a side with a home settlement; computer clans are sides too.
+MAX_PLAYERS = 6
+HOME_CHOICES = ['shabrovsky', 'ekaterinburg', 'revda', 'perm', 'polevskoy', 'tagil', 'kazan', 'omsk',
+                'nizhny', 'novosibirsk', 'moscow', 'krasnoyarsk']
+SIDE_COLORS = ['#e7a568', '#7fb2d0', '#a7c46a', '#d79cb7', '#e0d46a', '#9b8fd6', '#6ad0b8', '#f08a6a']
+# Computer clans: id, name, colour, home, fighter type, preferred capture method.
+AI_SIDES = [('ai_scar', 'Банда Шрама', '#c0503c', 'pervouralsk', 'raider', 'assault'),
+            ('ai_dawn', 'Община «Рассвет»', '#5f9a7a', 'tyumen', 'ranger', 'talk')]
 RESOURCES = {'wood': 'Древесина', 'stone': 'Камень', 'metal': 'Металл',
              'food': 'Припасы', 'fuel': 'Топливо'}
 # The first fifteen settlements are the 0.1 map; ids and coordinates stay stable for old saves.
@@ -35,7 +42,6 @@ TOWNS = [
     ('omsk', 'Омск', 10200, 4600, 'Западная Сибирь'),
     ('magadan', 'Магадан', 19300, 3400, 'Дальний Восток'),
 ]
-BASES = {'survivors': 'shabrovsky', 'bandits': 'pervouralsk'}
 ROADS = [('petersburg','moscow'),('moscow','nizhny'),('nizhny','kazan'),
          ('kazan','pervouralsk'),('pervouralsk','perm'),('pervouralsk','ekaterinburg'),
          ('shabrovsky','ekaterinburg'),
@@ -230,10 +236,7 @@ NPC_FACTION = {'wolf':'wild','bear':'wild','boar':'wild','elk':'game','mutant':'
 WILDLIFE = {'tundra':['wolf','wolf','elk','bear'],'taiga':['wolf','bear','elk','elk','boar'],
             'ural':['wolf','boar','elk','elk','bear'],'mixed':['boar','elk','wolf','elk'],'steppe':['boar','wolf','boar']}
 CAR_TANK = 45
-POSTS = {
-    'survivors': {'name':'Сторожевой пост','desc':'Лечит союзников рядом, защищает колонны, добавляет репутацию.'},
-    'bandits': {'name':'Блокпост','desc':'Собирает пошлину с дороги и берёт четверть груза чужих колонн.'},
-}
+POST = {'name':'Пост на трассе','desc':'Лечит тебя рядом, стреляет по врагам, собирает пошлину с дороги и забирает четверть груза чужих колонн.'}
 POST_COST = {'wood':30,'stone':20,'metal':15}
 # Relative trade value of a unit of each resource in each region.
 PRICES = {
@@ -394,15 +397,24 @@ def xp_to_next(level):
 def max_hp(level):
     return 100 + 5 * (level - 1)
 
+# One storyline for every side, built from the chapters above.
+STORY_LINE = [dict(STORY['survivors'][0]), dict(STORY['survivors'][1]), dict(STORY['bandits'][1]),
+              dict(STORY['survivors'][2]), dict(STORY['survivors'][3]), dict(STORY['survivors'][4])]
+STORY_LINE[0]['choices'] = [dict(c, text=c['text'].replace('бандиты тоже', 'соперники тоже')) for c in STORY_LINE[0]['choices']]
+STORY_LINE[1].update(title='Свет в убежище', text='Твоему поселению нужна связь. Восстанови радиостанцию в своём домашнем поселении до первого уровня.')
+STORY_LINE[2]['choices'] = [dict(c, text=c['text'].replace('вас', 'тебя')) for c in STORY_LINE[2]['choices']]
+STORY_LINE[3]['text'] = 'Колонны связывают поселения. Доведи до дома две колонны с грузом.'
+STORY_LINE[4].update(title='Свои города', text='Установи контроль над тремя поселениями, включая домашнее.')
+STORY_LINE[5]['text'] = 'Последний шаг — радиостанция второго уровня в домашнем поселении и пять поселений под контролем. Тогда эфир услышит вся страна.'
 WORLD_EVENTS = ['refugees', 'fire', 'marauders', 'airdrop', 'weather']
 WEATHER = {'clear':'Ясно', 'rain':'Дождь', 'fog':'Туман', 'storm':'Гроза', 'snow':'Снег'}
 DAY_SECONDS = 1440 / 1.4           # one in-game day in real seconds
 
 def config():
     return {'version':VERSION,'width':WORLD_SIZE[0],'height':WORLD_SIZE[1],'scale':WORLD_SCALE,
-            'factions':FACTIONS,'resources':RESOURCES,'buildings':BUILDINGS,
-            'bases':BASES,'roads':ROADS,'regions':REGIONS,'rivers':RIVERS,'lakes':LAKES,'hills':HILLS,
-            'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'posts':POSTS,
+            'resources':RESOURCES,'buildings':BUILDINGS,'max_players':MAX_PLAYERS,
+            'roads':ROADS,'regions':REGIONS,'rivers':RIVERS,'lakes':LAKES,'hills':HILLS,
+            'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'post':POST,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
             'perks':PERKS,'car_tank':CAR_TANK,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],

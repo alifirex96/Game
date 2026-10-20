@@ -24,9 +24,9 @@ jobs:
       - name: Build portable archive
         run: python3 tools/package.py
       - name: Inspect archive
-        run: tar -tzf dist/AfterSilence-Astra-0.3.0.tar.gz
+        run: tar -tzf dist/AfterSilence-Astra-0.4.0.tar.gz
       - name: Upload portable archive
         uses: actions/upload-artifact@v4
         with:
-          name: AfterSilence-Astra-0.3.0
-          path: dist/AfterSilence-Astra-0.3.0.tar.gz
+          name: AfterSilence-Astra-0.4.0
+          path: dist/AfterSilence-Astra-0.4.0.tar.gz

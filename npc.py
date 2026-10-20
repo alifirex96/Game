@@ -5,7 +5,7 @@ Mixed into server.World. Everything here runs on the host, inside the world lock
 import math
 import secrets
 import time
-from world_data import (FACTIONS, BASES, BUILDINGS, NPC_TYPES, POI_KINDS, ARMOR, WEAPONS, NPC_FACTION, WILDLIFE, REGIONS,
+from world_data import (BUILDINGS, NPC_TYPES, POI_KINDS, ARMOR, WEAPONS, NPC_FACTION, WILDLIFE, REGIONS,
                         RESOURCES, WORLD_SIZE)
 
 AI_PRIORITY = ['farm', 'house', 'sawmill', 'depot', 'quarry', 'workshop', 'warehouse',
@@ -16,15 +16,8 @@ MONSTERS = ('marauders', 'wild', 'mutants')
 SQUAD_COSTS = {'talk':{'food':12,'wood':8},'bribe':{'food':18,'fuel':8},'assault':{'metal':12,'food':6}}
 
 
-def other_faction(f):
-    return 'bandits' if f == 'survivors' else 'survivors'
-
-
 class NpcMixin:
     # ---- shared helpers -------------------------------------------------
-    def truce_active(self):
-        return self.truce.get('until', 0) > self.elapsed
-
     @staticmethod
     def side(entity):
         return entity['faction']
@@ -35,8 +28,8 @@ class NpcMixin:
             return False
         if fa in MONSTERS or fb in MONSTERS:
             return True
-        if fa in FACTIONS and fb in FACTIONS:
-            return not self.truce_active()
+        if fa in self.sides and fb in self.sides:
+            return not self.truce_between(fa, fb)
         neutral, other = (a, b) if fa == 'neutral' else (b, a)
         return neutral.get('enemy') == other['faction']
 
@@ -44,13 +37,9 @@ class NpcMixin:
         now = time.monotonic()
         return [p for p in self.players.values() if now - p['last_seen'] < 8]
 
-    def human_faction(self, f):
-        """A faction is human-led while one of its players was seen in the last minute."""
-        now = time.monotonic()
-        return any(p['faction'] == f and now - p['last_seen'] < 60 for p in self.players.values())
-
     def ai_faction(self, f):
-        return self.settings.get('ai', True) and not self.human_faction(f)
+        """Computer clans act on their own unless the host switched them off."""
+        return f in self.sides and self.sides[f]['ai'] and self.settings.get('ai', True)
 
     def flag(self, f, name):
         return name in self.story.get(f, {}).get('flags', [])
@@ -96,7 +85,7 @@ class NpcMixin:
             if target['hp'] <= 0:
                 return False
             if attacker is not None and attacker.get('faction') != target['faction'] \
-                    and self._dist(target, self.towns[BASES[target['faction']]]) < 240:
+                    and self._dist(target, self.home(target['faction'])) < 240:
                 return False   # home shelters stay safe
             amount *= 1 - ARMOR[target['gear']['armor']]['reduce'] - (.1 if target['level'] >= 20 else 0)
             if target['vehicle']:
@@ -123,7 +112,7 @@ class NpcMixin:
                 self.effects.append({'id':secrets.token_hex(4),'kind':'boom','x':target['x'],'y':target['y'],
                                      'ex':target['x'],'ey':target['y'],'until':self.elapsed+1.2,'faction':None})
                 self._notice('Пост разрушен', target['name'], faction=target['faction'], tone='error')
-                if attacker is not None and attacker.get('faction') in FACTIONS:
+                if attacker is not None and attacker.get('faction') in self.sides:
                     self._notice('Вражеский пост уничтожен', '+12 металла', faction=attacker['faction'])
                     self._reward(attacker['faction'], {'metal':12})
                 return True
@@ -131,7 +120,7 @@ class NpcMixin:
         if target['hp'] <= 0:
             return False
         target['hp'] -= amount
-        if target['faction'] == 'neutral' and attacker is not None and attacker.get('faction') in FACTIONS:
+        if target['faction'] == 'neutral' and attacker is not None and attacker.get('faction') in self.sides:
             target['enemy'] = attacker['faction']
         if target['hp'] <= 0:
             self._npc_killed(target, attacker)
@@ -142,7 +131,7 @@ class NpcMixin:
 
     def _credit_kill(self, attacker, victim):
         f = attacker.get('faction')
-        if f not in FACTIONS:
+        if f not in self.sides:
             return
         self.fstats[f]['kills'] += 1
         if 'stats' in attacker:
@@ -156,7 +145,7 @@ class NpcMixin:
             elif kind == 'mutants':
                 attacker['stats']['mutants'] += 1
         if 'stats' in victim:
-            self._notice(victim['name'] + ' ранен', 'Победа: ' + FACTIONS[f], faction=f)
+            self._notice(victim['name'] + ' ранен', 'Победа: ' + self.side_name(f), faction=f)
 
     def _npc_killed(self, npc, attacker):
         npc['hp'] = 0
@@ -166,19 +155,18 @@ class NpcMixin:
         if npc['type'] == 'convoy':
             cargo = npc.get('cargo', {})
             self._notice('Колонна уничтожена', 'Груз потерян у дороги.', faction=npc['faction'], tone='error')
-            if f in FACTIONS and f != npc['faction']:
+            if f in self.sides and f != npc['faction']:
                 share = .72 if self.flag(f, 'cargo_cut') else .6
                 loot = {k: round(v * share, 1) for k, v in cargo.items() if v > 0}
                 self._reward(f, loot)
                 self.fstats[f]['kills'] += 1
-                if f == 'bandits':
-                    self.fstats[f]['tribute'] += 1
+                self.fstats[f]['tribute'] += 1
                 if 'stats' in attacker:
                     attacker['stats']['kills'] += 1
                     self.gain_xp(attacker, 'kill_convoy')
                 self._notice('Груз перехвачен', self.resource_text({k:int(v) for k, v in loot.items()}) or 'Пустой кузов', faction=f)
             return
-        if f in FACTIONS:
+        if f in self.sides:
             spec = NPC_TYPES[npc['type']]
             self._reward(f, spec['loot'])
             if attacker is not None and 'stats' in attacker:
@@ -210,7 +198,7 @@ class NpcMixin:
             if 0 < along < best and side < size and not self._covered(shooter, o):
                 hit = o; best = along
         for post in list(self.posts.values()):
-            if post['faction'] == shooter['faction'] or (self.truce_active() and shooter['faction'] in FACTIONS):
+            if post['faction'] == shooter['faction'] or self.truce_between(post['faction'], shooter['faction']):
                 continue
             dx = post['x'] - shooter['x']; dy = post['y'] - shooter['y']
             along = dx * ax + dy * ay; side = abs(dx * ay - dy * ax)
@@ -274,7 +262,7 @@ class NpcMixin:
             if any(self._dist(p, t) < 1000 for t in self.towns.values()):
                 continue
             nearby = sum(1 for n in self.npcs.values() if n['type'] == 'marauder' and self._dist(n, p) < 2400)
-            cap = 3 - (1 if p['faction'] == 'survivors' and self.flag('survivors', 'marauder_pact') else 0)
+            cap = 3 - (1 if self.flag(p['faction'], 'marauder_pact') else 0)
             if nearby < cap and self.rng.random() < .45:
                 angle = self.rng.uniform(0, math.pi * 2)
                 spot = self._free_near(p['x'] + math.cos(angle) * 1150, p['y'] + math.sin(angle) * 1150, 0, 250)
@@ -449,7 +437,7 @@ class NpcMixin:
         job = npc.get('job') or {}
         if npc['type'] == 'convoy':
             f = npc['faction']
-            if self.towns[BASES[f]]['owner'] == f:
+            if f in self.sides and self.home(f)['owner'] == f:
                 self._reward(f, npc.get('cargo', {}))
                 self.fstats[f]['convoy'] += 1
                 self._notice('Колонна прибыла', self.resource_text({k:int(v) for k, v in npc.get('cargo', {}).items() if v >= 1}), faction=f)
@@ -504,46 +492,44 @@ class NpcMixin:
                 self.effects.append({'id':secrets.token_hex(4),'kind':'tower','x':post['x'],'y':post['y'],
                                      'ex':target['x'],'ey':target['y'],'until':self.elapsed+.2,'faction':f})
                 self.hurt(target, dmg, {'faction':f,'id':'post'})
-            if f == 'survivors':
-                for p in entities:
-                    if 'stats' in p and p['faction'] == f and self._dist(p, post) < 260:
-                        p['hp'] = min(self.max_hp(p), p['hp'] + 4.5)
-            # Bandit checkpoints take a quarter of passing enemy cargo once.
-            if f == 'bandits' and not self.truce_active():
-                for n in self.npcs.values():
-                    if n['type'] == 'convoy' and n['faction'] != f and n['hp'] > 0 and \
+            for p in entities:
+                if 'stats' in p and p['faction'] == f and self._dist(p, post) < 260:
+                    p['hp'] = min(self.max_hp(p), p['hp'] + 4.5)
+            # A post takes a quarter of passing foreign cargo once.
+            for n in self.npcs.values():
+                if n['type'] == 'convoy' and n['faction'] != f and n['hp'] > 0 and not self.truce_between(f, n['faction']) and \
                             post['id'] not in n.setdefault('taxed', []) and self._dist(n, post) < 230:
-                        n['taxed'].append(post['id'])
-                        toll = {k: round(v * .25, 1) for k, v in n['cargo'].items()}
-                        for k, v in toll.items():
-                            n['cargo'][k] -= v
-                        self._reward(f, toll)
-                        self.fstats[f]['tribute'] += 1
-                        self._notice('Пошлина с колонны', self.resource_text({k:int(v) for k, v in toll.items() if v >= 1}), faction=f)
-                        self._notice('Колонну обобрали на блокпосту', 'Четверть груза потеряна.', faction=n['faction'], tone='error')
+                    n['taxed'].append(post['id'])
+                    toll = {k: round(v * .25, 1) for k, v in n['cargo'].items()}
+                    for k, v in toll.items():
+                        n['cargo'][k] -= v
+                    self._reward(f, toll)
+                    self.fstats[f]['tribute'] += 1
+                    self._notice('Пошлина с колонны', self.resource_text({k:int(v) for k, v in toll.items() if v >= 1}), faction=f)
+                    self._notice('Колонну обобрали на посту', 'Четверть груза потеряна.', faction=n['faction'], tone='error')
         self.post_clock += 1.5
         if self.post_clock >= 30:
             self.post_clock = 0
             for post in self.posts.values():
-                if post['faction'] == 'bandits':
-                    extra = 1 if self.flag('bandits', 'iron_road') else 0
-                    self._reward('bandits', {'fuel':2 + extra,'metal':2 + extra})
-                else:
-                    self.reputation['survivors'] = min(100, self.reputation['survivors'] + .5)
+                f = post['faction']
+                if f in self.sides:
+                    extra = 1 if self.flag(f, 'iron_road') else 0
+                    self._reward(f, {'fuel':1 + extra,'metal':1 + extra})
+                    self.reputation[f] = min(100, self.reputation[f] + .25)
 
     def tick_convoys(self, dt):
         self.convoy_clock += dt
         if self.convoy_clock < 40:
             return
         self.convoy_clock = 0
-        for f in FACTIONS:
+        for f in list(self.sides):
             if sum(1 for n in self.npcs.values() if n['type'] == 'convoy' and n['faction'] == f) >= 3:
                 continue
             towns = [t for t in self.towns.values() if t['owner'] == f and not t['base'] and sum(t['cargo'].values()) >= 10]
             if not towns:
                 continue
             t = max(towns, key=lambda t: sum(t['cargo'].values()))
-            route = self.terrain.route(t['id'], BASES[f])
+            route = self.terrain.route(t['id'], self.sides[f]['home'])
             cargo = {k: v for k, v in t['cargo'].items() if v > 0}
             t['cargo'] = {k: 0.0 for k in RESOURCES}
             if len(route) < 2:
@@ -551,7 +537,7 @@ class NpcMixin:
                 continue
             self.spawn_npc('convoy', f, t['x'], t['y'] + 40, mode='travel', path=self._path_points(route),
                            cargo=cargo, job={'kind':'convoy','from':t['id']})
-            self._notice('Колонна вышла', t['name'] + ' → ' + self.towns[BASES[f]]['name'] + '. Груз можно сопроводить.', faction=f)
+            self._notice('Колонна вышла', t['name'] + ' → ' + self.home(f)['name'] + '. Груз можно сопроводить.', faction=f)
 
     # ---- AI commander for a faction without human players ---------------
     def tick_ai(self, dt):
@@ -559,7 +545,7 @@ class NpcMixin:
         if self.ai_clock < 5:
             return
         self.ai_clock = 0
-        for f in FACTIONS:
+        for f in list(self.sides):
             if not self.ai_faction(f):
                 continue
             st = self.ai_state.setdefault(f, {'build':0,'expand':240,'raid':600,'tax':0,'defend':0})
@@ -572,13 +558,14 @@ class NpcMixin:
             if self.elapsed >= st['expand']:
                 st['expand'] = self.elapsed + self.rng.uniform(150, 240)
                 self._ai_expand(f)
-            if f == 'bandits' and self.elapsed >= st['tax']:
+            raider = self.sides[f]['fighter'] == 'raider'
+            if raider and self.elapsed >= st['tax']:
                 st['tax'] = self.elapsed + 90
                 for t in self.towns.values():
                     if t['owner'] == f and not t['base'] and t['loyalty'] > 62 and not t['capture']:
                         t['loyalty'] -= 12; self._reward(f, {'metal':8,'food':8}); self.fstats[f]['tribute'] += 1
                         break
-            if f == 'bandits' and self.elapsed >= st['raid'] and not self.truce_active():
+            if raider and self.elapsed >= st['raid']:
                 st['raid'] = self.elapsed + self.rng.uniform(200, 300)
                 self._ai_raid(f)
             for t in self.towns.values():
@@ -613,7 +600,7 @@ class NpcMixin:
         for t in self.towns.values():
             if t['owner'] == f or t['base'] or t['capture'] or t['shield'] > self.elapsed:
                 continue
-            if t['owner'] and (not enemy_ok or self.truce_active()):
+            if t['owner'] and (not enemy_ok or self.truce_between(f, t['owner'])):
                 continue
             d = min(self.terrain.road_distance(m, t['id']) for m in mine) if mine else 1e9
             out.append((d + (2500 if t['owner'] else 0), t))
@@ -627,7 +614,7 @@ class NpcMixin:
         if self._squad(f, 'capture'):
             return
         owned = sum(1 for t in self.towns.values() if t['owner'] == f)
-        rival = sum(1 for t in self.towns.values() if t['owner'] == other_faction(f))
+        rival = max([sum(1 for t in self.towns.values() if t['owner'] == g) for g in self.sides if g != f] or [0])
         # The computer side keeps pace with the players instead of running away with the map.
         if owned > rival + 2:
             return
@@ -635,7 +622,7 @@ class NpcMixin:
         if not targets:
             return
         target = targets[0]
-        method = 'talk' if f == 'survivors' and not target['owner'] else 'assault'
+        method = self.sides[f]['method'] if not target['owner'] else 'assault'
         if not self._can_pay(f, SQUAD_COSTS[method]):
             method = 'bribe' if self._can_pay(f, SQUAD_COSTS['bribe']) else None
         if method is None:
@@ -645,19 +632,20 @@ class NpcMixin:
         route = self.terrain.route(home['id'], target['id'])
         if len(route) < 2:
             return
-        kind = 'ranger' if f == 'survivors' else 'raider'
+        kind = self.sides[f]['fighter']
         size = 2 + (owned >= 4) + (method == 'assault')
         for i in range(size):
             self.spawn_npc(kind, f, home['x'] + i * 24, home['y'] + 60, mode='travel',
                            path=self._path_points(route),
                            job={'kind':'capture','town':target['id'],'method':method,'tries':0})
-        self._notice('Отряд вышел в путь', FACTIONS[f] + ' направляются к поселению ' + target['name'] + '.',
-                     faction=other_faction(f))
+        self._notice('Отряд вышел в путь', self.side_name(f) + ': бойцы идут к поселению ' + target['name'] + '.',
+                     faction=target['owner'])
 
     def _ai_raid(self, f):
         if self._squad(f, 'raid'):
             return
-        victims = [t for t in self.towns.values() if t['owner'] == other_faction(f) and not t['base']]
+        victims = [t for t in self.towns.values() if t['owner'] in self.sides and t['owner'] != f and not t['base']
+                   and not self.truce_between(f, t['owner'])]
         if not victims:
             return
         mine = [t for t in self.towns.values() if t['owner'] == f]
@@ -669,15 +657,15 @@ class NpcMixin:
         for i in range(3):
             self.spawn_npc('raider', f, home['x'] + i * 24, home['y'] + 60, mode='travel',
                            path=self._path_points(route), job={'kind':'raid','town':target['id']})
-        self._notice('Разведка заметила налётчиков', 'Бандиты идут к поселению ' + target['name'] + '. Защитите площадь.',
-                     faction=other_faction(f), tone='error')
+        self._notice('Разведка заметила налётчиков', self.side_name(f) + ': налётчики идут к поселению ' + target['name'] + '. Защити площадь.',
+                     faction=target['owner'], tone='error')
 
     def _ai_defend(self, f):
         for t in self.towns.values():
             c = t['capture']
             if t['owner'] != f or not c or c['faction'] == f or self._squad(f, 'defend'):
                 continue
-            kind = 'ranger' if f == 'survivors' else 'raider'
+            kind = self.sides[f]['fighter']
             for i in range(2):
                 spot = self._free_near(t['x'], t['y'], 120, 260)
                 if spot:
@@ -699,7 +687,7 @@ class NpcMixin:
                 if self.elapsed - npc.get('since', self.elapsed) > 15 and npc['mode'] == 'hold':
                     squad = [n for n in self._squad(f, 'raid') if n['job']['town'] == t['id']]
                     victim = t['owner']
-                    if victim in FACTIONS and victim != f and not self.truce_active():
+                    if victim in self.sides and victim != f and not self.truce_between(f, victim):
                         loot = {k: min(20, round(self.stocks[victim][k] * .15, 1)) for k in ('food', 'metal', 'fuel')}
                         for k, v in loot.items():
                             self.stocks[victim][k] -= v

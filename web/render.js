@@ -19,6 +19,10 @@ const chunks = new Map(); let chunkQueue = 0;
 const particles = []; const seenEffects = new Set(); let lightning = 0;
 const townDecor = new Map();
 const R = AS.render = { quality: 'high', onSound: null };
+// Every player and clan has its own colour, sent by the host with the state.
+let sides = {};
+function col(id) { return (id && sides[id] && sides[id].color) || COL[id] || COL.neutral; }
+R.col = col;
 
 function segDist(px, py, ax, ay, bx, by) { const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy; const u = l ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l)) : 0; return Math.hypot(px - ax - u * dx, py - ay - u * dy); }
 function inPoly(x, y, poly) { let inside = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside; } return inside; }
@@ -261,6 +265,7 @@ R.darkness = darkness;
 /* ---------- main frame ---------- */
 const civilFor = new Map();
 R.draw = function (c, v) {
+  sides = (v.state && v.state.sides) || {};
   const { cam, state } = v, now = v.now, dt = v.dt, Z = v.zoom || 1;
   // World-space view size; the canvas is scaled by the camera zoom.
   const cw = v.cw / Z, ch = v.ch / Z;
@@ -291,12 +296,12 @@ R.draw = function (c, v) {
     state.players.forEach(p => {
       const r = v.drawPlayers[p.id]; if (!r) return;
       const car = p.vehicle ? { x: r.x, y: r.y, angle: p.car.angle } : p.car;
-      if (car && vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, p.faction, p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, p.vehicle && p.moving, now) });
+      if (car && vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, AS.util.strSeed(p.id) < .5 ? 'pickup' : 'suv', p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, p.vehicle && p.moving, now) });
       if (!p.vehicle && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
     });
     (state.npcs || []).forEach(n => { const r = v.drawNpcs[n.id] || n; if (!vis(r.x, r.y)) return; items.push({ y: r.y, f: () => drawNpc(c, n, r, v) }); });
     cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 500)) return; civilians(t0, towns2 && towns2[t0.id], now, v).forEach(cv => items.push({ y: cv.y, f: () => { c.save(); c.translate(cv.x, cv.y); c.rotate(cv.a); S.person(c, { type: 'civil', faction: 'neutral', phase: now * 7 + cv.seed * 9, moving: cv.moving, seed: cv.seed, armor: 0, weapon: 0 }); c.restore(); } })); });
-  } else { items.push({ y: 5225, f: () => drawCar(c, { x: 7390, y: 5225, angle: -.4 }, 'survivors', 0, false, now) }); }
+  } else { items.push({ y: 5225, f: () => drawCar(c, { x: 7390, y: 5225, angle: -.4 }, 'suv', 0, false, now) }); }
   items.sort((a, b) => a.y - b.y).forEach(i => i.f());
   // Tracers.
   if (state) state.effects.forEach(e => { if (e.kind !== 'shot' && e.kind !== 'tower' && e.kind !== 'acid') return; const k = Math.max(0, (e.until - state.time) / .22); if (e.kind === 'acid') { c.strokeStyle = '#b9e04a' + Math.floor(Math.min(1, k) * 200).toString(16).padStart(2, '0'); c.lineWidth = 4; c.setLineDash([4, 6]); c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); c.setLineDash([]); return; } c.strokeStyle = (e.kind === 'tower' ? '#ffcf7a' : '#f8e3a8') + Math.floor(k * 220).toString(16).padStart(2, '0'); c.lineWidth = 1.6; c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); });
@@ -313,9 +318,9 @@ R.draw = function (c, v) {
 };
 
 function drawSquare(c, t, v) {
-  const color = COL[t.owner || 'neutral'];
+  const color = col(t.owner);
   c.save(); c.translate(t.x, t.y);
-  if (t.capture) { const cp = t.capture; c.fillStyle = COL[cp.faction] + '1e'; c.beginPath(); c.arc(0, 0, 160, 0, 7); c.fill(); c.strokeStyle = cp.contested ? '#e0805f' : COL[cp.faction]; c.lineWidth = 5; c.beginPath(); c.arc(0, 0, 160, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, Math.min(1, cp.progress / 30))); c.stroke(); c.strokeStyle = '#ffffff22'; c.lineWidth = 1; c.setLineDash([6, 8]); c.beginPath(); c.arc(0, 0, 160, 0, 7); c.stroke(); c.setLineDash([]); }
+  if (t.capture) { const cp = t.capture; c.fillStyle = col(cp.faction) + '1e'; c.beginPath(); c.arc(0, 0, 160, 0, 7); c.fill(); c.strokeStyle = cp.contested ? '#e0805f' : col(cp.faction); c.lineWidth = 5; c.beginPath(); c.arc(0, 0, 160, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, Math.min(1, cp.progress / 30))); c.stroke(); c.strokeStyle = '#ffffff22'; c.lineWidth = 1; c.setLineDash([6, 8]); c.beginPath(); c.arc(0, 0, 160, 0, 7); c.stroke(); c.setLineDash([]); }
   // Monument plinth and flagpole.
   c.fillStyle = '#00000040'; c.fillRect(-12, -8, 30, 26); c.fillStyle = '#8c887a'; c.fillRect(-16, -14, 32, 28); c.fillStyle = '#a19c8c'; c.fillRect(-16, -14, 32, 5);
   c.strokeStyle = '#00000044'; c.lineWidth = 3; c.beginPath(); c.moveTo(2, 0); c.lineTo(46, 22); c.stroke();
@@ -328,7 +333,7 @@ function drawSquare(c, t, v) {
 }
 function drawBuilding(c, b, t, v) {
   const level = t ? t.levels[b.kind] : (['depot', 'house'].includes(b.kind) && b.town === 'shabrovsky' ? 1 : 0), owner = t ? t.owner : null;
-  const sp = S.building(b.kind, level, owner, b.w, b.h); c.drawImage(sp.im, b.x - sp.ox, b.y - sp.oy);
+  const sp = S.building(b.kind, level, owner ? col(owner) : null, b.w, b.h); c.drawImage(sp.im, b.x - sp.ox, b.y - sp.oy);
   const con = t && t.construct && t.construct[b.kind];
   if (con) {
     c.save(); c.translate(b.x, b.y); c.strokeStyle = '#c99a5c'; c.lineWidth = 2; c.strokeRect(-b.w / 2 - 6, -b.h / 2 - 6, b.w + 12, b.h + 12); c.lineWidth = 1; for (let i = -b.w / 2; i < b.w / 2; i += 14) { c.beginPath(); c.moveTo(i, -b.h / 2 - 6); c.lineTo(i + 8, b.h / 2 + 6); c.stroke(); }
@@ -346,11 +351,11 @@ function drawCache(c, p, state, v) {
   c.restore();
 }
 function drawPost(c, p, now) {
-  c.save(); c.translate(p.x, p.y); const col = COL[p.faction];
+  c.save(); c.translate(p.x, p.y); const col = col(p.faction);
   c.fillStyle = '#00000044'; c.beginPath(); c.ellipse(8, 8, 40, 26, 0, 0, 7); c.fill();
   for (let a = 0; a < 6.28; a += .45) { c.fillStyle = (a * 10 | 0) % 2 ? '#a39470' : '#958763'; rr(c, Math.cos(a) * 30 - 5, Math.sin(a) * 22 - 3, 10, 6, 3); c.fill(); }
   c.fillStyle = '#5b4a35'; c.fillRect(-12, -10, 24, 20); c.fillStyle = col; c.fillRect(-12, -10, 24, 4);
-  if (p.faction === 'bandits') { c.fillStyle = '#d7d1bd'; c.fillRect(-46, -2, 34, 4); c.fillStyle = '#b8483c'; for (let i = 0; i < 4; i++) c.fillRect(-44 + i * 9, -2, 4, 4); }
+  if (true) { c.fillStyle = '#d7d1bd'; c.fillRect(-46, -2, 34, 4); c.fillStyle = '#b8483c'; for (let i = 0; i < 4; i++) c.fillRect(-44 + i * 9, -2, 4, 4); }
   else { c.fillStyle = '#e8e3d0'; c.fillRect(-4, -6, 8, 3); c.fillRect(-1.5, -9, 3, 9); }
   c.strokeStyle = '#c9c4ae'; c.lineWidth = 2; c.beginPath(); c.moveTo(10, -6); c.lineTo(10, -36); c.stroke(); c.fillStyle = col; c.beginPath(); c.moveTo(11, -36); c.lineTo(26, -32 + Math.sin(now * 3) * 2); c.lineTo(11, -26); c.fill();
   c.fillStyle = '#16201ccc'; c.fillRect(-20, 26, 40, 4); c.fillStyle = col; c.fillRect(-20, 26, 40 * Math.max(0, p.hp) / 220, 4);
@@ -363,7 +368,7 @@ function drawDrop(c, d, now) {
 }
 function crateDraw(c) { c.fillStyle = '#6b7d55'; c.fillRect(-12, -10, 24, 20); c.strokeStyle = '#2e3328'; c.strokeRect(-12, -10, 24, 20); c.beginPath(); c.moveTo(-12, -10); c.lineTo(12, 10); c.stroke(); }
 function drawCar(c, car, faction, damage, moving, now) {
-  const sp = S.vehicle(faction === 'bandits' ? 'pickup' : 'suv', faction === 'bandits' ? '#6e3b2c' : '#7d8664', damage);
+  const sp = S.vehicle(faction === 'pickup' ? 'pickup' : 'suv', faction === 'pickup' ? '#6e3b2c' : '#7d8664', damage);
   c.save(); c.translate(car.x, car.y); c.rotate(car.angle); c.drawImage(sp.im, -sp.ox, -sp.oy); c.restore();
   if (moving && Math.random() < .5) puff('dust', car.x - Math.cos(car.angle) * 34, car.y - Math.sin(car.angle) * 34, (Math.random() - .5) * 20, (Math.random() - .5) * 20, .8, 6, '#9d927a');
   if (damage === 2 && Math.random() < .3) puff('smoke', car.x, car.y, 4, -12, 2, 6, '#2f2c28');
@@ -373,7 +378,7 @@ function drawPlayer(c, p, r, v) {
   const ang = isMe && !p.vehicle ? Math.atan2(v.aim.y, v.aim.x) : (t - p.shot < .6 ? p.angle : p.angle);
   const dead = p.hp <= 0;
   c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (isMe ? ang : (r.ang != null ? r.ang : p.angle)));
-  S.person(c, { faction: p.faction, armor: p.gear ? p.gear.armor : 0, weapon: p.gear ? p.gear.weapon : 0, clothes: p.gear ? p.gear.clothes : 0, pack: p.gear ? p.gear.backpack : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: isMe && v.holdAim, shot: t - p.shot < .25, flash: t - p.shot < .07, busy: t - p.busy < .8, dead, seed: AS.util.strSeed(p.id) });
+  S.person(c, { faction: AS.util.strSeed(p.id) < .5 ? 'bandits' : 'survivors', armor: p.gear ? p.gear.armor : 0, weapon: p.gear ? p.gear.weapon : 0, clothes: p.gear ? p.gear.clothes : 0, pack: p.gear ? p.gear.backpack : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: isMe && v.holdAim, shot: t - p.shot < .25, flash: t - p.shot < .07, busy: t - p.busy < .8, dead, seed: AS.util.strSeed(p.id) });
   c.restore();
   if (dead) return;
   const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
@@ -389,16 +394,16 @@ function drawNpc(c, n, r, v) {
     return;
   }
   if (n.type === 'convoy') {
-    const sp = S.vehicle('truck', n.faction === 'bandits' ? '#6a3b2e' : '#5d6b4c', n.hp < n.max * .4 ? 1 : 0);
+    const sp = S.vehicle('truck', mix(col(n.faction), '#3d4236', .45), n.hp < n.max * .4 ? 1 : 0);
     c.save(); c.translate(r.x, r.y); c.rotate(r.ang != null ? r.ang : n.angle); c.drawImage(sp.im, -sp.ox, -sp.oy); c.restore();
     if (Math.random() < .4) puff('dust', r.x - Math.cos(n.angle) * 50, r.y - Math.sin(n.angle) * 50, 0, 0, .9, 7, '#9d927a');
-    bar(c, r.x, r.y + 30, n.hp / n.max, COL[n.faction]); return;
+    bar(c, r.x, r.y + 30, n.hp / n.max, col(n.faction)); return;
   }
   const dead = n.hp <= 0, t = v.state.time;
   c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (r.ang != null ? r.ang : n.angle));
   S.person(c, { type: n.type, faction: n.faction, armor: n.type === 'raider' || n.type === 'ranger' ? 1 : 0, weapon: n.type === 'marauder' ? 0 : n.type === 'militia' ? 1 : 2, phase: r.phase || 0, moving: r.moving, aim: n.mode === 'fight', shot: t - n.shot < .25, flash: t - n.shot < .07, dead, seed: AS.util.strSeed(n.id) });
   c.restore();
-  if (!dead && n.hp < n.max) bar(c, r.x, r.y + 22, n.hp / n.max, n.faction === 'marauders' ? '#c98a5a' : COL[n.faction] || '#bbb');
+  if (!dead && n.hp < n.max) bar(c, r.x, r.y + 22, n.hp / n.max, n.faction === 'marauders' ? '#c98a5a' : col(n.faction));
 }
 function bar(c, x, y, k, col) { c.fillStyle = '#18271fcc'; c.fillRect(x - 18, y, 36, 4); c.fillStyle = col; c.fillRect(x - 18, y, 36 * Math.max(0, k), 4); }
 
@@ -429,12 +434,12 @@ function emitters(c, state, v, dt, vis) {
 function labels(c, state, v, vis) {
   c.font = '11px Segoe UI, Arial'; c.textAlign = 'center';
   const me = v.drawPlayers[state.me.id];
-  cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 200)) return; const t = state.towns[t0.id]; pill(c, t0.name.toUpperCase(), t0.x, t0.y - 104, COL[t.owner || 'neutral']); if (!v.panel && me && Math.hypot(me.x - t0.x, me.y - t0.y) > 170) pill(c, 'E · ПЛОЩАДЬ', t0.x, t0.y + 136, '#d9d6bb'); });
+  cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 200)) return; const t = state.towns[t0.id]; pill(c, t0.name.toUpperCase(), t0.x, t0.y - 104, col(t.owner)); if (!v.panel && me && Math.hypot(me.x - t0.x, me.y - t0.y) > 170) pill(c, 'E · ПЛОЩАДЬ', t0.x, t0.y + 136, '#d9d6bb'); });
   cfg.buildings_world.forEach(b => { if (!me || Math.abs(b.x - me.x) > 260 || Math.abs(b.y - me.y) > 220) return; const t = state.towns[b.town], L = t.levels[b.kind]; pill(c, cfg.buildings[b.kind].name + (L ? ' · ' + L : ' · руины') + (t.construct && t.construct[b.kind] ? ' · стройка' : ''), b.x, b.y - b.h / 2 - 22, L ? '#dce1cf' : '#c8c6b1'); });
   cfg.towns.forEach(t => { const lm = cfg.landmarks[t.id]; if (lm && me && Math.hypot(me.x - t.x - lm.x, me.y - t.y - lm.y) < 420) pill(c, '★ ' + lm.name, t.x + lm.x, t.y + lm.y - lm.h / 2 - 24, '#ecd29a'); });
   pois.forEach(p => { if (vis(p.x, p.y, 100)) pill(c, p.name.toUpperCase() + ' · ' + p.kind_name.toLowerCase(), p.x, p.y - 196, '#d8c79c'); });
-  state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y)) return; pill(c, p.name + ' · ' + (p.level || 1) + ' ур.' + (p.id === state.me.id ? ' · ты' : ''), r.x, r.y - 34, COL[p.faction]); });
-  (state.posts || []).forEach(p => { if (vis(p.x, p.y)) pill(c, p.name, p.x, p.y - 48, COL[p.faction]); });
+  state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y)) return; pill(c, p.name + ' · ' + (p.level || 1) + ' ур.' + (p.id === state.me.id ? ' · ты' : ''), r.x, r.y - 34, col(p.faction)); });
+  (state.posts || []).forEach(p => { if (vis(p.x, p.y)) pill(c, p.name, p.x, p.y - 48, col(p.faction)); });
 }
 function pill(c, text, x, y, color, bg) { c.font = '11px Segoe UI, Arial'; const w = c.measureText(text).width + 18; rr(c, x - w / 2, y - 10, w, 21, 4); c.fillStyle = bg || '#142019e0'; c.fill(); c.fillStyle = color || '#e3e3d4'; c.textAlign = 'center'; c.fillText(text, x, y + 4); }
 R.pill = pill;
@@ -512,6 +517,7 @@ function weather(c, v, dt, now) {
 
 /* ---------- maps ---------- */
 R.drawMap = function (cv, big, v, mapState) {
+  sides = (v.state && v.state.sides) || sides;
   const { state, dpr } = v; if (!state || !cv) return null;
   const c = cv.getContext('2d'), box = cv.getBoundingClientRect(); const w = big ? box.width : 250, h = big ? box.height : 160;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
@@ -524,10 +530,10 @@ R.drawMap = function (cv, big, v, mapState) {
   // Points of interest.
   pois.forEach(p => { const [x, y] = P(p.x, p.y); if (x < -5 || x > w + 5 || y < -5 || y > h + 5) return; const looted = state.loot && state.loot[p.id]; c.fillStyle = looted ? '#776f5e' : '#d8c79c'; c.save(); c.translate(x, y); c.rotate(.785); c.fillRect(-2.5, -2.5, 5, 5); c.restore(); if (big && (mapState.zoom || 1) > 1.6) { c.fillStyle = '#c9c0a2'; c.font = '9px Segoe UI'; c.textAlign = 'center'; c.fillText(p.name, x, y + 12); } });
   (state.airdrops || []).forEach(d => { const [x, y] = P(d.x, d.y); c.strokeStyle = '#ffd38a'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 5 + Math.sin(v.now * 5) * 1.5, 0, 7); c.stroke(); });
-  (state.posts || []).forEach(p => { const [x, y] = P(p.x, p.y); c.fillStyle = COL[p.faction]; c.fillRect(x - 3, y - 3, 6, 6); });
-  Object.values(state.towns).forEach(t => { const [x, y] = P(t.x, t.y); if (x < -40 || x > w + 40 || y < -20 || y > h + 20) return; const color = COL[t.owner || 'neutral']; c.fillStyle = '#0d1512'; c.beginPath(); c.arc(x, y, big ? 6 : 4, 0, 7); c.fill(); c.fillStyle = color; c.beginPath(); c.arc(x, y, big ? 4.5 : 3, 0, 7); c.fill(); if (t.base) { c.strokeStyle = color; c.lineWidth = 1.2; c.beginPath(); c.arc(x, y, big ? 9 : 6, 0, 7); c.stroke(); } if (big) { c.fillStyle = mapState.selected === t.id ? '#f0d09d' : '#e1e3d6'; c.font = (mapState.selected === t.id ? 'bold ' : '') + '11px Segoe UI, Arial'; c.textAlign = 'center'; c.fillText(t.name, x, y - 10); } if (t.capture) { c.strokeStyle = '#e3ad74'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 9 + Math.sin(v.now * 6) * 2, 0, 7); c.stroke(); } });
-  (state.npcs || []).forEach(n => { if (n.type !== 'convoy' && !big) return; const [x, y] = P(n.x, n.y); if (n.type === 'convoy') { c.fillStyle = COL[n.faction]; c.fillRect(x - 3, y - 2, 6, 4); } else if (n.faction === 'marauders') { c.fillStyle = '#c98a5a99'; c.fillRect(x - 1, y - 1, 2, 2); } else { c.fillStyle = COL[n.faction] || '#ccc'; c.fillRect(x - 1.5, y - 1.5, 3, 3); } });
-  state.players.forEach(p => { const [x, y] = P(p.x, p.y); const me = p.id === state.me.id; c.fillStyle = me ? '#edaf6b' : COL[p.faction]; c.beginPath(); c.arc(x, y, me ? 4 : 3, 0, 7); c.fill(); if (me) { c.strokeStyle = '#eabf8a88'; c.lineWidth = 1; c.beginPath(); c.arc(x, y, 8 + Math.sin(v.now * 4) * 2, 0, 7); c.stroke(); const a = p.vehicle ? p.angle : Math.atan2(v.aim.y, v.aim.x); c.beginPath(); c.moveTo(x + Math.cos(a) * 11, y + Math.sin(a) * 11); c.lineTo(x + Math.cos(a + 2.5) * 5, y + Math.sin(a + 2.5) * 5); c.lineTo(x + Math.cos(a - 2.5) * 5, y + Math.sin(a - 2.5) * 5); c.fill(); } });
+  (state.posts || []).forEach(p => { const [x, y] = P(p.x, p.y); c.fillStyle = col(p.faction); c.fillRect(x - 3, y - 3, 6, 6); });
+  Object.values(state.towns).forEach(t => { const [x, y] = P(t.x, t.y); if (x < -40 || x > w + 40 || y < -20 || y > h + 20) return; const color = col(t.owner); c.fillStyle = '#0d1512'; c.beginPath(); c.arc(x, y, big ? 6 : 4, 0, 7); c.fill(); c.fillStyle = color; c.beginPath(); c.arc(x, y, big ? 4.5 : 3, 0, 7); c.fill(); if (t.base) { c.strokeStyle = color; c.lineWidth = 1.2; c.beginPath(); c.arc(x, y, big ? 9 : 6, 0, 7); c.stroke(); } if (big) { c.fillStyle = mapState.selected === t.id ? '#f0d09d' : '#e1e3d6'; c.font = (mapState.selected === t.id ? 'bold ' : '') + '11px Segoe UI, Arial'; c.textAlign = 'center'; c.fillText(t.name, x, y - 10); } if (t.capture) { c.strokeStyle = '#e3ad74'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 9 + Math.sin(v.now * 6) * 2, 0, 7); c.stroke(); } });
+  (state.npcs || []).forEach(n => { if (n.type !== 'convoy' && !big) return; const [x, y] = P(n.x, n.y); if (n.type === 'convoy') { c.fillStyle = col(n.faction); c.fillRect(x - 3, y - 2, 6, 4); } else if (n.faction === 'marauders') { c.fillStyle = '#c98a5a99'; c.fillRect(x - 1, y - 1, 2, 2); } else { c.fillStyle = col(n.faction) || '#ccc'; c.fillRect(x - 1.5, y - 1.5, 3, 3); } });
+  state.players.forEach(p => { const [x, y] = P(p.x, p.y); const me = p.id === state.me.id; c.fillStyle = me ? '#edaf6b' : col(p.faction); c.beginPath(); c.arc(x, y, me ? 4 : 3, 0, 7); c.fill(); if (me) { c.strokeStyle = '#eabf8a88'; c.lineWidth = 1; c.beginPath(); c.arc(x, y, 8 + Math.sin(v.now * 4) * 2, 0, 7); c.stroke(); const a = p.vehicle ? p.angle : Math.atan2(v.aim.y, v.aim.x); c.beginPath(); c.moveTo(x + Math.cos(a) * 11, y + Math.sin(a) * 11); c.lineTo(x + Math.cos(a + 2.5) * 5, y + Math.sin(a + 2.5) * 5); c.lineTo(x + Math.cos(a - 2.5) * 5, y + Math.sin(a - 2.5) * 5); c.fill(); } });
   if (v.waypoint) { const [x, y] = P(v.waypoint.x, v.waypoint.y), [mx, my] = P(state.me.x, state.me.y); c.strokeStyle = '#dfbb7c'; c.lineWidth = 1; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(mx, my); c.lineTo(x, y); c.stroke(); c.setLineDash([]); c.strokeRect(x - 6, y - 6, 12, 12); }
   if (!big) { c.strokeStyle = '#ffffff22'; c.strokeRect(.5, .5, w - 1, h - 1); }
   return { scale, ox, oy };

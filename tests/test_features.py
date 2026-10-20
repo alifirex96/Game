@@ -8,7 +8,7 @@ import time
 import unittest
 from pathlib import Path
 from server import GameError, GameServer, World, discovery_responder
-from world_data import BASES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE, TOWNS
+from world_data import BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE, TOWNS
 
 def keep_alive(world):
     for p in world.players.values():
@@ -25,7 +25,8 @@ class FeatureTests(unittest.TestCase):
         self.world = World(rng=random.Random(11))
         self.token = self.world.join('Тест', 'survivors')
         self.p = self.world.players[self.token]
-        self.base = self.world.towns[BASES['survivors']]
+        self.f = self.p['faction']
+        self.base = self.world.home(self.f)
 
     def act(self, op, **data):
         data.update(op=op, request_id='r' + str(random.random()))
@@ -45,7 +46,7 @@ class FeatureTests(unittest.TestCase):
         self.assertNotIn('farm', self.base['construct'])
 
     def test_two_constructions_at_most(self):
-        self.world.stocks['survivors'].update(wood=999, stone=999, metal=999)
+        self.world.stocks[self.f].update(wood=999, stone=999, metal=999)
         for kind in ('farm', 'sawmill'):
             b = self.world.buildings['shabrovsky:' + kind]; self.goto(b, 60); self.act('build', id=b['id'])
         b = self.world.buildings['shabrovsky:quarry']; self.goto(b, 60)
@@ -53,24 +54,24 @@ class FeatureTests(unittest.TestCase):
             self.act('build', id=b['id'])
 
     def test_storage_cap_from_warehouses(self):
-        self.assertEqual(self.world.storage('survivors'), STORAGE_BASE)
+        self.assertEqual(self.world.storage(self.f), STORAGE_BASE)
         self.base['levels']['warehouse'] = 2
-        self.assertEqual(self.world.storage('survivors'), STORAGE_BASE + 2 * STORAGE_PER_WAREHOUSE)
-        self.world._reward('survivors', {'wood': 10 ** 6})
-        self.assertEqual(self.world.stocks['survivors']['wood'], self.world.storage('survivors'))
+        self.assertEqual(self.world.storage(self.f), STORAGE_BASE + 2 * STORAGE_PER_WAREHOUSE)
+        self.world._reward(self.f, {'wood': 10 ** 6})
+        self.assertEqual(self.world.stocks[self.f]['wood'], self.world.storage(self.f))
 
     def test_trade_uses_regional_prices(self):
         self.goto(self.base, 40)
-        before = dict(self.world.stocks['survivors'])
+        before = dict(self.world.stocks[self.f])
         self.act('trade', town=self.base['id'], give='wood', get='food', amount=10)
-        self.assertEqual(self.world.stocks['survivors']['wood'], before['wood'] - 10)
-        self.assertGreater(self.world.stocks['survivors']['food'], before['food'])
+        self.assertEqual(self.world.stocks[self.f]['wood'], before['wood'] - 10)
+        self.assertGreater(self.world.stocks[self.f]['food'], before['food'])
         with self.assertRaises(GameError):
             self.act('trade', town=self.base['id'], give='wood', get='wood', amount=10)
 
     def test_crafting_needs_a_workshop_level(self):
         ws = self.world.buildings['shabrovsky:workshop']; self.goto(ws, 60)
-        self.world.stocks['survivors'].update(metal=200, wood=200, fuel=200)
+        self.world.stocks[self.f].update(metal=200, wood=200, fuel=200)
         with self.assertRaises(GameError):
             self.act('craft', item='weapon', tier=1)
         self.base['levels']['workshop'] = 1
@@ -101,46 +102,46 @@ class FeatureTests(unittest.TestCase):
 
     def test_ai_faction_expands_without_human_players(self):
         run(self.world, 900, step=.1)
-        owned = [t for t in self.world.towns.values() if t['owner'] == 'bandits']
+        owned = [t for t in self.world.towns.values() if t['owner'] == 'ai_scar']
         self.assertGreaterEqual(len(owned), 2)
 
     def test_ai_can_be_disabled(self):
         self.world.settings['ai'] = False
         run(self.world, 600, step=.25)
-        owned = [t for t in self.world.towns.values() if t['owner'] == 'bandits']
+        owned = [t for t in self.world.towns.values() if t['owner'] == 'ai_scar']
         self.assertEqual(len(owned), 1)
 
     def test_convoy_carries_remote_output_home(self):
         town = self.world.towns['polevskoy']
-        town['owner'] = 'survivors'
+        town['owner'] = self.f
         town['cargo'] = {'wood': 20.0, 'stone': 0.0, 'metal': 5.0, 'food': 0.0, 'fuel': 0.0}
         self.world.settings['ai'] = False
         self.world.convoy_clock = 39.95
-        wood = self.world.stocks['survivors']['wood']
+        wood = self.world.stocks[self.f]['wood']
         run(self.world, .2)
         convoys = [n for n in self.world.npcs.values() if n['type'] == 'convoy']
         self.assertEqual(len(convoys), 1)
         run(self.world, 70, step=.1)
-        self.assertEqual(self.world.fstats['survivors']['convoy'], 1)
-        self.assertGreaterEqual(self.world.stocks['survivors']['wood'], wood + 19)
+        self.assertEqual(self.world.fstats[self.f]['convoy'], 1)
+        self.assertGreaterEqual(self.world.stocks[self.f]['wood'], wood + 19)
 
     def test_bandit_checkpoint_takes_a_quarter_of_cargo(self):
-        convoy = self.world.spawn_npc('convoy', 'survivors', 7000, 5800, mode='travel', path=[[7300, 5200]],
+        convoy = self.world.spawn_npc('convoy', self.f, 7000, 5800, mode='travel', path=[[7300, 5200]],
                                       cargo={'wood': 40.0, 'stone': 0, 'metal': 0, 'food': 0, 'fuel': 0})
-        self.world.posts['x'] = {'id':'x','faction':'bandits','x':7000,'y':5800,'hp':220,'built':0,'name':'Блокпост'}
-        metal = self.world.stocks['bandits']['wood']
+        self.world.posts['x'] = {'id':'x','faction':'ai_scar','x':7000,'y':5800,'hp':220,'built':0,'name':'Блокпост'}
+        metal = self.world.stocks['ai_scar']['wood']
         self.world.tower_clock = 1.5
         self.world.tick_defenses(0)
         self.assertAlmostEqual(convoy['cargo']['wood'], 30.0)
-        self.assertGreater(self.world.stocks['bandits']['wood'], metal)
+        self.assertGreater(self.world.stocks['ai_scar']['wood'], metal)
 
     def test_truce_blocks_player_damage(self):
-        bandit = self.world.players[self.world.join('Б', 'bandits')]
-        bandit['x'], bandit['y'] = 3000, 3000
-        self.world.truce['until'] = self.world.elapsed + 100
-        self.assertFalse(self.world.hostile(self.p, bandit))
-        self.world.truce['until'] = 0
-        self.assertTrue(self.world.hostile(self.p, bandit))
+        other = self.world.players[self.world.join('Б')]
+        other['x'], other['y'] = 3000, 3000
+        self.assertTrue(self.world.hostile(self.p, other))
+        self.world._start_truce(self.f, other['faction'])
+        self.assertFalse(self.world.hostile(self.p, other))
+        self.assertTrue(self.world.hostile(self.p, {'faction': 'ai_scar'}))
 
     def test_shelter_protects_from_marauders(self):
         self.goto(self.base, 40)
@@ -150,22 +151,22 @@ class FeatureTests(unittest.TestCase):
 
     def test_marauder_kill_rewards_faction(self):
         m = self.world.spawn_npc('marauder', 'marauders', 3000, 3000)
-        metal = self.world.stocks['survivors']['metal']
+        metal = self.world.stocks[self.f]['metal']
         self.world.hurt(m, 999, self.p)
         self.assertEqual(self.p['stats']['kills'], 1)
-        self.assertGreater(self.world.stocks['survivors']['metal'], metal)
+        self.assertGreater(self.world.stocks[self.f]['metal'], metal)
 
     def test_story_choice_sets_flag_and_advances(self):
         self.p['visited'].append('ekaterinburg')
-        self.assertTrue(self.world._story_ready('survivors'))
+        self.assertTrue(self.world._story_ready(self.f))
         self.act('story_choice', choice=1)
-        self.assertIn('secret_freq', self.world.story['survivors']['flags'])
-        self.assertEqual(self.world.story['survivors']['index'], 1)
+        self.assertIn('secret_freq', self.world.story[self.f]['flags'])
+        self.assertEqual(self.world.story[self.f]['index'], 1)
         with self.assertRaises(GameError):
             self.act('story_choice', choice=0)
 
     def test_post_must_stand_on_a_road(self):
-        self.world.stocks['survivors'].update(wood=200, stone=200, metal=200)
+        self.world.stocks[self.f].update(wood=200, stone=200, metal=200)
         self.p['x'], self.p['y'] = 7300, 5900
         with self.assertRaises(GameError):
             self.act('post')
@@ -186,10 +187,10 @@ class FeatureTests(unittest.TestCase):
 
     def test_assault_raises_militia(self):
         town = self.world.towns['revda']
-        self.world.begin_capture(town, 'survivors', 'assault')
+        self.world.begin_capture(town, self.f, 'assault')
         militia = [n for n in self.world.npcs.values() if n['type'] == 'militia']
         self.assertGreaterEqual(len(militia), 1)
-        self.assertTrue(all(n['enemy'] == 'survivors' for n in militia))
+        self.assertTrue(all(n['enemy'] == self.f for n in militia))
 
     def test_light_snapshot_omits_towns(self):
         state = self.world.snapshot(self.token, full=False)
@@ -201,16 +202,18 @@ class SaveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'world.json'
             w = World(path, rng=random.Random(2))
-            token = w.join('А', 'bandits')
+            token = w.join('А')
+            side = w.players[token]['faction']
             w.players[token]['gear']['armor'] = 2
-            w.posts['p1'] = {'id':'p1','faction':'bandits','x':1,'y':2,'hp':100,'built':0,'name':'Блокпост'}
-            w.story['bandits']['flags'].append('iron_road')
+            w.posts['p1'] = {'id':'p1','faction':side,'x':1,'y':2,'hp':100,'built':0,'name':'Пост'}
+            w.story[side]['flags'].append('iron_road')
             w.room_code = '654321'
             w.save()
             loaded = World(path)
             self.assertEqual(loaded.players[token]['gear']['armor'], 2)
             self.assertIn('p1', loaded.posts)
-            self.assertIn('iron_road', loaded.story['bandits']['flags'])
+            self.assertIn('iron_road', loaded.story[side]['flags'])
+            self.assertEqual(loaded.sides[side]['home'], 'shabrovsky')
             self.assertEqual(loaded.room_code, '654321')
 
     def test_version_one_save_is_migrated(self):
@@ -268,18 +271,15 @@ class SpawnAndLevelTests(unittest.TestCase):
 
     def test_each_player_spawns_at_a_random_free_spot(self):
         spots = []
-        for i, faction in enumerate(('survivors', 'survivors', 'bandits', 'bandits')):
-            p = self.world.players[self.world.join('P' + str(i), faction)]
+        for i in range(4):
+            p = self.world.players[self.world.join('P' + str(i))]
             self.assertFalse(self.world.terrain.water(p['x'], p['y']))
             self.assertFalse(self.world.terrain.solid(p['x'], p['y'], 10))
             self.assertLess(((p['car']['x'] - p['x']) ** 2 + (p['car']['y'] - p['y']) ** 2) ** .5, 100)
-            spots.append((round(p['x']), round(p['y'])))
-        self.assertEqual(len(set(spots)), 4)
-        survivors = [p for p in self.world.players.values() if p['faction'] == 'survivors']
-        bandits = [p for p in self.world.players.values() if p['faction'] == 'bandits']
-        for s in survivors:
-            for b in bandits:
-                self.assertGreater(((s['x'] - b['x']) ** 2 + (s['y'] - b['y']) ** 2) ** .5, 1400)
+            spots.append((p['x'], p['y']))
+        for a in range(4):
+            for b in range(a + 1, 4):
+                self.assertGreater(((spots[a][0] - spots[b][0]) ** 2 + (spots[a][1] - spots[b][1]) ** 2) ** .5, 1400)
 
     def test_respawn_moves_to_a_new_random_spot(self):
         token = self.world.join('A', 'survivors'); p = self.world.players[token]
@@ -299,16 +299,16 @@ class SpawnAndLevelTests(unittest.TestCase):
         self.assertEqual(self.world.max_hp(p), 105)
         self.assertEqual(p['hp'], 105)
         p['level'] = 10; p['hp'] = 50
-        self.world.stocks['survivors']['food'] = 50
+        self.world.stocks[p['faction']]['food'] = 50
         self.world.command(token, {'op':'heal','request_id':'heal-1'})
         self.assertEqual(p['hp'], 95)
-        self.assertEqual(self.world.stocks['survivors']['food'], 47)
+        self.assertEqual(self.world.stocks[p['faction']]['food'], 47)
 
     def test_level_survives_save(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'w.json'
             w = World(path, rng=random.Random(1))
-            token = w.join('A', 'bandits'); w.players[token].update(level=7, xp=33); w.save()
+            token = w.join('A'); w.players[token].update(level=7, xp=33); w.save()
             loaded = World(path)
             self.assertEqual((loaded.players[token]['level'], loaded.players[token]['xp']), (7, 33))
 
@@ -339,6 +339,7 @@ class ShopTests(unittest.TestCase):
         self.world = World(rng=random.Random(9))
         self.token = self.world.join('Покупатель', 'survivors')
         self.p = self.world.players[self.token]
+        self.f = self.p['faction']
         t = self.world.towns['revda']
         self.p['x'], self.p['y'] = t['x'], t['y'] + 40
 
@@ -374,7 +375,7 @@ class ShopTests(unittest.TestCase):
             self.act('equip', weapon=6)
 
     def test_enemy_traders_refuse(self):
-        self.world.towns['revda']['owner'] = 'bandits'
+        self.world.towns['revda']['owner'] = 'ai_scar'
         self.p['coins'] = 500
         with self.assertRaises(GameError):
             self.act('buy', town='revda', kind='medkit')
@@ -383,10 +384,10 @@ class ShopTests(unittest.TestCase):
         self.p['coins'] = 500
         self.act('buy', town='revda', kind='medkit')
         self.act('buy', town='revda', kind='repairkit')
-        self.p['hp'] = 20; food = self.world.stocks['survivors']['food']
+        self.p['hp'] = 20; food = self.world.stocks[self.f]['food']
         self.act('heal')
         self.assertEqual(self.p['hp'], 80)
-        self.assertEqual(self.world.stocks['survivors']['food'], food)
+        self.assertEqual(self.world.stocks[self.f]['food'], food)
         self.p['car'].update(x=self.p['x'] + 50, y=self.p['y'], hp=30.0)
         self.act('repair', kit=True)
         self.assertEqual(self.p['car']['hp'], 100.0)
@@ -395,9 +396,9 @@ class ShopTests(unittest.TestCase):
 
     def test_supplies_go_to_faction_stock(self):
         self.p['coins'] = 100
-        fuel = self.world.stocks['survivors']['fuel']
+        fuel = self.world.stocks[self.f]['fuel']
         self.act('buy', town='revda', kind='supplies')
-        self.assertEqual(self.world.stocks['survivors']['fuel'], fuel + 15)
+        self.assertEqual(self.world.stocks[self.f]['fuel'], fuel + 15)
 
 
 class SurvivalTests(unittest.TestCase):
@@ -406,6 +407,7 @@ class SurvivalTests(unittest.TestCase):
         self.world.settings['ai'] = False
         self.token = self.world.join('Выживший', 'survivors')
         self.p = self.world.players[self.token]
+        self.f = self.p['faction']
         self.p['x'], self.p['y'] = 8000.0 * 3, 6200.0 * 3          # open country in the Urals
 
     def act(self, op, **data):
@@ -481,6 +483,7 @@ class WildlifeAndFuelTests(unittest.TestCase):
         self.world.settings['ai'] = False
         self.token = self.world.join('Охотник', 'survivors')
         self.p = self.world.players[self.token]
+        self.f = self.p['faction']
         self.p['x'], self.p['y'] = 8000.0 * 3, 6200.0 * 3
 
     def act(self, op, **data):
@@ -518,13 +521,13 @@ class WildlifeAndFuelTests(unittest.TestCase):
         self.assertFalse(self.world.hostile(wolf, elk))
 
     def test_each_car_has_its_own_tank(self):
-        stock = self.world.stocks['survivors']['fuel']
+        stock = self.world.stocks[self.f]['fuel']
         car = self.p['car']; car['fuel'] = 5.0
         self.p['vehicle'] = True; self.p['x'], self.p['y'] = car['x'], car['y']
         self.p['input'] = [1, 0, False]
         run(self.world, 40, step=.1)
         self.assertEqual(self.p['car']['fuel'], 0)
-        self.assertEqual(self.world.stocks['survivors']['fuel'], stock)
+        self.assertEqual(self.world.stocks[self.f]['fuel'], stock)
         with self.assertRaises(GameError):
             self.act('refuel', canister=True)
         self.p['items']['canister'] = 1
@@ -538,8 +541,8 @@ class WildlifeAndFuelTests(unittest.TestCase):
         self.p['car'].update(x=revda['x'] + 100, y=revda['y'] + 60, fuel=2.0)
         with self.assertRaises(GameError):
             self.act('refuel', town='revda')
-        revda['owner'] = 'survivors'
-        stock = self.world.stocks['survivors']['fuel']
+        revda['owner'] = self.f
+        stock = self.world.stocks[self.f]['fuel']
         self.act('refuel', town='revda')
         self.assertEqual(self.p['car']['fuel'], min(45, 2 + stock))
-        self.assertLess(self.world.stocks['survivors']['fuel'], stock)
+        self.assertLess(self.world.stocks[self.f]['fuel'], stock)

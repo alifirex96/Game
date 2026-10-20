@@ -18,6 +18,8 @@ AS.util = { hash, rng, strSeed, rr, mix, shade, canvas };
 
 const FACTION = { survivors: '#7fa58f', bandits: '#b8543c', neutral: '#b7b69f' };
 AS.colors = FACTION;
+// Building flags take a side's colour directly ("#rrggbb") or a named palette entry.
+function flagColor(owner) { return owner && owner[0] === '#' ? owner : FACTION[owner || 'neutral'] || FACTION.neutral; }
 
 /* ---------- small painters reused by buildings and ruins ---------- */
 function speckle(c, x, y, w, h, colors, count, size, r) {
@@ -128,7 +130,7 @@ const PAINT = {
     if (L === 1) { tarp(c, w * .02, -h / 2 + 12, 34, 22, '#4f6f84'); scaffold(c, w / 2 - 22, -h / 2 + 4, 18, rh - 8); }
     if (L >= 2) { sandbags(c, -w / 2 - 8, h / 2 + 3, 36, 12); sandbags(c, w / 2 - 28, h / 2 + 3, 36, 12); crate(c, w / 2 - 22, -h / 2 + 10, 12); crate(c, w / 2 - 34, -h / 2 + 14, 10, '#6f7d55'); }
     if (L >= 3) { solar(c, -w / 2 + 34, -h / 2 + 8, 3); c.strokeStyle = '#c3c6bb'; c.lineWidth = 2; c.beginPath(); c.moveTo(w / 2 - 14, -h / 2 + 30); c.lineTo(w / 2 - 14, -h / 2 - 8); c.stroke(); c.fillStyle = '#d7d9cf'; c.beginPath(); c.ellipse(w / 2 - 14, -h / 2 - 8, 7, 3, -.4, 0, 7); c.fill(); lampPost(c, -w / 2 - 6, h / 2 + 22); lampPost(c, w / 2 + 6, h / 2 + 22); }
-    if (L) flag(c, -w / 2 + 6, -h / 2 + 4, FACTION[owner || 'neutral']);
+    if (L) flag(c, -w / 2 + 6, -h / 2 + 4, flagColor(owner));
     else rubble(c, -w / 2 - 10, h / 2, w + 20, 18, r, 12);
   },
   house(c, w, h, L, owner, r) {
@@ -246,7 +248,7 @@ const PAINT = {
     if (L === 0) { c.strokeStyle = '#6d6f63'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, top + 26); c.lineTo(22, top + 6); c.stroke(); rubble(c, -w / 2, 30, w, 14, r, 7); }
     if (L >= 2) { c.fillStyle = '#d9dbd0'; c.beginPath(); c.ellipse(-12, top + 30, 8, 4, -.5, 0, 7); c.fill(); c.strokeStyle = '#7d7f75'; c.stroke(); }
     if (L >= 3) { solar(c, -w / 2 + 2, 30, 1); solar(c, w / 2 - 15, 30, 1); c.fillStyle = '#d27b4e'; c.beginPath(); c.arc(0, top, 3, 0, 7); c.fill(); }
-    if (L) flag(c, 27, 8, FACTION[owner || 'neutral']);
+    if (L) flag(c, 27, 8, flagColor(owner));
   },
   guard(c, w, h, L, owner, r) {
     // Watchtower: four legs, platform and roof, seen from above.
@@ -259,7 +261,7 @@ const PAINT = {
     if (L === 1) tarp(c, -pw / 2, -ph / 2, pw * .6, ph * .5, '#4f6f84');
     sandbags(c, -pw / 2, ph / 2 - 4, pw, 8);
     if (L >= 3) { c.fillStyle = '#e9e1b5'; c.beginPath(); c.arc(pw / 2 - 4, ph / 2 - 8, 4, 0, 7); c.fill(); c.fillStyle = '#2f342f'; c.fillRect(-4, ph / 2 - 10, 8, 5); }
-    flag(c, -pw / 2 + 3, -ph / 2 + 2, FACTION[owner || 'neutral']);
+    flag(c, -pw / 2 + 3, -ph / 2 + 2, flagColor(owner));
   },
 };
 

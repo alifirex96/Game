@@ -2,7 +2,7 @@
 import random
 import unittest
 from server import GameError, World
-from world_data import FACTIONS, TOWNS, BASES
+from world_data import TOWNS, AI_SIDES, MAX_PLAYERS
 
 class WorldTests(unittest.TestCase):
     def setUp(self):
@@ -13,32 +13,46 @@ class WorldTests(unittest.TestCase):
         self.assertGreaterEqual(len(self.world.towns), 15)
         self.assertGreater(len(self.world.nodes), 15)
 
-    def test_initial_faction_bases(self):
-        for faction, town_id in BASES.items():
-            town = self.world.towns[town_id]
-            self.assertEqual(town['owner'], faction)
+    def test_computer_clans_hold_their_homes(self):
+        for sid, name, color, home, fighter, method in AI_SIDES:
+            town = self.world.towns[home]
+            self.assertEqual(town['owner'], sid)
             self.assertTrue(town['base'])
 
-    def test_each_faction_starts_with_resources(self):
-        for faction in FACTIONS:
+    def test_every_player_is_a_side_with_a_home(self):
+        a = self.world.players[self.world.join('A')]
+        b = self.world.players[self.world.join('B')]
+        self.assertNotEqual(a['faction'], b['faction'])
+        for p in (a, b):
+            home = self.world.home(p['faction'])
+            self.assertEqual(home['owner'], p['faction'])
+            self.assertTrue(home['base'])
             for resource in ('wood', 'stone', 'metal', 'food', 'fuel'):
-                self.assertGreater(self.world.stocks[faction][resource], 0)
+                self.assertGreater(self.world.stocks[p['faction']][resource], 0)
+        self.assertNotEqual(self.world.sides[a['faction']]['home'], self.world.sides[b['faction']]['home'])
 
-    def test_four_player_limit(self):
-        tokens = [self.world.join('P'+str(i), faction)
-                  for faction in FACTIONS for i in range(2)]
-        self.assertEqual(len(set(tokens)), 4)
+    def test_player_limit(self):
+        tokens = [self.world.join('P' + str(i)) for i in range(MAX_PLAYERS)]
+        self.assertEqual(len(set(tokens)), MAX_PLAYERS)
         with self.assertRaises(GameError):
-            self.world.join('Fifth', next(iter(FACTIONS)))
+            self.world.join('Лишний')
 
     def test_reconnect_reuses_session(self):
-        token = self.world.join('Player', 'survivors')
-        self.assertEqual(self.world.join('Renamed', 'survivors', token), token)
+        token = self.world.join('Player')
+        self.assertEqual(self.world.join('Renamed', None, token), token)
         self.assertEqual(len(self.world.players), 1)
 
-    def test_invalid_faction(self):
-        with self.assertRaises(GameError):
-            self.world.join('Unknown', 'aliens')
+    def test_death_costs_coins_and_captured_towns(self):
+        p = self.world.players[self.world.join('A')]
+        f = p['faction']
+        for tid in ('revda', 'kazan'):
+            self.world.towns[tid]['owner'] = f
+        p['coins'] = 500
+        self.world._damage(p, 9999)
+        self.assertEqual(p['coins'], 0)
+        self.assertIsNone(self.world.towns['revda']['owner'])
+        self.assertIsNone(self.world.towns['kazan']['owner'])
+        self.assertEqual(self.world.home(f)['owner'], f)
 
     def test_three_active_quests(self):
         token = self.world.join('Player', 'survivors')
@@ -57,13 +71,13 @@ class WorldTests(unittest.TestCase):
         token = self.world.join('Player', 'survivors')
         state = self.world.snapshot(token)
         self.assertNotIn(token, str(state))
-        self.assertEqual(state['me']['faction'], 'survivors')
+        self.assertEqual(state['me']['faction'], self.world.players[token]['faction'])
 
     def test_unaffordable_action_keeps_stock(self):
-        before = dict(self.world.stocks['survivors'])
+        before = dict(self.world.stocks['ai_scar'])
         with self.assertRaises(GameError):
-            self.world._pay('survivors', {'metal': 10**9})
-        self.assertEqual(self.world.stocks['survivors'], before)
+            self.world._pay('ai_scar', {'metal': 10**9})
+        self.assertEqual(self.world.stocks['ai_scar'], before)
 
 if __name__ == '__main__':
     unittest.main()
