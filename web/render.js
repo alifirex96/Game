@@ -5,14 +5,17 @@ const AS = window.AS = window.AS || {};
 const { hash, rng, strSeed, rr, mix, shade, canvas } = AS.util;
 const S = AS.sprites, COL = AS.colors;
 const CHUNK = 512, TOWN_HALF = [480, 420], BM = 100;   // world pixels per biome-map pixel
-const BIOME = { mixed: '#4b5a37', steppe: '#6d6a42', ural: '#46523a', taiga: '#3a4931', tundra: '#7d8577' };
+// Muted, washed-out ground: the world has been empty for years. Siberia lies under snow.
+const BIOME = { mixed: '#4a5537', steppe: '#68654a', ural: '#46503b', taiga: '#3b4733', tundra: '#8b918a', snowtaiga: '#aab2b1' };
 const TREES = {
   mixed: { d: .42, kinds: ['birch', 'birch', 'pine', 'spruce', 'bush', 'birch', 'autumn', 'bush'] },
   steppe: { d: .12, kinds: ['bush', 'bush', 'birch', 'dead', 'bush', 'autumn'] },
   ural: { d: .55, kinds: ['spruce', 'spruce', 'pine', 'pine', 'birch', 'spruce', 'bush'] },
   taiga: { d: .6, kinds: ['spruce', 'spruce', 'spruce', 'pine', 'spruce', 'dead', 'bush'] },
   tundra: { d: .1, kinds: ['snow', 'bush', 'dead', 'snow', 'bush'] },
+  snowtaiga: { d: .55, kinds: ['snow', 'snow', 'snow', 'spruce', 'snow', 'dead', 'birch', 'snow'] },
 };
+const SNOWY = { tundra: 1, snowtaiga: 1 };
 let cfg = null, towns = [], townById = {}, roads = [], waterSegs = [], lakes = [], pois = [], nodeGrid = new Map(), buildingGrid = new Map();
 let biomeMap = null, worldMap = null;
 const chunks = new Map(); let chunkQueue = 0;
@@ -29,11 +32,12 @@ function inPoly(x, y, poly) { let inside = false; for (let i = 0, j = poly.lengt
 function inTown(x, y, pad) { pad = pad || 0; return towns.some(t => Math.abs(x - t.x) < TOWN_HALF[0] + pad && Math.abs(y - t.y) < TOWN_HALF[1] + pad); }
 function onRoad(x, y, w) { return roads.some(r => segDist(x, y, r.ax, r.ay, r.bx, r.by) < w); }
 function water(x, y, pad) { pad = pad || 0; if (inTown(x, y)) return false; for (const s of waterSegs) if (segDist(x, y, s[0], s[1], s[2], s[3]) < s[4] + pad) return true; for (const l of lakes) if (inPoly(x, y, l)) return true; return false; }
+function nearShelter(x, y, pad) { return (cfg.shelters || []).some(s => Math.abs(x - s.x) < 180 + pad && Math.abs(y - s.y) < 130 + pad); }
 R.water = water; R.onRoad = onRoad; R.inTown = inTown;
 function nearestTown(x, y) { let best = null, bd = 1e18; for (const t of towns) { const d = (t.x - x) * (t.x - x) + (t.y - y) * (t.y - y); if (d < bd) { bd = d; best = t; } } return best; }
-function biomeAt(x, y) { const t = nearestTown(x, y); let b = cfg.regions[t.region] ? cfg.regions[t.region].biome : 'mixed'; if (y < 1250 && b !== 'tundra') b = 'tundra'; return b; }
+function biomeAt(x, y) { const t = nearestTown(x, y); let b = cfg.regions[t.region] ? cfg.regions[t.region].biome : 'mixed'; if (y < 1250 * (cfg.scale || 1) && b !== 'tundra') b = 'tundra'; return b; }
 R.biomeAt = biomeAt;
-R.coldAt = (x, y) => { const t = nearestTown(x, y); return (cfg.regions[t.region] || { cold: 0 }).cold + (y < 1300 ? 1 : 0); };
+R.coldAt = (x, y) => { const t = nearestTown(x, y); return (cfg.regions[t.region] || { cold: 0 }).cold + (y < 1300 * (cfg.scale || 1) ? 1 : 0); };
 
 R.init = function (config) {
   cfg = config; towns = cfg.towns.map(t => Object.assign({}, t)); townById = {}; towns.forEach(t => townById[t.id] = t);
@@ -57,7 +61,7 @@ function makeBiomeMap() {
     let col = [0, 0, 0], wsum = 0;
     for (const t of towns) { const d2 = (t.x - wx) ** 2 + (t.y - wy) ** 2 + 1e4, wgt = 1 / (d2 * d2); const bc = cols[cfg.regions[t.region].biome]; col[0] += bc[0] * wgt; col[1] += bc[1] * wgt; col[2] += bc[2] * wgt; wsum += wgt; }
     col = col.map(v => v / wsum);
-    const north = Math.max(0, Math.min(1, (1500 - wy) / 700)); col = col.map((v, i) => v + (cols.tundra[i] - v) * north);
+    const north = Math.max(0, Math.min(1, (1500 * (cfg.scale || 1) - wy) / (700 * (cfg.scale || 1)))); col = col.map((v, i) => v + (cols.tundra[i] - v) * north);
     for (const hl of cfg.hills) { const e = ((wx - hl[1]) / hl[3]) ** 2 + ((wy - hl[2]) / hl[4]) ** 2; if (e < 1) { const m = (1 - e) * .45; col = col.map((v, i) => v + ([104, 101, 88][i] - v) * m); } }
     const n = (hash(x, y) - .5) * 8; const o = (y * w + x) * 4; img.data[o] = col[0] + n; img.data[o + 1] = col[1] + n; img.data[o + 2] = col[2] + n; img.data[o + 3] = 255;
   }
@@ -99,16 +103,24 @@ function buildChunk(cx, cy) {
   grid(70, 60, (x, y, h1, h2) => { if (h1 > .55) return; c.fillStyle = h2 < .5 ? '#00000010' : '#ffffff09'; c.beginPath(); c.ellipse(x, y, 14 + h2 * 40, 8 + h1 * 30, h1 * 3, 0, 7); c.fill(); });
   grid(40, 30, (x, y, h1, h2) => {
     const b = biomeAt(x, y);
-    if (b === 'tundra' && h1 < .35) { c.fillStyle = h2 < .5 ? '#e3e9e755' : '#eef2f077'; c.beginPath(); c.ellipse(x, y, 6 + h2 * 18, 4 + h1 * 10, h2 * 3, 0, 7); c.fill(); }
+    if (SNOWY[b] && h1 < (b === 'snowtaiga' ? .6 : .35)) { c.fillStyle = h2 < .5 ? '#e3e9e755' : '#eef2f077'; c.beginPath(); c.ellipse(x, y, 6 + h2 * 18, 4 + h1 * 10, h2 * 3, 0, 7); c.fill(); }
     if ((b === 'ural' || b === 'tundra') && h2 > .9) { const sz = 2 + h1 * 6; c.fillStyle = '#00000033'; c.beginPath(); c.ellipse(x + 1, y + 1, sz, sz * .7, 0, 0, 7); c.fill(); c.fillStyle = '#86857a'; c.beginPath(); c.ellipse(x, y, sz, sz * .7, 0, 0, 7); c.fill(); c.fillStyle = '#a3a194'; c.beginPath(); c.ellipse(x - sz * .3, y - sz * .3, sz * .45, sz * .3, 0, 0, 7); c.fill(); }
     if ((b === 'mixed' || b === 'steppe') && h2 < .1) { c.fillStyle = ['#d8c96a', '#c9d2e0', '#c87a6a', '#e4e0d0'][Math.floor(h1 * 4)]; c.fillRect(x, y, 2, 2); c.fillRect(x + 4, y + 2, 2, 2); }
   });
-  for (let i = 0; i < 520; i++) { const x = x0 + r() * CHUNK, y = y0 + r() * CHUNK, b = i % 8 ? biome : biomeAt(x, y); const tuft = b === 'steppe' ? ['#8d8550', '#7a7445', '#a39a5c'] : b === 'tundra' ? ['#9aa08e', '#6f7a64', '#b9bfb2'] : ['#5d6e3f', '#4f6136', '#6c7d47']; c.fillStyle = tuft[i % 3]; c.fillRect(x, y, 1.5, 3 + r() * 3); c.fillRect(x + 2, y + 1, 1.2, 2 + r() * 3); }
+  // Scars of the catastrophe: craters, burnt ground, rusted barrels and bones of machinery.
+  grid(220, 60, (x, y, h1, h2) => {
+    if (h1 > .16 || inTown(x, y, 120) || onRoad(x, y, 70) || water(x, y, 20) || nearShelter(x, y, 30)) return;
+    if (h1 < .05) { const s = 14 + h2 * 22; c.fillStyle = '#2b2a2455'; c.beginPath(); c.ellipse(x, y, s * 1.5, s * 1.1, h2 * 3, 0, 7); c.fill(); c.fillStyle = '#1f1e1a'; c.beginPath(); c.ellipse(x, y, s, s * .7, h2 * 3, 0, 7); c.fill(); c.strokeStyle = '#6a6455'; c.lineWidth = 3; c.beginPath(); c.ellipse(x, y, s, s * .7, h2 * 3, 3.6, 6.4); c.stroke(); }
+    else if (h1 < .1) { c.fillStyle = '#1c1b1733'; for (let k = 0; k < 5; k++) { c.beginPath(); c.ellipse(x + hash(k, x) * 50 - 25, y + hash(y, k) * 40 - 20, 18 + hash(k, y) * 26, 10 + hash(x, k) * 16, k, 0, 7); c.fill(); } }
+    else if (h1 < .13) { for (let k = 0; k < 3; k++) { const bx = x + k * 13 - 13, by = y + (k % 2) * 8; c.fillStyle = '#00000033'; c.beginPath(); c.ellipse(bx + 3, by + 3, 7, 5, 0, 0, 7); c.fill(); c.fillStyle = ['#6a3d26', '#4d5446', '#7a5a2e'][k]; c.beginPath(); c.arc(bx, by, 6, 0, 7); c.fill(); c.strokeStyle = '#2a2520'; c.lineWidth = 1; c.beginPath(); c.arc(bx, by, 4, 0, 7); c.stroke(); } }
+    else { c.save(); c.translate(x, y); c.rotate(h2 * 6); c.fillStyle = '#00000030'; c.fillRect(-14, -4, 34, 14); c.fillStyle = '#5c4334'; c.fillRect(-16, -6, 32, 12); c.fillStyle = '#7b5a3f'; c.fillRect(-16, -6, 32, 3); c.fillStyle = '#3d2f26'; c.fillRect(-10, -2, 6, 6); c.fillRect(4, -2, 6, 6); c.restore(); }
+  });
+  for (let i = 0; i < 520; i++) { const x = x0 + r() * CHUNK, y = y0 + r() * CHUNK, b = i % 8 ? biome : biomeAt(x, y); const tuft = b === 'steppe' ? ['#8d8550', '#7a7445', '#a39a5c'] : b === 'snowtaiga' ? ['#d7dddc', '#8e9690', '#c4cbca'] : b === 'tundra' ? ['#9aa08e', '#6f7a64', '#b9bfb2'] : ['#5d6e3f', '#4f6136', '#6c7d47']; c.fillStyle = tuft[i % 3]; c.fillRect(x, y, 1.5, 3 + r() * 3); c.fillRect(x + 2, y + 1, 1.2, 2 + r() * 3); }
   for (const hl of cfg.hills) { if (((x0 + 256 - hl[1]) / (hl[3] + 400)) ** 2 + ((y0 + 256 - hl[2]) / (hl[4] + 400)) ** 2 > 1) continue; grid(90, 40, (x, y, h1, h2) => { const e = ((x - hl[1]) / hl[3]) ** 2 + ((y - hl[2]) / hl[4]) ** 2; if (e > 1 || h1 > .45) return; const sz = 8 + h2 * 20; c.fillStyle = '#00000030'; c.beginPath(); c.moveTo(x - sz, y + sz * .5); c.lineTo(x, y - sz * .6); c.lineTo(x + sz * 1.2, y + sz * .5); c.fill(); c.fillStyle = '#7d7a6c'; c.beginPath(); c.moveTo(x - sz, y + sz * .4); c.lineTo(x - sz * .1, y - sz * .7); c.lineTo(x + sz * .8, y + sz * .3); c.fill(); c.fillStyle = '#9e9b8b'; c.beginPath(); c.moveTo(x - sz * .5, y); c.lineTo(x - sz * .1, y - sz * .7); c.lineTo(x + sz * .1, y - sz * .1); c.fill(); }); }
   // Fields around settlements on open plains.
   for (const t of towns) {
     if (Math.abs(t.x - x0 - 256) > 1600 || Math.abs(t.y - y0 - 256) > 1600) continue;
-    const b = cfg.regions[t.region].biome; if (b === 'tundra' || b === 'taiga') continue;
+    const b = cfg.regions[t.region].biome; if (b === 'tundra' || b === 'taiga' || b === 'snowtaiga') continue;
     for (let k = 0; k < 4; k++) {
       const a = hash(k, t.x) * 6.28, d = 760 + hash(t.y, k) * 420, fx = t.x + Math.cos(a) * d, fy = t.y + Math.sin(a) * d;
       if (onRoad(fx, fy, 260) || water(fx, fy, 250) || inTown(fx, fy, 260)) continue;
@@ -160,7 +172,7 @@ function buildChunk(cx, cy) {
       if (Math.floor(d / 40) % 6 === 0) { const qx = px + nx * 58, qy = py + ny * 58; if (!water(qx, qy)) { c.fillStyle = '#00000040'; c.fillRect(qx + 3, qy + 2, 10, 3); c.fillStyle = '#5a4a38'; c.beginPath(); c.arc(qx, qy, 3.5, 0, 7); c.fill(); c.fillStyle = '#6e6a5e'; c.fillRect(qx - nx * 8 - 1, qy - ny * 8 - 1, nx * 16 + 2, ny * 16 + 2); } }
       if (Math.floor(d / 40) % 6 === 0) { c.strokeStyle = '#26262288'; c.lineWidth = .8; c.beginPath(); const qx = px + nx * 58, qy = py + ny * 58; c.moveTo(qx, qy); c.quadraticCurveTo(qx + ux * 120 + nx * 6, qy + uy * 120 + ny * 6, qx + ux * 240, qy + uy * 240); c.stroke(); }
       // Abandoned cars, stopped where the silence caught them.
-      if (h1 > .965 && !water(px, py, 40)) { const v = S.vehicle(h2 < .2 ? 'bus' : 'wreck', ['#7c3b2f', '#56646d', '#8b7d55', '#3e4d40', '#b8b2a0', '#2d3a4f'][Math.floor(h2 * 6)], 2); c.save(); c.translate(px + nx * (h2 - .5) * 40, py + ny * (h2 - .5) * 40); c.rotate(Math.atan2(uy, ux) + (h1 - .98) * 30); c.drawImage(v.im, -v.ox, -v.oy); c.restore(); }
+      if (h1 > .94 && !water(px, py, 40)) { const v = S.vehicle(h2 < .2 ? 'bus' : 'wreck', ['#7c3b2f', '#56646d', '#8b7d55', '#3e4d40', '#b8b2a0', '#2d3a4f'][Math.floor(h2 * 6)], 2); c.save(); c.translate(px + nx * (h2 - .5) * 40, py + ny * (h2 - .5) * 40); c.rotate(Math.atan2(uy, ux) + (h1 - .98) * 30); c.drawImage(v.im, -v.ox, -v.oy); c.restore(); }
     }
   });
   // Trees: positions chosen here, painted later over characters (canopies are above people).
@@ -171,13 +183,13 @@ function buildChunk(cx, cy) {
     const tdl = TREES[biomeAt(wx, wy)] || td;
     const dens = tdl.d * (.4 + 1.2 * hash(Math.floor(wx / 700), Math.floor(wy / 700)));
     if (hash(wx, wy) > dens) continue;
-    if (inTown(wx, wy, 60) || onRoad(wx, wy, 90) || water(wx, wy, 28)) continue;
+    if (inTown(wx, wy, 60) || onRoad(wx, wy, 90) || water(wx, wy, 28) || nearShelter(wx, wy, 40)) continue;
     if (pois.some(p => Math.abs(p.x - wx) < 300 && Math.abs(p.y - wy) < 260)) continue;
     const kind = tdl.kinds[Math.floor(hash(wy, wx) * tdl.kinds.length)];
     trees.push({ x: wx, y: wy, kind, v: Math.floor(hash(wx * .3, wy) * 6) });
   }
   // Undergrowth and fallen logs stay in the chunk image.
-  grid(128, 40, (x, y, h1, h2) => { if (h1 > .5 || inTown(x, y) || onRoad(x, y, 60) || water(x, y, 10)) return; if (h2 < .82) { const b = S.tree('bush', Math.floor(h2 * 6)); c.drawImage(b.im, x - b.ox, y - b.oy); } else { c.save(); c.translate(x, y); c.rotate(h1 * 6); c.fillStyle = '#00000033'; rr(c, -18, -2, 40, 9, 4); c.fill(); c.fillStyle = '#5e4a34'; rr(c, -20, -4, 40, 8, 4); c.fill(); c.fillStyle = '#a88c64'; c.beginPath(); c.ellipse(19, 0, 3, 4, 0, 0, 7); c.fill(); c.restore(); } });
+  grid(128, 40, (x, y, h1, h2) => { if (h1 > .5 || inTown(x, y) || onRoad(x, y, 60) || water(x, y, 10) || nearShelter(x, y, 20)) return; if (h2 < .82) { const b = S.tree('bush', Math.floor(h2 * 6)); c.drawImage(b.im, x - b.ox, y - b.oy); } else { c.save(); c.translate(x, y); c.rotate(h1 * 6); c.fillStyle = '#00000033'; rr(c, -18, -2, 40, 9, 4); c.fill(); c.fillStyle = '#5e4a34'; rr(c, -20, -4, 40, 8, 4); c.fill(); c.fillStyle = '#a88c64'; c.beginPath(); c.ellipse(19, 0, 3, 4, 0, 0, 7); c.fill(); c.restore(); } });
   // Settlement ground: worn asphalt, sidewalks, the square's paving.
   towns.forEach(t => {
     if (Math.abs(t.x - x0 - 256) > 760 || Math.abs(t.y - y0 - 256) > 720) return;
@@ -195,6 +207,13 @@ function buildChunk(cx, cy) {
     // Lawns in the corners of the blocks.
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach((q, i) => { c.fillStyle = '#4e5c37'; rr(c, t.x + q[0] * 70 - (q[0] < 0 ? 56 : 0), t.y + q[1] * 70 - (q[1] < 0 ? 40 : 0), 56, 40, 6); c.fill(); });
   });
+  // Shelters: a concrete yard behind a fence of barbed wire.
+  (cfg.shelters || []).forEach(sh => { if (Math.abs(sh.x - x0 - 256) > 700 || Math.abs(sh.y - y0 - 256) > 700) return; const pr = rng(strSeed(sh.id));
+    c.fillStyle = '#5d5c55'; rr(c, sh.x - 170, sh.y - 120, 340, 250, 10); c.fill();
+    for (let i = 0; i < 40; i++) { c.fillStyle = pr() < .5 ? '#00000018' : '#ffffff0c'; c.beginPath(); c.ellipse(sh.x - 160 + pr() * 320, sh.y - 110 + pr() * 230, 8 + pr() * 20, 4 + pr() * 10, 0, 0, 7); c.fill(); }
+    c.fillStyle = '#4b4a44'; c.fillRect(sh.x - 22, sh.y + 20, 44, 110);
+    c.strokeStyle = '#6f6a5c'; c.lineWidth = 2; c.strokeRect(sh.x - 176, sh.y - 126, 352, 262);
+    c.strokeStyle = '#3a3a35'; c.lineWidth = 1; for (let i = -176; i < 176; i += 9) { c.beginPath(); c.moveTo(sh.x + i, sh.y - 129); c.lineTo(sh.x + i + 5, sh.y - 123); c.stroke(); c.beginPath(); c.moveTo(sh.x + i, sh.y + 133); c.lineTo(sh.x + i + 5, sh.y + 139); c.stroke(); } });
   // Ruins of places of interest get a cracked yard.
   pois.forEach(p => { if (Math.abs(p.x - x0 - 256) > 600 || Math.abs(p.y - y0 - 256) > 600) return; const pr = rng(strSeed(p.id)); c.fillStyle = '#5e5b4d'; rr(c, p.x - 230, p.y - 170, 460, 340, 30); c.fill(); for (let i = 0; i < 60; i++) { c.fillStyle = pr() < .5 ? '#00000018' : '#4f603a88'; c.beginPath(); c.ellipse(p.x - 230 + pr() * 460, p.y - 170 + pr() * 340, 6 + pr() * 22, 4 + pr() * 12, 0, 0, 7); c.fill(); } c.strokeStyle = '#6d6252'; c.lineWidth = 2; c.setLineDash([6, 4]); c.strokeRect(p.x - 236, p.y - 176, 472, 352); c.setLineDash([]); });
   return { im, trees, waterPts };
@@ -291,6 +310,8 @@ R.draw = function (c, v) {
   const gx0 = Math.floor((cam.x - cw / 2 - 100) / 1000), gx1 = Math.floor((cam.x + cw / 2 + 100) / 1000), gy0 = Math.floor((cam.y - ch / 2 - 100) / 1000), gy1 = Math.floor((cam.y + ch / 2 + 100) / 1000);
   for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) (nodeGrid.get(gx + ',' + gy) || []).forEach(n => { if (!vis(n.x, n.y, 60) || (state && state.harvested && state.harvested[n.id] > state.time)) return; items.push({ y: n.y, f: () => { const sp = S.node(n.kind, Math.floor(hash(n.x, n.y) * 3)); c.drawImage(sp.im, n.x - sp.ox, n.y - sp.oy); if (v.nearest && v.nearest.obj === n) { c.strokeStyle = '#e7ae6b'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(n.x, n.y + 8, 30, 15, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
   if (state) {
+    (cfg.shelters || []).forEach(sh => { if (vis(sh.x, sh.y, 300)) items.push({ y: sh.y + 20, f: () => drawShelter(c, sh, v) }); });
+    (cfg.givers || []).forEach(g => { if (!vis(g.x, g.y)) return; items.push({ y: g.y, f: () => { c.save(); c.translate(g.x, g.y); c.rotate(Math.PI / 2 + Math.sin(now * .4 + g.x) * .4); S.look(c, { look: g.look, weapon: g.type === 'major' ? 2 : g.type === 'hunter' ? 4 : 0, phase: 0, moving: false }); c.restore(); if (v.nearest && v.nearest.obj === g) { c.strokeStyle = '#d9b27a'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(g.x, g.y + 6, 26, 14, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
     (state.posts || []).forEach(p => { if (vis(p.x, p.y)) items.push({ y: p.y, f: () => drawPost(c, p, now) }); });
     (state.airdrops || []).forEach(d => { if (vis(d.x, d.y)) items.push({ y: d.y, f: () => drawDrop(c, d, now) }); });
     state.players.forEach(p => {
@@ -300,7 +321,7 @@ R.draw = function (c, v) {
       if (!p.vehicle && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
     });
     (state.npcs || []).forEach(n => { const r = v.drawNpcs[n.id] || n; if (!vis(r.x, r.y)) return; items.push({ y: r.y, f: () => drawNpc(c, n, r, v) }); });
-    cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 500)) return; civilians(t0, towns2 && towns2[t0.id], now, v).forEach(cv => items.push({ y: cv.y, f: () => { c.save(); c.translate(cv.x, cv.y); c.rotate(cv.a); S.person(c, { type: 'civil', faction: 'neutral', phase: now * 7 + cv.seed * 9, moving: cv.moving, seed: cv.seed, armor: 0, weapon: 0 }); c.restore(); } })); });
+    cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 500)) return; civilians(t0, towns2 && towns2[t0.id], now, v).forEach(cv => items.push({ y: cv.y, f: () => { c.save(); c.translate(cv.x, cv.y); c.rotate(cv.a); S.look(c, { look: SNOWY[biomeAt(t0.x, t0.y)] && cv.seed > .5 ? 15 : CIVIL_LOOKS[Math.floor(cv.seed * 5)], phase: now * 7 + cv.seed * 9, moving: cv.moving, weapon: 0, size: 34 }); c.restore(); } })); });
   } else { items.push({ y: 5225, f: () => drawCar(c, { x: 7390, y: 5225, angle: -.4 }, 'suv', 0, false, now) }); }
   items.sort((a, b) => a.y - b.y).forEach(i => i.f());
   // Tracers.
@@ -378,7 +399,7 @@ function drawPlayer(c, p, r, v) {
   const ang = isMe && !p.vehicle ? Math.atan2(v.aim.y, v.aim.x) : (t - p.shot < .6 ? p.angle : p.angle);
   const dead = p.hp <= 0;
   c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (isMe ? ang : (r.ang != null ? r.ang : p.angle)));
-  S.person(c, { faction: AS.util.strSeed(p.id) < .5 ? 'bandits' : 'survivors', armor: p.gear ? p.gear.armor : 0, weapon: p.gear ? p.gear.weapon : 0, clothes: p.gear ? p.gear.clothes : 0, pack: p.gear ? p.gear.backpack : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: isMe && v.holdAim, shot: t - p.shot < .25, flash: t - p.shot < .07, busy: t - p.busy < .8, dead, seed: AS.util.strSeed(p.id) });
+  S.look(c, { look: p.look || 0, weapon: p.gear ? p.gear.weapon : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: (isMe && v.holdAim) || t - p.shot < 1.2, shot: t - p.shot < .25, flash: t - p.shot < .07, dead });
   c.restore();
   if (dead) return;
   const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
@@ -401,9 +422,29 @@ function drawNpc(c, n, r, v) {
   }
   const dead = n.hp <= 0, t = v.state.time;
   c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (r.ang != null ? r.ang : n.angle));
-  S.person(c, { type: n.type, faction: n.faction, armor: n.type === 'raider' || n.type === 'ranger' ? 1 : 0, weapon: n.type === 'marauder' ? 0 : n.type === 'militia' ? 1 : 2, phase: r.phase || 0, moving: r.moving, aim: n.mode === 'fight', shot: t - n.shot < .25, flash: t - n.shot < .07, dead, seed: AS.util.strSeed(n.id) });
+  const look = n.look != null ? n.look : ({ marauder: 0, raider: 19, ranger: 7, militia: 6 })[n.type] || 0;
+  S.look(c, { look, weapon: NPC_WEAPON[n.type] || 0, phase: r.phase || 0, moving: r.moving, aim: n.mode === 'fight', shot: t - n.shot < .25, flash: t - n.shot < .07, dead, size: n.type === 'guardian' ? 42 : 38 });
   c.restore();
-  if (!dead && n.hp < n.max) bar(c, r.x, r.y + 22, n.hp / n.max, n.faction === 'marauders' ? '#c98a5a' : col(n.faction));
+  if (!dead && n.hp < n.max) bar(c, r.x, r.y + 24, n.hp / n.max, MONSTER[n.faction] ? '#b07a52' : col(n.faction));
+}
+const CIVIL_LOOKS = [0, 18, 5, 0, 18];
+const NPC_WEAPON = { marauder: 0, occupier: 1, occupier_elite: 2, defender: 2, guardian: 6, bandit: 3, raider: 2, ranger: 4, militia: 1 };
+const MONSTER = { marauders: 1, outlaws: 1 };
+function drawShelter(c, sh, v) {
+  const owner = Object.keys(sides).find(id => sides[id].shelter === sh.id), mine = owner && v.state.me.faction === owner;
+  const friend = owner && (mine || (sides[owner].clan && sides[owner].clan === (sides[v.state.me.faction] || {}).clan));
+  const zone = cfg.shelter_radius || 470;
+  c.save(); c.translate(sh.x, sh.y);
+  if (owner) { c.strokeStyle = friend ? '#7fa58f88' : '#c4554488'; c.lineWidth = 3; c.setLineDash([18, 12]); c.beginPath(); c.arc(0, 0, zone, 0, 7); c.stroke(); c.setLineDash([]); if (!friend) { c.fillStyle = '#c455440c'; c.beginPath(); c.arc(0, 0, zone, 0, 7); c.fill(); } }
+  // Bunker entrance: earth mound, concrete portal, blast door.
+  c.fillStyle = '#00000044'; c.beginPath(); c.ellipse(10, 10, 70, 44, 0, 0, 7); c.fill();
+  c.fillStyle = '#4f5340'; c.beginPath(); c.ellipse(0, -10, 66, 40, 0, 0, 7); c.fill(); c.fillStyle = '#5d6249'; c.beginPath(); c.ellipse(-8, -18, 48, 26, 0, 0, 7); c.fill();
+  c.fillStyle = '#7b786d'; c.fillRect(-30, 4, 60, 22); c.fillStyle = '#8f8b7f'; c.fillRect(-30, 4, 60, 4);
+  c.fillStyle = '#3c4038'; c.fillRect(-20, 10, 40, 16); c.strokeStyle = '#2a2c27'; c.lineWidth = 2; c.beginPath(); c.arc(0, 18, 6, 0, 7); c.moveTo(-6, 18); c.lineTo(6, 18); c.moveTo(0, 12); c.lineTo(0, 24); c.stroke();
+  c.fillStyle = '#9a9283'; c.fillRect(32, -40, 4, 30); c.fillRect(30, -42, 8, 3);
+  for (let a = -2.6; a < -0.4; a += .32) { c.fillStyle = (a * 10 | 0) % 2 ? '#a39470' : '#8f835f'; rr(c, Math.cos(a) * 88 - 6, Math.sin(a) * 58 + 30 - 3, 12, 7, 3); c.fill(); }
+  if (owner) { c.strokeStyle = '#c9c4ae'; c.lineWidth = 2; c.beginPath(); c.moveTo(-44, 0); c.lineTo(-44, -46); c.stroke(); c.fillStyle = col(owner); c.fillRect(-43, -46, 18, 11); }
+  c.restore();
 }
 function bar(c, x, y, k, col) { c.fillStyle = '#18271fcc'; c.fillRect(x - 18, y, 36, 4); c.fillStyle = col; c.fillRect(x - 18, y, 36 * Math.max(0, k), 4); }
 
@@ -438,10 +479,12 @@ function labels(c, state, v, vis) {
   cfg.buildings_world.forEach(b => { if (!me || Math.abs(b.x - me.x) > 260 || Math.abs(b.y - me.y) > 220) return; const t = state.towns[b.town], L = t.levels[b.kind]; pill(c, cfg.buildings[b.kind].name + (L ? ' · ' + L : ' · руины') + (t.construct && t.construct[b.kind] ? ' · стройка' : ''), b.x, b.y - b.h / 2 - 22, L ? '#dce1cf' : '#c8c6b1'); });
   cfg.towns.forEach(t => { const lm = cfg.landmarks[t.id]; if (lm && me && Math.hypot(me.x - t.x - lm.x, me.y - t.y - lm.y) < 420) pill(c, '★ ' + lm.name, t.x + lm.x, t.y + lm.y - lm.h / 2 - 24, '#ecd29a'); });
   pois.forEach(p => { if (vis(p.x, p.y, 100)) pill(c, p.name.toUpperCase() + ' · ' + p.kind_name.toLowerCase(), p.x, p.y - 196, '#d8c79c'); });
-  state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y)) return; pill(c, p.name + ' · ' + (p.level || 1) + ' ур.' + (p.id === state.me.id ? ' · ты' : ''), r.x, r.y - 34, col(p.faction)); });
+  state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y) || p.id === state.me.id) return; if (me && Math.hypot(me.x - r.x, me.y - r.y) > 700) return; pill(c, (p.tag ? '[' + p.tag + '] ' : '') + p.name + ' · ' + (p.level || 1), r.x, r.y - 34, col(p.faction)); });
+  (cfg.givers || []).forEach(g => { if (me && Math.abs(me.x - g.x) < 260 && Math.abs(me.y - g.y) < 200) pill(c, g.role + ' · ' + g.name, g.x, g.y - 34, '#e2d3b0'); });
+  (cfg.shelters || []).forEach(sh => { if (!vis(sh.x, sh.y, 100)) return; const owner = Object.keys(sides).find(id => sides[id].shelter === sh.id); if (!owner) return; pill(c, 'УБЕЖИЩЕ · ' + sides[owner].name.toUpperCase(), sh.x, sh.y - 70, col(owner)); });
   (state.posts || []).forEach(p => { if (vis(p.x, p.y)) pill(c, p.name, p.x, p.y - 48, col(p.faction)); });
 }
-function pill(c, text, x, y, color, bg) { c.font = '11px Segoe UI, Arial'; const w = c.measureText(text).width + 18; rr(c, x - w / 2, y - 10, w, 21, 4); c.fillStyle = bg || '#142019e0'; c.fill(); c.fillStyle = color || '#e3e3d4'; c.textAlign = 'center'; c.fillText(text, x, y + 4); }
+function pill(c, text, x, y, color, bg) { c.font = '11px Segoe UI, Arial'; const w = c.measureText(text).width + 14; c.fillStyle = bg || '#0e1311b8'; c.fillRect(x - w / 2, y - 9, w, 18); c.fillStyle = color || '#e3e3d4'; c.fillRect(x - w / 2, y - 9, 2, 18); c.fillStyle = '#d9d8cb'; c.textAlign = 'center'; c.fillText(text, x, y + 4); }
 R.pill = pill;
 
 function lights(c, v, vis) {
@@ -464,6 +507,7 @@ function lights(c, v, vis) {
     if (t.levels.guard >= 3) { const g = cfg.buildings_world.find(b => b.town === t0.id && b.kind === 'guard'); const a = v.now * .6; cone(l, sx(g.x), sy(g.y), a, .5, 380 * zs, .7); }
   });
   (state.posts || []).forEach(p => hole(p.x, p.y, 160, .8, '#ffc36a'));
+  (cfg.shelters || []).forEach(sh => { if (Object.keys(sides).some(id => sides[id].shelter === sh.id)) { hole(sh.x, sh.y + 20, 140, .85, '#ffcf8a'); hole(sh.x - 160, sh.y - 110, 90, .7, '#e8f0ff'); hole(sh.x + 160, sh.y + 120, 90, .7, '#e8f0ff'); } });
   state.players.forEach(p => {
     const r = v.drawPlayers[p.id]; if (!r || p.hp <= 0) return;
     hole(r.x, r.y, 70, .5);
@@ -531,7 +575,8 @@ R.drawMap = function (cv, big, v, mapState) {
   pois.forEach(p => { const [x, y] = P(p.x, p.y); if (x < -5 || x > w + 5 || y < -5 || y > h + 5) return; const looted = state.loot && state.loot[p.id]; c.fillStyle = looted ? '#776f5e' : '#d8c79c'; c.save(); c.translate(x, y); c.rotate(.785); c.fillRect(-2.5, -2.5, 5, 5); c.restore(); if (big && (mapState.zoom || 1) > 1.6) { c.fillStyle = '#c9c0a2'; c.font = '9px Segoe UI'; c.textAlign = 'center'; c.fillText(p.name, x, y + 12); } });
   (state.airdrops || []).forEach(d => { const [x, y] = P(d.x, d.y); c.strokeStyle = '#ffd38a'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 5 + Math.sin(v.now * 5) * 1.5, 0, 7); c.stroke(); });
   (state.posts || []).forEach(p => { const [x, y] = P(p.x, p.y); c.fillStyle = col(p.faction); c.fillRect(x - 3, y - 3, 6, 6); });
-  Object.values(state.towns).forEach(t => { const [x, y] = P(t.x, t.y); if (x < -40 || x > w + 40 || y < -20 || y > h + 20) return; const color = col(t.owner); c.fillStyle = '#0d1512'; c.beginPath(); c.arc(x, y, big ? 6 : 4, 0, 7); c.fill(); c.fillStyle = color; c.beginPath(); c.arc(x, y, big ? 4.5 : 3, 0, 7); c.fill(); if (t.base) { c.strokeStyle = color; c.lineWidth = 1.2; c.beginPath(); c.arc(x, y, big ? 9 : 6, 0, 7); c.stroke(); } if (big) { c.fillStyle = mapState.selected === t.id ? '#f0d09d' : '#e1e3d6'; c.font = (mapState.selected === t.id ? 'bold ' : '') + '11px Segoe UI, Arial'; c.textAlign = 'center'; c.fillText(t.name, x, y - 10); } if (t.capture) { c.strokeStyle = '#e3ad74'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 9 + Math.sin(v.now * 6) * 2, 0, 7); c.stroke(); } });
+  Object.values(state.towns).forEach(t => { const [x, y] = P(t.x, t.y); if (x < -40 || x > w + 40 || y < -20 || y > h + 20) return; const color = col(t.owner); c.fillStyle = '#0d1512'; c.beginPath(); c.arc(x, y, big ? 6 : 4, 0, 7); c.fill(); c.fillStyle = color; c.beginPath(); c.arc(x, y, big ? 4.5 : 3, 0, 7); c.fill(); if (big) { c.fillStyle = mapState.selected === t.id ? '#f0d09d' : '#e1e3d6'; c.font = (mapState.selected === t.id ? 'bold ' : '') + '11px Segoe UI, Arial'; c.textAlign = 'center'; c.fillText(t.name, x, y - 10); } if (t.capture) { c.strokeStyle = '#e3ad74'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 9 + Math.sin(v.now * 6) * 2, 0, 7); c.stroke(); } });
+  (cfg.shelters || []).forEach(sh => { const owner = Object.keys(sides).find(id => sides[id].shelter === sh.id); if (!owner) return; const [x, y] = P(sh.x, sh.y); if (x < -10 || x > w + 10 || y < -10 || y > h + 10) return; const mine = owner === state.me.faction; c.fillStyle = '#0d1512'; c.fillRect(x - 5, y - 5, 10, 10); c.fillStyle = col(owner); c.fillRect(x - 3.5, y - 3.5, 7, 7); if (mine) { c.strokeStyle = '#edaf6b'; c.lineWidth = 1.5; c.strokeRect(x - 7, y - 7, 14, 14); if (big) { c.fillStyle = '#edaf6b'; c.font = 'bold 10px Segoe UI'; c.textAlign = 'center'; c.fillText('УБЕЖИЩЕ', x, y + 17); } } });
   (state.npcs || []).forEach(n => { if (n.type !== 'convoy' && !big) return; const [x, y] = P(n.x, n.y); if (n.type === 'convoy') { c.fillStyle = col(n.faction); c.fillRect(x - 3, y - 2, 6, 4); } else if (n.faction === 'marauders') { c.fillStyle = '#c98a5a99'; c.fillRect(x - 1, y - 1, 2, 2); } else { c.fillStyle = col(n.faction) || '#ccc'; c.fillRect(x - 1.5, y - 1.5, 3, 3); } });
   state.players.forEach(p => { const [x, y] = P(p.x, p.y); const me = p.id === state.me.id; c.fillStyle = me ? '#edaf6b' : col(p.faction); c.beginPath(); c.arc(x, y, me ? 4 : 3, 0, 7); c.fill(); if (me) { c.strokeStyle = '#eabf8a88'; c.lineWidth = 1; c.beginPath(); c.arc(x, y, 8 + Math.sin(v.now * 4) * 2, 0, 7); c.stroke(); const a = p.vehicle ? p.angle : Math.atan2(v.aim.y, v.aim.x); c.beginPath(); c.moveTo(x + Math.cos(a) * 11, y + Math.sin(a) * 11); c.lineTo(x + Math.cos(a + 2.5) * 5, y + Math.sin(a + 2.5) * 5); c.lineTo(x + Math.cos(a - 2.5) * 5, y + Math.sin(a - 2.5) * 5); c.fill(); } });
   if (v.waypoint) { const [x, y] = P(v.waypoint.x, v.waypoint.y), [mx, my] = P(state.me.x, state.me.y); c.strokeStyle = '#dfbb7c'; c.lineWidth = 1; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(mx, my); c.lineTo(x, y); c.stroke(); c.setLineDash([]); c.strokeRect(x - 6, y - 6, 12, 12); }

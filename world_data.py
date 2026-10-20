@@ -1,5 +1,5 @@
 """Static game rules and the schematic map of Russia. Python 3.7+, standard library only."""
-VERSION = '0.4.0'
+VERSION = '0.5.0'
 # Map coordinates below are written at 1:1 and stretched by WORLD_SCALE, so settlements are far apart
 # while towns, roads and rivers keep their real size.
 WORLD_SCALE = 3
@@ -138,7 +138,7 @@ BUILDINGS = {
     'warehouse': {'name':'Склад','cost':{'wood':22,'stone':18,'metal':8},
                   'desc':'Каждый уровень увеличивает предельный запас каждого ресурса фракции на 250.','workers':1},
     'radio': {'name':'Радиостанция','cost':{'wood':30,'stone':24,'metal':25},
-              'desc':'Связь помогает переговорам: +5% за уровень. Второй уровень в убежище нужен для победы.','workers':0},
+              'desc':'Связь помогает переговорам: +5% за уровень. Радиостанция второго уровня нужна для победы.','workers':0},
     'guard': {'name':'Сторожевая вышка','cost':{'wood':22,'stone':16,'metal':14},
               'desc':'Снижает шанс чужого захвата, вышка стреляет по врагам и мародёрам рядом с поселением.','workers':0},
 }
@@ -446,11 +446,11 @@ def max_hp(level):
 STORY_LINE = [dict(STORY['survivors'][0]), dict(STORY['survivors'][1]), dict(STORY['bandits'][1]),
               dict(STORY['survivors'][2]), dict(STORY['survivors'][3]), dict(STORY['survivors'][4])]
 STORY_LINE[0]['choices'] = [dict(c, text=c['text'].replace('бандиты тоже', 'соперники тоже')) for c in STORY_LINE[0]['choices']]
-STORY_LINE[1].update(title='Свет в убежище', text='Твоему поселению нужна связь. Восстанови радиостанцию в своём домашнем поселении до первого уровня.')
+STORY_LINE[1].update(title='Свет в убежище', text='Твоему поселению нужна связь. Восстанови радиостанцию в одном из своих поселений до первого уровня.')
 STORY_LINE[2]['choices'] = [dict(c, text=c['text'].replace('вас', 'тебя')) for c in STORY_LINE[2]['choices']]
 STORY_LINE[3]['text'] = 'Колонны связывают поселения. Доведи до дома две колонны с грузом.'
-STORY_LINE[4].update(title='Свои города', text='Установи контроль над тремя поселениями, включая домашнее.')
-STORY_LINE[5]['text'] = 'Последний шаг — радиостанция второго уровня в домашнем поселении и пять поселений под контролем. Тогда эфир услышит вся страна.'
+STORY_LINE[4].update(title='Свои города', text='Установи контроль над тремя поселениями.')
+STORY_LINE[5]['text'] = 'Последний шаг — радиостанция второго уровня в одном из твоих поселений и пять поселений под контролем. Тогда эфир услышит вся страна.'
 # Shelters: every player and clan has one bunker in the wild. It cannot be captured;
 # its guards warn intruders at SHELTER_WARN and open fire inside SHELTER_RADIUS.
 SHELTER_RADIUS = 470

@@ -107,7 +107,8 @@ class World(NpcMixin):
         """A side owns a shelter (bunker) that can never be captured; towns have to be taken."""
         self.sides[sid] = {'id':sid,'name':name,'color':color,'shelter':shelter,'ai':bool(ai),'clan':None,
                            'fighter':(ai or {}).get('fighter','raider'),'method':(ai or {}).get('method','assault')}
-        self.stocks[sid] = dict(START_STOCK)
+        # Computer clans do not gather by hand, so they start richer and scavenge in tick_ai.
+        self.stocks[sid] = {k: v * (4 if ai else 1) for k, v in START_STOCK.items()}
         self.reputation[sid] = 0
         self.story[sid] = {'index':0,'flags':[],'start':{}}
         self.fstats[sid] = {k:0 for k in FSTAT_KEYS}
@@ -123,8 +124,9 @@ class World(NpcMixin):
         free = [s for s in self.terrain.shelters if s['id'] not in taken]
         if not free:
             return None
-        ref = near or self.towns['shabrovsky']
-        return min(free, key=lambda s: dist(s, ref))
+        if near is None:
+            return self.rng.choice(free)    # players are spread over the whole country
+        return min(free, key=lambda s: dist(s, near))
 
     def release_side(self, sid):
         """A side that left for good gives its settlements back to their people."""
@@ -938,7 +940,7 @@ class World(NpcMixin):
             if sum(1 for o in self.offers.values() if o['from']==p['id'] and o['until']>self.elapsed)>=3: raise GameError('У тебя уже три предложения. Дождись ответа.')
             oid=secrets.token_hex(5)
             self.offers[oid]={'id':oid,'from':p['id'],'to':other['id'],'from_side':p['faction'],'to_side':other['faction'],'give':give,'want':want,'until':self.elapsed+90}
-            self._notice('Предложение обмена',p['name']+' отдаёт: '+self.bundle_text(give)+'; просит: '+self.bundle_text(want)+'. Ответ — T.',player=other['id'])
+            self._notice('Предложение обмена',p['name']+' отдаёт: '+self.bundle_text(give)+'; просит: '+self.bundle_text(want)+'. Ответ — O.',player=other['id'])
             return {'title':'Предложение отправлено','text':other['name']+' может ответить 90 секунд.','success':True}
         o=self.offers.get(str(data.get('id')))
         if not o or o['until']<=self.elapsed or p['id'] not in (o['from'],o['to']): raise GameError('Предложение уже не действует.')
@@ -1003,7 +1005,7 @@ class World(NpcMixin):
             if self.sides[g].get('clan'): raise GameError(target['name']+' уже в клане.')
             if len(clan['members'])+len(clan['invites'])>=CLAN_SIZE+2: raise GameError('Слишком много приглашений.')
             if g not in clan['invites']:clan['invites'].append(g)
-            self._notice('Приглашение в клан','«'+clan['name']+'» зовёт тебя. Ответ — Esc → Кланы.',player=target['id'])
+            self._notice('Приглашение в клан','«'+clan['name']+'» зовёт тебя. Ответ — O → Клан.',player=target['id'])
             return {'title':'Приглашение отправлено','text':target['name'],'success':True}
         if op=='clan_kick':
             if g not in clan['members'] or g==f: raise GameError('Такого человека в клане нет.')
@@ -1089,7 +1091,7 @@ class World(NpcMixin):
     def _raid(self,p,t):
         f=p['faction']
         victim=t['owner']
-        if victim not in self.sides or victim==f or t['base']: raise GameError('Набег возможен на чужое поселение, кроме домашнего.')
+        if victim not in self.sides or victim==f: raise GameError('Набег возможен только на чужое поселение.')
         if self.truce_between(f,victim): raise GameError('Действует перемирие.')
         if t['cooldowns'].get('raid',0)>self.elapsed: raise GameError('Жители ещё начеку. Подожди.')
         chance=self.chance(p,t,'raid');self._pay(f,{'metal':8,'food':4})

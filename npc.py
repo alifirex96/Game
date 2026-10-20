@@ -611,6 +611,9 @@ class NpcMixin:
             if not self.ai_faction(f):
                 continue
             st = self.ai_state.setdefault(f, {'build':0,'expand':240,'raid':600,'tax':0,'defend':0})
+            if self.elapsed >= st.get('scavenge', 0):
+                st['scavenge'] = self.elapsed + 60
+                self._reward(f, {'wood':5,'stone':4,'metal':4,'food':3,'fuel':3})
             if self.elapsed >= st['build']:
                 st['build'] = self.elapsed + 22
                 self._ai_build(f)

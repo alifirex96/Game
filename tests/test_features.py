@@ -27,6 +27,7 @@ class FeatureTests(unittest.TestCase):
         self.p = self.world.players[self.token]
         self.f = self.p['faction']
         self.base = self.world.towns['shabrovsky']
+        self.world.sides[self.f]['shelter'] = self.world.free_shelter(near=self.base)['id']
         self.world._set_owner(self.base, self.f)
         self.base['levels'].update(depot=1, house=1)      # what a capture leaves behind
 

@@ -12,7 +12,7 @@ FILES = (
     'server.py', 'world_data.py', 'terrain.py', 'npc.py', 'launcher.py', 'make_shortcut.py',
     'Играть.sh', 'Создать-ярлык.sh', 'README.md', 'CHANGELOG.md',
     'web/game.js', 'web/render.js', 'web/sprites.js', 'web/audio.js',
-    'web/icon.svg', 'web/index.html', 'web/style.css',
+    'web/icon.svg', 'web/index.html', 'web/style.css', 'web/assets/characters.png',
 )
 
 def normalize(member):

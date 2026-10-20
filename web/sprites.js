@@ -499,6 +499,43 @@ function drawWeapon(c, tier, recoil) {
   c.restore();
 }
 
+/* ---------- characters from the drawn sheet (web/assets/characters.png, 5 x 4 cells, facing +y) ---------- */
+const SHEET = new Image(); let sheetReady = false;
+SHEET.onload = () => { sheetReady = true; }; SHEET.src = 'assets/characters.png';
+const LOOK_PX = 52;            // cached size of one figure; drawn at about 38 world pixels
+function lookCanvas(look) {
+  return cached('look' + look, () => {
+    // Downscale in two steps for a clean small figure without shimmering.
+    const mid = canvas(64, 64), m = mid.getContext('2d'); m.imageSmoothingEnabled = true; if (m.imageSmoothingQuality) m.imageSmoothingQuality = 'high';
+    m.drawImage(SHEET, (look % 5) * 128, Math.floor(look / 5) * 128, 128, 128, 0, 0, 64, 64);
+    const im = canvas(LOOK_PX, LOOK_PX), c = im.getContext('2d'); c.imageSmoothingEnabled = true; if (c.imageSmoothingQuality) c.imageSmoothingQuality = 'high';
+    c.drawImage(mid, 0, 0, LOOK_PX, LOOK_PX); return im;
+  });
+}
+AS.sprites.lookReady = () => sheetReady;
+AS.sprites.lookIcon = look => sheetReady ? lookCanvas(look) : null;
+// o: {look, weapon, phase, moving, run, aim, shot, flash, busy, dead, size}. Forward is +x like the rest of the scene.
+AS.sprites.look = function (c, o) {
+  if (!sheetReady) { AS.sprites.person(c, o); return; }
+  const size = o.size || 38, run = o.run ? 1.6 : 1;
+  const bob = o.moving ? Math.sin(o.phase) : 0, sway = o.moving ? Math.sin(o.phase * .5) * .06 * run : 0;
+  if (o.dead) { c.fillStyle = '#4a1712aa'; c.beginPath(); c.ellipse(4, 3, 17, 11, .3, 0, 7); c.fill(); c.rotate(1.25); }
+  c.fillStyle = '#0a0f0b55'; c.beginPath(); c.ellipse(3, 4, size * .36, size * .3, 0, 0, 7); c.fill();
+  const aiming = !o.dead && (o.aim || o.shot);
+  if (aiming) {
+    // The rifle sits under the arms, pointing forward.
+    c.save(); c.translate(4, 4); drawWeapon(c, o.weapon || 0, o.shot ? -2.5 : 0); c.restore();
+  }
+  c.save(); c.rotate(-Math.PI / 2 + sway); const k = 1 + bob * .025;
+  if (o.dead) c.globalAlpha = .85;
+  c.drawImage(lookCanvas(o.look || 0), -size / 2 * k, -size / 2 * k, size * k, size * k);
+  c.restore(); c.globalAlpha = 1;
+  if (o.dead) { c.fillStyle = '#20100c55'; c.beginPath(); c.ellipse(0, 0, size * .42, size * .32, 0, 0, 7); c.fill(); return; }
+  if (aiming && o.weapon >= 1) { c.save(); c.translate(4, 4); c.fillStyle = '#1d1e1b'; c.fillRect(14, -1.2, ([0, 18, 18, 10, 20, 22, 20][o.weapon] || 12), 2.4); c.restore(); }
+  if (!aiming && o.weapon >= 1) { c.save(); c.translate(-4, -9); c.rotate(.5); c.fillStyle = '#232420'; c.fillRect(-11, -1.4, 22, 2.8); c.restore(); }
+  if (o.shot && o.flash) { const fx = ([22, 33, 31, 25, 40, 41, 37][o.weapon] || 22) + 2; c.fillStyle = '#ffe7a0'; c.beginPath(); c.moveTo(fx, 4); c.lineTo(fx + 9, 0); c.lineTo(fx + 14, 4); c.lineTo(fx + 9, 8); c.closePath(); c.fill(); }
+};
+
 /* ---------- landmarks: one recognisable monument per settlement ---------- */
 function shadowLong(c, x, y, w, len) { c.fillStyle = '#10140f4d'; c.beginPath(); c.moveTo(x - w / 2, y); c.lineTo(x + w / 2, y); c.lineTo(x + w / 2 + len * .8, y + len * .45); c.lineTo(x - w / 2 + len * .8, y + len * .45); c.closePath(); c.fill(); }
 function spire(c, x, y, height, color) { shadowLong(c, x, y, 6, height * .9); c.fillStyle = color; c.beginPath(); c.moveTo(x - 5, y); c.lineTo(x, y - height); c.lineTo(x + 5, y); c.closePath(); c.fill(); c.fillStyle = '#ffffff55'; c.beginPath(); c.moveTo(x - 2, y); c.lineTo(x, y - height); c.lineTo(x, y); c.fill(); }
