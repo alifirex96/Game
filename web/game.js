@@ -29,6 +29,8 @@ const pathIcons={
  map:'m3 5 6-3 6 3 6-3v17l-6 3-6-3-6 3ZM9 2v17M15 5v17',
  tool:'M14 3a6 6 0 0 0-7 8L2 18l4 4 7-7a6 6 0 0 0 8-7l-4 3-4-4Z',
  check:'m4 12 5 5 11-11',
+ coin:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v10M9 9.5c0-1 1.3-1.8 3-1.8s3 .8 3 1.8-1.3 1.6-3 1.8-3 .8-3 1.8 1.3 1.8 3 1.8 3-.8 3-1.8',
+ bag:'M5 8h14l-1 13H6ZM9 8V6a3 3 0 0 1 6 0v2',
  gun:'M2 9h17l2-2v5h-6l-2 4h-3l1-4H6l-2 3H2Z',
  vest:'M7 3 4 6v15h16V6l-3-3-2 3h-6ZM9 10h6M9 14h6',
  trade:'M4 8h13l-3-3M20 16H7l3 3',
@@ -109,6 +111,9 @@ addEventListener('keydown',e=>{
  if(e.code==='KeyE')interact();
  if(e.code==='KeyF')action('vehicle').then(r=>{if(r)beep('door');});
  if(e.code==='KeyH')action('heal');
+ if(e.code==='KeyR')action('repair',{kit:true});
+ if(e.code==='KeyQ'&&state){const own=state.me.weapons.slice().sort((a,b)=>a-b),i=own.indexOf(state.me.gear.weapon);equip(own[(i+1)%own.length]);}
+ if(/^Digit[1-7]$/.test(e.code)&&state){const own=state.me.weapons.slice().sort((a,b)=>a-b),n=Number(e.code.slice(5))-1;if(own[n]!=null)equip(own[n]);}
  if(e.code==='KeyB')confirmPost();
  if(e.code==='Space')shoot();
 });
@@ -118,6 +123,7 @@ function updateAim(){const p=state&&drawPlayers[state.me.id];if(p){const dx=poin
 canvas.addEventListener('mousedown',e=>{if(e.button===0&&!panel){holdMouse=true;shoot();}});addEventListener('mouseup',()=>holdMouse=false);
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=clamp(zoom*(e.deltaY<0?1.1:1/1.1),.7,2);writeStorage('as-zoom',String(zoom));},{passive:false});
+function equip(idx){if(!state||idx===state.me.gear.weapon)return;action('equip',{weapon:idx}).then(r=>{if(r){notify(cfg.weapons[idx].name,'Оружие в руках.');beep('door');}});}
 function weaponCd(){return state?cfg.weapons[state.me.gear.weapon].cd*1000+20:490;}
 function shoot(){if(!state||panel||state.me.vehicle||state.me.hp<=0)return;const now=performance.now();lastAimAt=now;if(now-lastShot<weaponCd())return;lastShot=now;action('shoot');}
 function closePanel(){panel=null;selected=null;screen.className='';screen.innerHTML='';document.body.classList.remove('dialog-open');clearKeys();}
@@ -143,7 +149,7 @@ function showSettings(){modal('settings','<span class="eyebrow">ЭТОТ КОМ�
  $('settings-done').onclick=closePanel;
 }
 function showHelp(fromTitle){modal('help','<span class="eyebrow">ПОЛЕВОЕ РУКОВОДСТВО</span><h2>Твой первый день</h2>',
- '<div class="modal-body"><div class="controls-grid"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd></span><span>Движение пешком и на машине</span><span><kbd>Shift</kbd></span><span>Бег; выносливость восстанавливается</span><span><kbd>E</kbd></span><span>Собрать, открыть здание, площадь, тайник; потушить пожар</span><span><kbd>F</kbd></span><span>Сесть в свою машину / выйти рядом с ней</span><span><kbd>H</kbd></span><span>Перевязка: +35 здоровья за 5 припасов</span><span><kbd>B</kbd></span><span>Поставить пост или блокпост на трассе</span><span><kbd>M</kbd> / <kbd>J</kbd></span><span>Карта (колесо — масштаб) / журнал и сюжет</span><span>Мышь + ЛКМ / <kbd>Space</kbd></span><span>Прицел и выстрел; союзники защищены</span><span><kbd>Esc</kbd></span><span>Меню: дипломатия, настройки</span></div>'+
+ '<div class="modal-body"><div class="controls-grid"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd></span><span>Движение пешком и на машине</span><span><kbd>Shift</kbd></span><span>Бег; выносливость восстанавливается</span><span><kbd>E</kbd></span><span>Собрать, открыть здание, площадь, тайник; потушить пожар</span><span><kbd>F</kbd></span><span>Сесть в свою машину / выйти рядом с ней</span><span><kbd>H</kbd></span><span>Аптечка, если есть, иначе перевязка за 5 припасов</span><span><kbd>Q</kbd> / <kbd>1</kbd>–<kbd>7</kbd></span><span>Сменить оружие</span><span><kbd>R</kbd></span><span>Починить машину ремкомплектом</span><span><kbd>B</kbd></span><span>Поставить пост или блокпост на трассе</span><span><kbd>M</kbd> / <kbd>J</kbd></span><span>Карта (колесо — масштаб) / журнал и сюжет</span><span>Мышь + ЛКМ / <kbd>Space</kbd></span><span>Прицел и выстрел; союзники защищены</span><span><kbd>Esc</kbd></span><span>Меню: дипломатия, настройки</span></div>'+
  '<p class="control-note">Начни с ресурсов рядом с убежищем, затем восстанови ферму и лесопилку. Стройка занимает время; союзники рядом ускоряют её в полтора раза каждый. Дома дают рабочих; без рабочих производство простаивает, без еды — падает вдвое. Склад поднимает предел запасов.</p>'+
  '<p class="control-note" style="margin-top:12px">Дальние поселения отправляют часть выпуска грузовиком в убежище. Колонну могут перехватить враги и мародёры — сопровождай её. Бандиты ставят блокпосты и берут пошлину с чужих колонн.</p>'+
  '<p class="control-note" style="margin-top:12px">На площади доступны события, торговля, помощь жителям, разведка и захват: переговоры, подкуп или штурм. При штурме поднимается ополчение, сторожевая вышка стреляет по атакующим. После успеха удерживай круг 30 секунд.</p>'+
@@ -162,7 +168,7 @@ function showBuilding(b){if(!state)return;const t=state.towns[b.town],def=cfg.bu
  let extra='';
  if(fire)extra+='<div class="notice danger-notice">'+icon('fire')+' Здание горит! Потуши его, пока огонь не уничтожил уровень. Осталось '+Math.max(0,Math.ceil(fire-state.time))+' сек.<button class="primary" id="extinguish" style="margin-top:10px;width:100%">Потушить</button></div>';
  if(b.kind==='workshop'&&own&&level>0){extra+='<span class="eyebrow">СНАРЯЖЕНИЕ · ЛИЧНОЕ</span><div class="craft-grid">';
-  [['weapon',cfg.weapons,'gun'],['armor',cfg.armor,'vest']].forEach(([item,table,ic])=>table.forEach((it,tier)=>{if(!tier)return;const have=state.me.gear[item]>=tier,lock=level<it.workshop;
+  [['weapon',cfg.weapons,'gun'],['armor',cfg.armor,'vest']].forEach(([item,table,ic])=>table.forEach((it,tier)=>{if(!tier||!it.workshop)return;const have=item==='weapon'?state.me.weapons.includes(tier):state.me.gear[item]>=tier,lock=level<it.workshop;
   extra+='<button class="decision" data-craft="'+item+'" data-tier="'+tier+'" '+(have||lock||!canPay(it.cost)?'disabled':'')+'><div><b>'+icon(ic)+' '+esc(it.name)+'</b><strong>'+(have?'есть':lock?'мастерская '+it.workshop:'')+'</strong></div><small>'+(item==='weapon'?'Урон '+it.dmg+' · дальность '+it.range+' · '+(it.cd<.3?'очереди':'одиночные'):'Снижает урон на '+Math.round(it.reduce*100)+'%')+'</small><span class="decision-cost">'+costText(it.cost)+'</span></button>';}));extra+='</div>';}
  if(b.kind==='garage'&&own&&level>0)extra+='<div class="building-stat-row"><span>Твоя машина: '+Math.round(state.me.car.hp||100)+'%</span><button class="secondary" id="repair" '+((state.me.car.hp||100)>=100?'disabled':'')+'>'+icon('tool')+' Отремонтировать · 4 металла</button></div>';
  modal('building','<span class="eyebrow">'+esc(t.name.toUpperCase())+' / '+(level?'УРОВЕНЬ '+level:'РУИНЫ')+'</span><h2>'+esc(def.name)+'</h2>',
@@ -176,8 +182,9 @@ function showBuilding(b){if(!state)return;const t=state.towns[b.town],def=cfg.bu
 }
 function showTown(id,tab){if(!state)return;const t=state.towns[id],f=state.me.faction,own=t.owner===f,base=t.base,cap=t.capture;tab=tab||'main';
  let html='<div class="modal-body"><div class="town-faction" style="color:'+palette[t.owner||'neutral']+'">'+icon('flag')+' '+(t.owner?cfg.factions[t.owner]:'Независимое поселение')+(base?' · убежище':'')+' · '+esc(t.region)+'</div><div class="town-stats" style="margin:18px 0"><div><b>'+Math.round(t.loyalty)+'%</b><span>лояльность</span></div><div><b>'+t.population+'</b><span>жители</span></div><div><b>'+t.levels.guard+'</b><span>вышка</span></div>'+(t.intel?'<div><b>+'+t.intel+'%</b><span>разведка</span></div>':'')+'</div>';
- html+='<div class="tabs"><button class="tab '+(tab==='main'?'on':'')+'" data-tab="main">Площадь</button><button class="tab '+(tab==='trade'?'on':'')+'" data-tab="trade">'+icon('trade')+' Торговля</button></div>';
- if(tab==='trade'){
+ html+='<div class="tabs"><button class="tab '+(tab==='main'?'on':'')+'" data-tab="main">Площадь</button><button class="tab '+(tab==='trade'?'on':'')+'" data-tab="trade">'+icon('trade')+' Торговля</button><button class="tab '+(tab==='shop'?'on':'')+'" data-tab="shop">'+icon('bag')+' Магазин</button></div>';
+ if(tab==='shop'){html+=shopHtml(t,own);}
+ else if(tab==='trade'){
   const prices=cfg.prices[t.region]||cfg.prices.default,hostile=t.owner&&!own&&!(state.truce.until>state.time);
   html+='<p>Местные меняют товары по ценам региона. '+(own?'В своём поселении курс лучше с ростом лояльности.':'Нейтральные торговцы берут наценку.')+'</p>'+(hostile?'<div class="notice">Торговцы чужой стороны не меняются с вами без перемирия.</div>':'')+'<div class="price-row">'+Object.keys(cfg.resources).map(k=>'<span>'+icon(k)+'<b>'+prices[k].toFixed(2)+'</b></span>').join('')+'</div><div class="trade-form"><label>Отдать<select id="give">'+Object.keys(cfg.resources).map(k=>'<option value="'+k+'">'+cfg.resources[k]+'</option>').join('')+'</select></label><label>Количество<select id="amount"><option>10</option><option>25</option><option>50</option></select></label><label>Получить<select id="get">'+Object.keys(cfg.resources).map(k=>'<option value="'+k+'" '+(k==='food'?'selected':'')+'>'+cfg.resources[k]+'</option>').join('')+'</select></label></div><div class="trade-preview" id="trade-preview"></div><button class="primary" id="trade" '+(hostile?'disabled':'')+' style="width:100%">'+icon('trade')+' Обменять</button>';
  }else{
@@ -200,6 +207,7 @@ function showTown(id,tab){if(!state)return;const t=state.towns[id],f=state.me.fa
  modal('town','<span class="eyebrow">ПЛОЩАДЬ ПОСЕЛЕНИЯ</span><h2>'+esc(t.name)+'</h2>',html);
  selected=id;
  screen.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTown(id,b.dataset.tab));
+ if(tab==='shop'){screen.querySelectorAll('[data-buy]').forEach(b=>b.onclick=async()=>{const r=await action('buy',{town:id,kind:b.dataset.buy,index:Number(b.dataset.index||0)});if(r)showTown(id,'shop');});screen.querySelectorAll('[data-equip]').forEach(b=>b.onclick=()=>{equip(Number(b.dataset.equip));setTimeout(()=>showTown(id,'shop'),300);});return;}
  if(tab==='trade'){const prices=cfg.prices[t.region]||cfg.prices.default;const upd=()=>{const g=$('give').value,r=$('get').value,a=Number($('amount').value),mod=own?.86+t.loyalty*.001:.78,n=g===r?0:Math.floor(a*prices[g]/prices[r]*mod);$('trade-preview').innerHTML=g===r?'Выбери разные товары.':'−'+a+' '+cfg.resources[g].toLowerCase()+' → <b>+'+n+' '+cfg.resources[r].toLowerCase()+'</b>';};['give','get','amount'].forEach(k=>$(k).onchange=upd);upd();
   $('trade').onclick=async()=>{await action('trade',{town:id,give:$('give').value,get:$('get').value,amount:Number($('amount').value)});};return;}
  if($('aid'))$('aid').onclick=async()=>{await action('aid',{town:id});showTown(id);};
@@ -209,6 +217,14 @@ function showTown(id,tab){if(!state)return;const t=state.towns[id],f=state.me.fa
  if($('event'))$('event').onclick=async()=>{const r=await action('event_open',{town:id});if(r&&r.event)showEvent(r.event);};
  screen.querySelectorAll('[data-method]').forEach(button=>button.onclick=async()=>{const method=button.dataset.method,prep=['scout','intimidate','gift'].includes(method);const r=await action(prep?'scout':'capture',{town:id,method});if(r){if(r.success&&!prep)closePanel();else showTown(id);}});
 }
+function shopHtml(t,own){const me=state.me,hostile=t.owner&&!own&&!(state.truce.until>state.time);
+ let h='<div class="shop-head">'+icon('coin')+' <b>'+me.coins+'</b> монет<span>Монеты дают за поручения журнала и главы сюжета. Покупки — личные.</span></div>'+(hostile?'<div class="notice">Торговцы чужой стороны тебе не продают.</div>':'');
+ const row=(kind,idx,it,stat,owned)=>{const lock=me.level<(it.level||1),poor=me.coins<it.price;return '<button class="decision" data-buy="'+kind+'" data-index="'+idx+'" '+(owned||lock||poor||hostile?'disabled':'')+'><div><b>'+esc(it.name)+'</b><strong>'+(owned?'есть':icon('coin')+' '+it.price)+'</strong></div><small>'+stat+'</small><span class="decision-cost">'+(lock?'Нужен уровень '+it.level:poor&&!owned?'Не хватает монет':'')+'</span></button>';};
+ h+='<span class="eyebrow shop-eyebrow">ОРУЖИЕ</span><div class="craft-grid">';cfg.weapons.forEach((w,i)=>{if(i)h+=row('weapon',i,w,'Урон '+w.dmg+' · дальность '+w.range+' · '+(w.cd<.3?'очереди':w.cd>1.2?'медленный, точный':'одиночные'),me.weapons.includes(i));});h+='</div>';
+ h+='<span class="eyebrow shop-eyebrow">БРОНЯ</span><div class="craft-grid">';cfg.armor.forEach((a,i)=>{if(i)h+=row('armor',i,a,'Снижает урон на '+Math.round(a.reduce*100)+'%',me.gear.armor>=i);});h+='</div>';
+ h+='<span class="eyebrow shop-eyebrow">ПРИПАСЫ</span><div class="craft-grid">';Object.keys(cfg.shop).forEach(k=>{const it=cfg.shop[k];h+=row(k,0,it,esc(it.desc)+(it.max?' Есть: '+(me.items[k]||0)+' / '+it.max+'.':''),false);});h+='</div>';
+ h+='<span class="eyebrow shop-eyebrow">ТВОЁ ОРУЖИЕ · Q ИЛИ 1–7</span><div class="owned">'+me.weapons.slice().sort((a,b)=>a-b).map((i,n)=>'<button class="'+(i===me.gear.weapon?'primary':'secondary')+'" data-equip="'+i+'">'+(n+1)+' · '+esc(cfg.weapons[i].name)+'</button>').join('')+'</div>';
+ return h;}
 function showEvent(ev){let html='<div class="modal-body"><p>'+esc(ev.text)+'</p><div class="event-options">';
  ev.options.forEach((o,i)=>{html+='<button class="decision" data-choice="'+i+'" '+(!canPay(o.cost)?'disabled':'')+'><div><b>'+esc(o.name)+'</b><strong>'+o.chance+'%</strong></div><span class="decision-cost">'+costText(o.cost)+'</span><small>Успех: '+esc(Object.keys(o.reward).map(k=>o.reward[k]+' '+cfg.resources[k].toLowerCase()).join(', ')||'помощь')+(o.heal?' · здоровье +'+o.heal:'')+(o.intel?' · разведка +'+o.intel+'%':'')+(o.loyalty?' · лояльность '+(o.loyalty>0?'+':'')+o.loyalty:'')+' · репутация '+(o.rep>0?'+':'')+o.rep+'</small><small>Неудача: затраты теряются'+(o.risk?', здоровье −'+o.risk:'.')+'</small></button>';});
  html+='</div><div class="notice">Один бросок от 1 до 100 на компьютере ведущего. Успех — если результат не больше шанса. Событие общее для фракции: союзник может завершить его первым.</div></div>';
@@ -218,13 +234,13 @@ function showEvent(ev){let html='<div class="modal-body"><p>'+esc(ev.text)+'</p>
 const KIND_LABEL={capture:'КОНТРОЛЬ',event:'ПРОИСШЕСТВИЕ',kills:'ОХРАНА',loot:'ПОИСК',trade:'ТОРГОВЛЯ'};
 function storyHtml(){const s=state.story,c=s.chapter;if(!c)return '<div class="story-card"><h3>Сюжет завершён</h3><p>Мир помнит ваши решения: '+esc(s.flags.join(', ')||'—')+'</p></div>';
  let html='<div class="story-card"><div class="section-label"><span>ГЛАВА '+(s.index+1)+' · '+esc(cfg.factions[state.me.faction].toUpperCase())+'</span><b class="'+(s.ready?'good':'')+'">'+s.progress[0]+' / '+s.progress[1]+'</b></div><h3>'+esc(c.title)+'</h3><p>'+esc(c.text)+'</p>';
- if(s.ready){html+='<div class="event-options">';c.choices.forEach((o,i)=>{html+='<button class="decision" data-story="'+i+'" '+(o.cost&&!canPay(o.cost)?'disabled':'')+'><div><b>'+esc(o.name)+'</b><strong>'+(o.rep?'реп. '+(o.rep>0?'+':'')+o.rep:'')+'</strong></div><small>'+esc(o.text)+'</small><span class="decision-cost">'+(Object.keys(o.reward||{}).length?'Награда: '+costText(o.reward):'')+(o.cost?' Цена: '+costText(o.cost):'')+'</span></button>';});html+='</div>';}
+ if(s.ready){html+='<div class="event-options">';c.choices.forEach((o,i)=>{html+='<button class="decision" data-story="'+i+'" '+(o.cost&&!canPay(o.cost)?'disabled':'')+'><div><b>'+esc(o.name)+'</b><strong>'+(o.rep?'реп. '+(o.rep>0?'+':'')+o.rep:'')+'</strong></div><small>'+esc(o.text)+'</small><span class="decision-cost">'+icon('coin')+' '+cfg.story_coins+' '+(Object.keys(o.reward||{}).length?'Награда: '+costText(o.reward):'')+(o.cost?' Цена: '+costText(o.cost):'')+'</span></button>';});html+='</div>';}
  else if(c.goal.kind==='victory')html+='<p class="small muted">'+esc(cfg.factions[state.me.faction])+': поселений '+Object.values(state.towns).filter(t=>t.owner===state.me.faction).length+' / 5 · радиостанция убежища '+state.towns[cfg.bases[state.me.faction]].levels.radio+' / 2</p>';
  return html+'</div>';}
 function characterHtml(){const p=state.me,need=cfg.xp_table[p.level-1]||1;return '<div class="char-card"><div class="section-label"><span>ПЕРСОНАЖ · '+esc(p.name.toUpperCase())+'</span><b>'+p.level+' / '+cfg.max_level+' ур.</b></div><div class="bar big"><i style="width:'+(p.level>=cfg.max_level?100:Math.round(p.xp/need*100))+'%"></i></div><p class="small muted">Опыт '+p.xp+' / '+need+' · здоровье '+p.max_hp+' · урон +'+3*(p.level-1)+'%. Опыт дают сбор, стройка, события, разведка новых мест, бой, тайники, захваты и задания.</p><div class="perks">'+cfg.perks.map(k=>'<span class="perk '+(p.level>=k.level?'on':'')+'"><b>'+k.level+' ур. · '+esc(k.name)+'</b><small>'+esc(k.desc)+'</small></span>').join('')+'</div></div>';}
 function showJournal(){if(!state)return;let html='<div class="modal-body">'+characterHtml()+storyHtml()+'<span class="eyebrow" style="display:block;margin:18px 0 10px">ПОРУЧЕНИЯ · ЗАБЕРИ НАГРАДУ, ЧТОБЫ ПОЛУЧИТЬ НОВОЕ</span><div class="quests-list">';
  state.me.quests.forEach(q=>{const n=Math.max(0,state.me.stats[q.kind]-q.start),done=n>=q.target;
- html+='<div class="quest-card"><div class="section-label"><span>'+esc(KIND_LABEL[q.kind]||'ПОРУЧЕНИЕ')+'</span><b class="'+(done?'good':'')+'">'+Math.min(n,q.target)+' / '+q.target+'</b></div><h3>'+esc(q.name)+'</h3><p>'+esc(q.text)+'</p><small>Награда: '+esc(Object.keys(q.reward).map(k=>q.reward[k]+' '+cfg.resources[k].toLowerCase()).join(', '))+'</small>'+(q.town?'<button class="quiet quest-waypoint" data-town="'+q.town+'">Отметить на карте</button>':'')+'<button class="'+(done?'primary':'secondary')+'" data-claim="'+q.id+'" '+(!done?'disabled':'')+'>'+(done?'Забрать награду':'В процессе')+'</button></div>';});
+ html+='<div class="quest-card"><div class="section-label"><span>'+esc(KIND_LABEL[q.kind]||'ПОРУЧЕНИЕ')+'</span><b class="'+(done?'good':'')+'">'+Math.min(n,q.target)+' / '+q.target+'</b></div><h3>'+esc(q.name)+'</h3><p>'+esc(q.text)+'</p><small>Награда: '+(q.coins?q.coins+' монет, ':'')+esc(Object.keys(q.reward).map(k=>q.reward[k]+' '+cfg.resources[k].toLowerCase()).join(', '))+'</small>'+(q.town?'<button class="quiet quest-waypoint" data-town="'+q.town+'">Отметить на карте</button>':'')+'<button class="'+(done?'primary':'secondary')+'" data-claim="'+q.id+'" '+(!done?'disabled':'')+'>'+(done?'Забрать награду':'В процессе')+'</button></div>';});
  html+='</div><div class="notice">Главная цель: 5 поселений под контролем и радиостанция уровня 2 в убежище. Выполнено поручений: '+state.me.completed+'. Репутация стороны: '+Math.round(state.reputation)+'.</div></div>';
  modal('journal','<span class="eyebrow">КАЖДЫЙ ДЕНЬ — НОВАЯ ЗАДАЧА</span><h2>Журнал экспедиции</h2>',html,'wide');
  screen.querySelectorAll('[data-claim]').forEach(b=>b.onclick=async()=>{await action('claim',{id:b.dataset.claim});showJournal();});
@@ -283,6 +299,7 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
  const minutes=8*60+Math.floor(state.time*1.4),days=1+Math.floor(minutes/1440),hour=Math.floor(minutes/60)%24,w=state.weather.kind;
  $('clock').innerHTML=icon(hour>=6&&hour<20?WEATHER_ICON[w]:(w==='clear'?'moon':WEATHER_ICON[w]))+'<span>ДЕНЬ '+String(days).padStart(2,'0')+' / '+String(hour).padStart(2,'0')+':'+String(minutes%60).padStart(2,'0')+' · '+esc(cfg.weather_names[w].toUpperCase())+'</span>';
  const need=cfg.xp_table[p.level-1]||1,maxLv=p.level>=cfg.max_level;
+ $('coins').innerHTML=icon('coin')+'<b>'+p.coins+'</b>'+(p.items.medkit?'<span title="Аптечки">'+icon('heart')+'×'+p.items.medkit+'</span>':'')+(p.items.repairkit?'<span title="Ремкомплекты">'+icon('tool')+'×'+p.items.repairkit+'</span>':'');
  $('level').innerHTML='<b>'+p.level+'</b><span>УР.</span><i><em style="width:'+(maxLv?100:Math.round(p.xp/need*100))+'%"></em></i><small>'+(maxLv?'максимум':p.xp+' / '+need+' опыта')+'</small>';
  $('mode').innerHTML=icon(p.vehicle?'car':'walk')+'<span>'+(p.vehicle?'За рулём · '+Math.round(p.car.hp)+'%':'Пешком')+'</span><span class="hp">'+icon('heart')+Math.ceil(p.hp)+' / '+p.max_hp+'</span><span class="gear">'+icon('gun')+esc(cfg.weapons[p.gear.weapon].name)+'</span><span class="gear">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</span>';
  $('stamina').firstElementChild.style.width=p.stamina+'%';$('autosave').textContent=netFailures?'Соединение с ведущим потеряно':'Мир сохраняется у ведущего · '+state.players.length+' / 4 игрока'+(state.ai[p.faction==='survivors'?'bandits':'survivors']?' · соперник: компьютер':'');

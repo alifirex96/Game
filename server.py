@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 from world_data import (VERSION, WORLD_SIZE, FACTIONS, RESOURCES, TOWNS, REGIONS,
                         BASES, BUILDINGS, EVENTS, QUESTS, STORY, WEAPONS, ARMOR, POI_KINDS,
                         POSTS, POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
-                        WEATHER, MAX_LEVEL, XP, PERKS, xp_to_next, max_hp, config)
+                        WEATHER, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, xp_to_next, max_hp, config)
 from terrain import Terrain, town_buildings, resource_nodes, landmark_rect
 from npc import NpcMixin, other_faction
 
@@ -147,6 +147,7 @@ class World(NpcMixin):
            'dead_until':0.0,'last_seen':now,'last_input':now,'input':[0,0,False],
            'aim':[0,1],'paused':False,'last_action':{},'receipts':OrderedDict(),
            'stats':{k:0 for k in STAT_KEYS},'gear':{'weapon':0,'armor':0},'level':1,'xp':0,
+           'coins':0,'weapons':[0],'items':{'medkit':0,'repairkit':0},
            'visited':[tid],'quests':[],'quest_serial':0,'completed':0,'pending':None}
         self._place_randomly(p)
         for q in range(3):
@@ -308,7 +309,7 @@ class World(NpcMixin):
     def snapshot(self,token,full=True):
         p=self.player(token); f=p['faction']; now=time.monotonic()
         me=self._public_player(p)
-        for k in ('stats','quests','completed','visited','pending'):
+        for k in ('stats','quests','completed','visited','pending','coins','weapons','items'):
             me[k]=copy.deepcopy(p[k])
         story=self.story[f]; chapter=self._chapter(f)
         out={'version':VERSION,'stamp':time.monotonic(),'time':round(self.elapsed,2),'me':me,
@@ -429,6 +430,13 @@ class World(NpcMixin):
             self._near(p,p['car'],85)
             p['vehicle']=True;p['x']=p['car']['x'];p['y']=p['car']['y']
             return {'title':'За рулём','text':'WASD — ехать, F — выйти. Топливо общее для фракции.'}
+        if op=='repair' and data.get('kit'):
+            if p['items'].get('repairkit',0)<1: raise GameError('Нет ремкомплекта. Его продают в магазине на площади.')
+            if p['vehicle'] or dist(p['car'],p)>110: raise GameError('Подойди к своей машине пешком.')
+            if p['car'].get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита, её отбуксируют в убежище.')
+            if p['car'].get('hp',100)>=100: raise GameError('Машина исправна.')
+            p['items']['repairkit']-=1;p['car']['hp']=100.0
+            return {'title':'Машина отремонтирована','text':'Ремкомплектов осталось: '+str(p['items']['repairkit']),'success':True}
         if op=='repair':
             g=[b for b in self.buildings.values() if b['kind']=='garage' and self.towns[b['town']]['owner']==f and self.towns[b['town']]['levels']['garage']>0 and dist(b,p)<200]
             if not g: raise GameError('Ремонт возможен у своего восстановленного гаража.')
@@ -438,19 +446,23 @@ class World(NpcMixin):
             return {'title':'Машина отремонтирована','text':'−4 металла','success':True}
         if op=='heal':
             if p['hp']>=self.max_hp(p): raise GameError('Ты не ранен.')
+            if p['items'].get('medkit',0)>0:
+                self._cooldown(p,'heal',4);p['items']['medkit']-=1;p['hp']=min(self.max_hp(p),p['hp']+60)
+                return {'title':'Аптечка','text':'Здоровье +60. Аптечек осталось: '+str(p['items']['medkit']),'success':True}
             medic=self.has_perk(p,10);cost=3 if medic else 5;amount=45 if medic else 35
             self._cooldown(p,'heal',6);self._pay(f,{'food':cost});p['hp']=min(self.max_hp(p),p['hp']+amount)
             return {'title':'Перевязка','text':'Здоровье +'+str(amount)+', −'+str(cost)+' припасов','success':True}
         if op=='craft':
             item=data.get('item');tier=data.get('tier')
             table={'weapon':WEAPONS,'armor':ARMOR}.get(item)
-            if table is None or not isinstance(tier,int) or not 1<=tier<len(table): raise GameError('Неизвестный предмет.')
+            if table is None or not isinstance(tier,int) or not 1<=tier<len(table) or 'workshop' not in table[tier]: raise GameError('Этот предмет не делают в мастерской.')
             ws=[b for b in self.buildings.values() if b['kind']=='workshop' and self.towns[b['town']]['owner']==f and dist(b,p)<170]
             if not ws: raise GameError('Изготовление возможно у мастерской своего поселения.')
             level=max(self.towns[b['town']]['levels']['workshop'] for b in ws)
             if level<table[tier]['workshop']: raise GameError('Нужна мастерская уровня '+str(table[tier]['workshop'])+'.')
-            if p['gear'][item]>=tier: raise GameError('У тебя уже есть это или лучше.')
+            if (tier in p['weapons']) if item=='weapon' else p['gear'][item]>=tier: raise GameError('У тебя уже есть это или лучше.')
             self._pay(f,table[tier]['cost']);p['gear'][item]=tier;self.gain_xp(p,'craft')
+            if item=='weapon':p['weapons'].append(tier)
             return {'title':table[tier]['name'],'text':'Снаряжение готово.','success':True}
         if op=='event_open':
             t=self._town_action(p,str(data.get('town')))
@@ -547,13 +559,14 @@ class World(NpcMixin):
             q=next((q for q in p['quests'] if q['id']==data.get('id')),None)
             if not q or p['stats'][q['kind']]-q['start']<q['target']: raise GameError('Задание ещё не выполнено.')
             self._reward(f,q['reward']);self.reputation[f]=min(100,self.reputation[f]+3)
+            coins=q.get('coins',30);p['coins']+=coins
             p['completed']+=1; idx=p['quests'].index(q)
             # Cycle through varied objectives; only one delivery can be active at once.
             next_index=(p['completed']+2)%len(QUESTS)
             active_kinds={item['kind'] for item in p['quests'] if item is not q}
             while QUESTS[next_index]['kind'] in active_kinds: next_index=(next_index+1)%len(QUESTS)
             p['quests'][idx]=self._quest(p,next_index);self.gain_xp(p,'quest')
-            return {'title':'Задание выполнено','text':self.resource_text(q['reward']),'success':True}
+            return {'title':'Задание выполнено','text':'+'+str(coins)+' монет · '+self.resource_text(q['reward']),'success':True}
         if op=='story_choice':
             if not self._story_ready(f): raise GameError('Глава ещё не завершена.')
             c=self._chapter(f);choice=data.get('choice')
@@ -566,20 +579,28 @@ class World(NpcMixin):
                 for t in self.towns.values():
                     if t['owner']==f:t['loyalty']=clamp(t['loyalty']+opt['loyalty'],0,100)
             self.story[f]['index']+=1;self._story_start(f);self.gain_xp(p,'story')
+            p['coins']+=STORY_COINS
             self._notice('Глава завершена: '+c['title'],p['name']+' выбрал: '+opt['name'],faction=f)
-            return {'title':opt['name'],'text':opt['text'],'success':True}
+            return {'title':opt['name'],'text':opt['text']+' +'+str(STORY_COINS)+' монет.','success':True}
         if op=='shoot':
             if p['vehicle']: raise GameError('Стрелять можно только пешком.')
             weapon=WEAPONS[p['gear']['weapon']]
             self._cooldown(p,'shoot',weapon['cd']*.92)
             self._pay(f,{'metal':weapon['ammo']*(.6 if self.has_perk(p,15) else 1)})
             ax,ay=p['aim'];length=math.hypot(ax,ay) or 1;ax/=length;ay/=length
-            if p['gear']['weapon']==2:
-                spread=self.rng.uniform(-.05,.05);ax,ay=ax*math.cos(spread)-ay*math.sin(spread),ax*math.sin(spread)+ay*math.cos(spread)
-            end=self.shoot_line(p,ax,ay,weapon['range'],weapon['dmg']*(1+.03*(p['level']-1)),28 if p['gear']['weapon']==1 else 20)
+            if weapon.get('spread'):
+                spread=self.rng.uniform(-weapon['spread'],weapon['spread']);ax,ay=ax*math.cos(spread)-ay*math.sin(spread),ax*math.sin(spread)+ay*math.cos(spread)
+            end=self.shoot_line(p,ax,ay,weapon['range'],weapon['dmg']*(1+.03*(p['level']-1)),weapon.get('width',20))
             p['shot']=self.elapsed
             self.effects.append({'id':secrets.token_hex(4),'kind':'shot','x':p['x'],'y':p['y'],'ex':end['x'],'ey':end['y'],'until':self.elapsed+.22,'faction':f,'weapon':p['gear']['weapon']})
             return {'quiet':True}
+        if op=='equip':
+            idx=data.get('weapon')
+            if not isinstance(idx,int) or idx not in p['weapons']: raise GameError('Этого оружия у тебя нет.')
+            p['gear']['weapon']=idx
+            return {'quiet':True}
+        if op=='buy':
+            return self._buy(p,data)
         if op=='loot':
             poi=self.terrain.pois.get(str(data.get('id')))
             if not poi: raise GameError('Место не найдено.')
@@ -642,6 +663,32 @@ class World(NpcMixin):
             self._notice('Перемирие нарушено',FACTIONS[f]+' разорвали договор.',tone='error')
             return {'title':'Перемирие разорвано','text':'Репутация −15.','success':False}
         raise GameError('Неизвестное действие.')
+
+    def _buy(self,p,data):
+        """Shop on the square of an own or neutral settlement; prices are in personal coins."""
+        f=p['faction'];t=self._town_action(p,str(data.get('town')))
+        if t['owner'] not in (None,f) and not self.truce_active(): raise GameError('Торговцы чужой стороны тебе не продают.')
+        kind=data.get('kind');idx=data.get('index')
+        if kind in ('weapon','armor'):
+            table=WEAPONS if kind=='weapon' else ARMOR
+            if not isinstance(idx,int) or not 1<=idx<len(table): raise GameError('Такого товара нет.')
+            item=table[idx]
+            if p['level']<item['level']: raise GameError('Нужен уровень '+str(item['level'])+'.')
+            if kind=='weapon' and idx in p['weapons']: raise GameError('Это оружие уже у тебя.')
+            if kind=='armor' and p['gear']['armor']>=idx: raise GameError('У тебя броня не хуже.')
+            price=item['price'];name=item['name']
+        elif kind in SHOP_ITEMS:
+            item=SHOP_ITEMS[kind];price=item['price'];name=item['name']
+            if 'max' in item and p['items'].get(kind,0)>=item['max']: raise GameError('Больше не унести: максимум '+str(item['max'])+'.')
+        else: raise GameError('Такого товара нет.')
+        if p['coins']<price: raise GameError('Не хватает монет: нужно '+str(price)+'. Монеты дают за поручения и главы сюжета.')
+        p['coins']-=price
+        if kind=='weapon':p['weapons'].append(idx);p['gear']['weapon']=idx
+        elif kind=='armor':p['gear']['armor']=idx
+        elif kind=='supplies':self._reward(f,{'food':20,'fuel':15})
+        elif kind=='materials':self._reward(f,{'wood':30,'stone':25,'metal':15})
+        else:p['items'][kind]=p['items'].get(kind,0)+1
+        return {'title':'Куплено: '+name,'text':'−'+str(price)+' монет. Осталось '+str(p['coins'])+'.','success':True}
 
     def _start_truce(self,initiator):
         self.truce['until']=self.elapsed+600;self.truce['proposal']=None
@@ -945,6 +992,9 @@ class World(NpcMixin):
                 p['car'].setdefault('hp',100.0);p['car'].setdefault('wrecked_until',0.0)
                 for k in STAT_KEYS:p['stats'].setdefault(k,0)
                 p['level']=int(clamp(finite(p.get('level',1),1),1,MAX_LEVEL));p['xp']=max(0,int(finite(p.get('xp',0))))
+                p['coins']=max(0,int(finite(p.get('coins',0))))
+                p['weapons']=sorted({int(clamp(finite(i),0,len(WEAPONS)-1)) for i in p.get('weapons',[])}|{0,p['gear']['weapon']})
+                items=p.get('items') or {};p['items']={k:max(0,int(finite(items.get(k,0)))) for k in ('medkit','repairkit')}
                 players[token]=p
             self.elapsed=max(0,finite(raw['time']));self.production_clock=finite(raw.get('production_clock',0))%12
             self.towns=towns;self.stocks=stocks;self.players=players

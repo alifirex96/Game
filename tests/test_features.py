@@ -322,3 +322,67 @@ class TownLayoutTests(unittest.TestCase):
         pts = w.terrain.route_points(['shabrovsky', 'revda'])
         self.assertEqual(pts[0], list(w.terrain.gate('shabrovsky', 'revda')))
         self.assertEqual(pts[-1], [w.towns['revda']['x'], w.towns['revda']['y']])
+
+class ShopTests(unittest.TestCase):
+    def setUp(self):
+        self.world = World(rng=random.Random(9))
+        self.token = self.world.join('Покупатель', 'survivors')
+        self.p = self.world.players[self.token]
+        t = self.world.towns['revda']
+        self.p['x'], self.p['y'] = t['x'], t['y'] + 40
+
+    def act(self, op, **data):
+        data.update(op=op, request_id='s' + str(random.random()))
+        return self.world.command(self.token, data)
+
+    def test_coins_come_from_quests(self):
+        self.assertEqual(self.p['coins'], 0)
+        q = self.p['quests'][0]
+        self.p['stats'][q['kind']] += q['target']
+        self.act('claim', id=q['id'])
+        self.assertEqual(self.p['coins'], q['coins'])
+
+    def test_buying_weapons_needs_coins_and_level(self):
+        with self.assertRaises(GameError):
+            self.act('buy', town='revda', kind='weapon', index=3)       # no coins
+        self.p['coins'] = 2000
+        with self.assertRaises(GameError):
+            self.act('buy', town='revda', kind='weapon', index=3)       # level 2 needed
+        self.p['level'] = 2
+        self.act('buy', town='revda', kind='weapon', index=3)
+        self.assertIn(3, self.p['weapons'])
+        self.assertEqual(self.p['gear']['weapon'], 3)
+        self.assertEqual(self.p['coins'], 2000 - 80)
+        with self.assertRaises(GameError):
+            self.act('buy', town='revda', kind='weapon', index=5)       # level 12 needed
+        with self.assertRaises(GameError):
+            self.act('buy', town='revda', kind='weapon', index=3)       # already owned
+        self.act('equip', weapon=0)
+        self.assertEqual(self.p['gear']['weapon'], 0)
+        with self.assertRaises(GameError):
+            self.act('equip', weapon=6)
+
+    def test_enemy_traders_refuse(self):
+        self.world.towns['revda']['owner'] = 'bandits'
+        self.p['coins'] = 500
+        with self.assertRaises(GameError):
+            self.act('buy', town='revda', kind='medkit')
+
+    def test_medkit_heals_before_food_and_repairkit_fixes_car(self):
+        self.p['coins'] = 500
+        self.act('buy', town='revda', kind='medkit')
+        self.act('buy', town='revda', kind='repairkit')
+        self.p['hp'] = 20; food = self.world.stocks['survivors']['food']
+        self.act('heal')
+        self.assertEqual(self.p['hp'], 80)
+        self.assertEqual(self.world.stocks['survivors']['food'], food)
+        self.p['car'].update(x=self.p['x'] + 50, y=self.p['y'], hp=30.0)
+        self.act('repair', kit=True)
+        self.assertEqual(self.p['car']['hp'], 100.0)
+        self.assertEqual(self.p['items'], {'medkit':0,'repairkit':0})
+
+    def test_supplies_go_to_faction_stock(self):
+        self.p['coins'] = 100
+        fuel = self.world.stocks['survivors']['fuel']
+        self.act('buy', town='revda', kind='supplies')
+        self.assertEqual(self.world.stocks['survivors']['fuel'], fuel + 15)

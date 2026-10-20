@@ -460,7 +460,7 @@ AS.sprites.person = function (c, o) {
     c.beginPath(); c.moveTo(1, -8); c.lineTo(10 + recoil, -3); c.moveTo(1, 8); c.lineTo(13 + recoil, 1); c.stroke();
     c.fillStyle = hand; c.beginPath(); c.arc(10 + recoil, -2.5, 2.2, 0, 7); c.arc(13 + recoil, 1, 2.2, 0, 7); c.fill();
     drawWeapon(c, o.weapon, recoil);
-    if (o.shot && o.flash) { c.fillStyle = '#ffe7a0'; c.beginPath(); const fx = (o.weapon === 1 ? 33 : o.weapon === 2 ? 31 : 22) + recoil; c.moveTo(fx, 0); c.lineTo(fx + 9, -4); c.lineTo(fx + 14, 0); c.lineTo(fx + 9, 4); c.closePath(); c.fill(); c.fillStyle = '#fff8dd'; c.beginPath(); c.arc(fx + 2, 0, 2.5, 0, 7); c.fill(); }
+    if (o.shot && o.flash) { c.fillStyle = '#ffe7a0'; c.beginPath(); const fx = ([22, 33, 31, 25, 40, 41, 37][o.weapon] || 22) + recoil; c.moveTo(fx, 0); c.lineTo(fx + 9, -4); c.lineTo(fx + 14, 0); c.lineTo(fx + 9, 4); c.closePath(); c.fill(); c.fillStyle = '#fff8dd'; c.beginPath(); c.arc(fx + 2, 0, 2.5, 0, 7); c.fill(); }
   } else if (reach) {
     const k = Math.sin(o.phase * 1.4) * 2;
     c.beginPath(); c.moveTo(1, -8); c.lineTo(12 + k, -5); c.moveTo(1, 8); c.lineTo(12 - k, 5); c.stroke();
@@ -483,6 +483,10 @@ function drawWeapon(c, tier, recoil) {
   c.save(); c.translate(recoil, 0);
   if (tier === 1) { c.fillStyle = '#5b3d25'; c.fillRect(4, -1.8, 12, 3.6); c.fillStyle = '#2b2b27'; c.fillRect(14, -1.4, 18, 2.8); c.fillStyle = '#56575a'; c.fillRect(16, -2, 3, 4); }
   else if (tier === 2) { c.fillStyle = '#4b3523'; c.fillRect(2, -2, 9, 4); c.fillStyle = '#25262a'; c.fillRect(10, -2, 15, 4); c.fillRect(24, -1, 7, 2); c.fillStyle = '#3c3f44'; c.beginPath(); c.moveTo(16, 2); c.quadraticCurveTo(18, 8, 14, 9); c.lineTo(13, 2); c.fill(); c.fillStyle = '#5b3d25'; c.fillRect(19, -2.5, 5, 1.5); }
+  else if (tier === 3) { c.fillStyle = '#5b3d25'; c.fillRect(6, -2.2, 8, 4.4); c.fillStyle = '#2b2b27'; c.fillRect(13, -2.6, 11, 2.4); c.fillRect(13, .2, 11, 2.4); }
+  else if (tier === 4) { c.fillStyle = '#6b4728'; c.fillRect(2, -2, 22, 4); c.fillStyle = '#2b2b27'; c.fillRect(20, -1.2, 14, 2.4); c.fillStyle = '#9a9d9e'; c.fillRect(33, -.6, 6, 1.2); }
+  else if (tier === 5) { c.fillStyle = '#24262a'; c.fillRect(2, -2, 24, 4); c.fillRect(25, -1, 15, 2); c.fillStyle = '#3c4a4f'; c.fillRect(12, -4.5, 10, 2.5); c.fillStyle = '#7fa3b0'; c.fillRect(21, -4.5, 1.5, 2.5); c.fillStyle = '#3c3f44'; c.fillRect(14, 2, 4, 5); }
+  else if (tier === 6) { c.fillStyle = '#25262a'; c.fillRect(2, -2.5, 22, 5); c.fillRect(23, -1.2, 13, 2.4); c.fillStyle = '#4f5a3e'; c.fillRect(10, 2.5, 8, 6); c.strokeStyle = '#2b2b27'; c.lineWidth = 1; c.beginPath(); c.moveTo(30, 1); c.lineTo(28, 6); c.moveTo(30, 1); c.lineTo(33, 6); c.stroke(); }
   else { c.fillStyle = '#2b2b29'; c.fillRect(11, -1.6, 10, 3.2); c.fillStyle = '#4a4a46'; c.fillRect(11, -1.6, 4, 3.2); }
   c.restore();
 }

@@ -150,16 +150,30 @@ LANDMARKS = {
 BUILD_TIME = [12, 28, 50]          # seconds to finish level 1, 2, 3
 STORAGE_BASE = 320
 STORAGE_PER_WAREHOUSE = 250
+# Indices 0-2 are the 0.2 weapons and stay stable for old saves. 'price' is in coins (shop),
+# 'cost' in faction resources (workshop), 'level' is the character level needed to buy.
 WEAPONS = [
-    {'name':'Пистолет','dmg':16,'cd':.45,'range':420,'ammo':.12,'cost':{}},
-    {'name':'Охотничье ружьё','dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1},
-    {'name':'Автомат','dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2},
+    {'name':'Пистолет Макарова','dmg':16,'cd':.45,'range':420,'ammo':.12,'cost':{},'price':0,'level':1,'width':20},
+    {'name':'Охотничье ружьё','dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1,'price':120,'level':1,'width':28},
+    {'name':'Автомат Калашникова','dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':420,'level':6,'width':20,'spread':.05},
+    {'name':'Обрез','dmg':44,'cd':1.1,'range':300,'ammo':.3,'price':80,'level':2,'width':38},
+    {'name':'Карабин СКС','dmg':38,'cd':.7,'range':600,'ammo':.2,'price':240,'level':4,'width':20},
+    {'name':'Снайперская винтовка СВД','dmg':72,'cd':1.6,'range':780,'ammo':.4,'price':680,'level':12,'width':16},
+    {'name':'Пулемёт ПКМ','dmg':15,'cd':.1,'range':520,'ammo':.1,'price':950,'level':18,'width':22,'spread':.08},
 ]
 ARMOR = [
-    {'name':'Куртка','reduce':0,'cost':{}},
-    {'name':'Разгрузка с пластинами','reduce':.2,'cost':{'metal':26,'food':6},'workshop':1},
-    {'name':'Бронежилет','reduce':.36,'cost':{'metal':64,'stone':10},'workshop':3},
+    {'name':'Куртка','reduce':0,'cost':{},'price':0,'level':1},
+    {'name':'Разгрузка с пластинами','reduce':.2,'cost':{'metal':26,'food':6},'workshop':1,'price':160,'level':3},
+    {'name':'Бронежилет','reduce':.36,'cost':{'metal':64,'stone':10},'workshop':3,'price':520,'level':10},
 ]
+# Shop goods besides weapons and armor. Coins are earned for quests and story chapters.
+SHOP_ITEMS = {
+    'medkit': {'name':'Аптечка','desc':'+60 здоровья по H, расходуется раньше припасов.','price':35,'max':5},
+    'repairkit': {'name':'Ремкомплект','desc':'Чинит машину в любом месте (R рядом с машиной).','price':45,'max':3},
+    'supplies': {'name':'Ящик снабжения','desc':'+20 припасов и +15 топлива в запас фракции.','price':60},
+    'materials': {'name':'Стройматериалы','desc':'+30 древесины, +25 камня, +15 металла фракции.','price':90},
+}
+STORY_COINS = 120
 NPC_TYPES = {
     'marauder': {'name':'Мародёр','hp':45,'speed':118,'dmg':8,'range':330,'cd':1.5,'loot':{'metal':3,'food':2}},
     'raider': {'name':'Боец бандитов','hp':70,'speed':125,'dmg':11,'range':360,'cd':1.2,'loot':{'metal':4}},
@@ -248,16 +262,16 @@ EVENTS = [
     {'name':'Снять трубы','chance':95,'cost':{},'reward':{'metal':9},'rep':0,'risk':0}]},
 ]
 QUESTS = [
- {'kind':'harvest','name':'Запас на первое время','text':'Собери ресурсы в окрестностях 3 раза. Подойди к дереву, камням или ящикам и нажми E.','target':3,'reward':{'wood':16,'metal':8}},
- {'kind':'build','name':'Вернуть свет в окна','text':'Восстанови или улучши любое здание своей фракции.','target':1,'reward':{'stone':16,'food':12}},
- {'kind':'event','name':'Голос в эфире','text':'Успешно разреши одно происшествие. Ищи жёлтый знак вопроса на площади.','target':1,'reward':{'metal':14,'fuel':10}},
- {'kind':'explore','name':'Дальше знакомой дороги','text':'Впервые посети ещё одно поселение. Используй машину и карту M.','target':1,'reward':{'fuel':16,'food':8}},
- {'kind':'deliver','name':'Нужны припасы','text':'Доставь 12 припасов на площадь указанного поселения. Доставка гарантирована, если ты добрался.','target':1,'reward':{'metal':20,'wood':14}},
- {'kind':'capture','name':'Новая точка опоры','text':'Установи контроль над одним поселением. Начни с нейтрального.','target':1,'reward':{'wood':35,'stone':25,'fuel':16}},
- {'kind':'aid','name':'Плечом к плечу','text':'Поддержи жителей своего поселения через меню площади.','target':1,'reward':{'metal':12,'food':18}},
- {'kind':'kills','name':'Чистая дорога','text':'Обезвредь двух мародёров. Они собираются у заброшенных заводов и заправок.','target':2,'reward':{'metal':16,'food':10}},
- {'kind':'loot','name':'Старые тайники','text':'Обыщи тайник в заброшенном месте: завод, деревня, нефтебаза. Отмечены на карте.','target':1,'reward':{'fuel':10,'stone':12}},
- {'kind':'trade','name':'Рыночный день','text':'Соверши обмен у торговцев на площади нейтрального или своего поселения.','target':1,'reward':{'food':12,'wood':10}},
+ {'kind':'harvest','coins':30,'name':'Запас на первое время','text':'Собери ресурсы в окрестностях 3 раза. Подойди к дереву, камням или ящикам и нажми E.','target':3,'reward':{'wood':16,'metal':8}},
+ {'kind':'build','coins':40,'name':'Вернуть свет в окна','text':'Восстанови или улучши любое здание своей фракции.','target':1,'reward':{'stone':16,'food':12}},
+ {'kind':'event','coins':45,'name':'Голос в эфире','text':'Успешно разреши одно происшествие. Ищи жёлтый знак вопроса на площади.','target':1,'reward':{'metal':14,'fuel':10}},
+ {'kind':'explore','coins':40,'name':'Дальше знакомой дороги','text':'Впервые посети ещё одно поселение. Используй машину и карту M.','target':1,'reward':{'fuel':16,'food':8}},
+ {'kind':'deliver','coins':55,'name':'Нужны припасы','text':'Доставь 12 припасов на площадь указанного поселения. Доставка гарантирована, если ты добрался.','target':1,'reward':{'metal':20,'wood':14}},
+ {'kind':'capture','coins':90,'name':'Новая точка опоры','text':'Установи контроль над одним поселением. Начни с нейтрального.','target':1,'reward':{'wood':35,'stone':25,'fuel':16}},
+ {'kind':'aid','coins':35,'name':'Плечом к плечу','text':'Поддержи жителей своего поселения через меню площади.','target':1,'reward':{'metal':12,'food':18}},
+ {'kind':'kills','coins':60,'name':'Чистая дорога','text':'Обезвредь двух мародёров. Они собираются у заброшенных заводов и заправок.','target':2,'reward':{'metal':16,'food':10}},
+ {'kind':'loot','coins':50,'name':'Старые тайники','text':'Обыщи тайник в заброшенном месте: завод, деревня, нефтебаза. Отмечены на карте.','target':1,'reward':{'fuel':10,'stone':12}},
+ {'kind':'trade','coins':30,'name':'Рыночный день','text':'Соверши обмен у торговцев на площади нейтрального или своего поселения.','target':1,'reward':{'food':12,'wood':10}},
 ]
 # Faction storylines. Each chapter ends with a choice whose consequences persist.
 STORY = {
@@ -340,5 +354,5 @@ def config():
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'posts':POSTS,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
-            'perks':PERKS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
+            'perks':PERKS,'shop':SHOP_ITEMS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}

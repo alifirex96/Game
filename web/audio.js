@@ -44,6 +44,10 @@ A.play = function (kind, distance) {
   if (kind.startsWith('shot')) {
     tension = Math.min(1, tension + .25);
     if (kind === 'shot1') { burst(.32, 'lowpass', 2400, .55 * k, sfx, .7, 300); tone(110, .25, 'sine', .5 * k, sfx, 40); }
+    else if (kind === 'shot3') { burst(.4, 'lowpass', 1800, .65 * k, sfx, .6, 200); tone(90, .3, 'sine', .6 * k, sfx, 35); }
+    else if (kind === 'shot4') { burst(.22, 'bandpass', 1700, .48 * k, sfx, .8, 450); tone(130, .18, 'sine', .4 * k, sfx, 50); }
+    else if (kind === 'shot5') { burst(.5, 'lowpass', 3200, .7 * k, sfx, .5, 250); tone(80, .4, 'sine', .55 * k, sfx, 30); }
+    else if (kind === 'shot6') { burst(.08, 'bandpass', 1500, .45 * k, sfx, .9); tone(110, .09, 'square', .14 * k, sfx, 50); }
     else if (kind === 'shot2') { burst(.09, 'bandpass', 1900, .42 * k, sfx, .9); tone(140, .1, 'square', .12 * k, sfx, 60); }
     else { burst(.16, 'bandpass', 1500, .4 * k, sfx, .8, 500); tone(150, .14, 'sine', .3 * k, sfx, 55); }
   } else if (kind === 'tower') { burst(.2, 'bandpass', 1100, .28 * k, sfx, .8, 400); }

@@ -45,3 +45,8 @@
 #level{display:flex;align-items:center;gap:6px}#level b{font-size:18px;color:var(--orange);line-height:1}#level span{font-size:9px;letter-spacing:1px;color:var(--muted)}#level i{display:block;width:70px;height:3px;background:#ffffff22}#level em{display:block;height:3px;background:var(--gold)}#level small{font-size:10px;color:#a5ae9b}
 .char-card{padding:16px 18px;background:#ffffff06;border:1px solid var(--line);border-radius:5px;margin-bottom:16px}
 .perks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.perk{display:flex;flex-direction:column;gap:3px;padding:9px 11px;border:1px solid var(--line);border-radius:5px;opacity:.5}.perk.on{opacity:1;border-color:#d3b77b66}.perk b{font-size:12px}.perk.on b{color:var(--gold)}.perk small{font-size:11px;color:var(--muted)}
+#coins{display:flex;align-items:center;gap:8px;color:var(--gold)}#coins svg{width:16px;height:16px}#coins b{font-size:15px}#coins span{display:inline-flex;align-items:center;gap:3px;color:#cad0c1}#coins span svg{width:13px;height:13px}
+.shop-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--gold)}.shop-head svg{width:20px;height:20px}.shop-head span{flex-basis:100%;font-size:11px;color:var(--muted)}
+.shop-eyebrow{display:block;margin-top:16px}.decision strong svg{width:13px;height:13px;vertical-align:-2px}
+.owned{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.owned button{padding:8px 12px;font-size:12px}
+@media(max-width:1750px){#autosave{display:none}}
