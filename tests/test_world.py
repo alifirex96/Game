@@ -13,25 +13,25 @@ class WorldTests(unittest.TestCase):
         self.assertGreaterEqual(len(self.world.towns), 15)
         self.assertGreater(len(self.world.nodes), 15)
 
-    def test_computer_clans_hold_their_homes(self):
+    def test_computer_clans_start_with_a_town_and_a_shelter(self):
         for sid, name, color, home, fighter, method in AI_SIDES:
-            town = self.world.towns[home]
-            self.assertEqual(town['owner'], sid)
-            self.assertTrue(town['base'])
+            self.assertEqual(self.world.towns[home]['owner'], sid)
+            self.assertIn(self.world.sides[sid]['shelter'], self.world.shelters)
+        self.assertFalse(any(t['base'] for t in self.world.towns.values()))
 
     def test_every_player_is_a_side_with_a_home(self):
         a = self.world.players[self.world.join('A')]
         b = self.world.players[self.world.join('B')]
         self.assertNotEqual(a['faction'], b['faction'])
         for p in (a, b):
-            home = self.world.home(p['faction'])
-            self.assertEqual(home['owner'], p['faction'])
-            self.assertTrue(home['base'])
+            self.assertIn(self.world.sides[p['faction']]['shelter'], self.world.shelters)
+            self.assertFalse(any(t['owner'] == p['faction'] for t in self.world.towns.values()))
             for resource in ('wood', 'stone', 'metal', 'food', 'fuel'):
                 self.assertGreater(self.world.stocks[p['faction']][resource], 0)
-        self.assertNotEqual(self.world.sides[a['faction']]['home'], self.world.sides[b['faction']]['home'])
+        self.assertNotEqual(self.world.sides[a['faction']]['shelter'], self.world.sides[b['faction']]['shelter'])
 
     def test_player_limit(self):
+        self.assertEqual(MAX_PLAYERS, 25)
         tokens = [self.world.join('P' + str(i)) for i in range(MAX_PLAYERS)]
         self.assertEqual(len(set(tokens)), MAX_PLAYERS)
         with self.assertRaises(GameError):
@@ -52,11 +52,11 @@ class WorldTests(unittest.TestCase):
         self.assertEqual(p['coins'], 0)
         self.assertIsNone(self.world.towns['revda']['owner'])
         self.assertIsNone(self.world.towns['kazan']['owner'])
-        self.assertEqual(self.world.home(f)['owner'], f)
+        self.assertEqual(self.world.sides[f]['shelter'], self.world.home(f)['id'])
 
-    def test_three_active_quests(self):
+    def test_quests_come_only_from_people(self):
         token = self.world.join('Player', 'survivors')
-        self.assertEqual(len(self.world.players[token]['quests']), 3)
+        self.assertEqual(self.world.players[token]['quests'], [])
 
     def test_nonfinite_input_does_not_poison_simulation(self):
         token = self.world.join('Player', 'survivors')
@@ -81,3 +81,49 @@ class WorldTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TradeAndClanTests(unittest.TestCase):
+    def setUp(self):
+        self.world = World(rng=random.Random(3))
+        self.ta = self.world.join('Аня'); self.tb = self.world.join('Боря')
+        self.a = self.world.players[self.ta]; self.b = self.world.players[self.tb]
+        self.b['x'], self.b['y'] = self.a['x'] + 60, self.a['y']
+
+    def act(self, token, op, **data):
+        data.update(op=op, request_id='t' + str(random.random()))
+        return self.world.command(token, data)
+
+    def test_players_swap_coins_items_and_resources(self):
+        self.a['coins'] = 50; self.b['items']['medkit'] = 1
+        wood = self.world.stocks[self.a['faction']]['wood']
+        self.act(self.ta, 'offer_make', to=self.b['id'], give={'coins':30, 'res':{'wood':5}}, want={'items':{'medkit':1}})
+        offer = self.world.snapshot(self.tb)['offers'][0]
+        with self.assertRaises(GameError):
+            self.act(self.ta, 'offer_accept', id=offer['id'])        # only the other side accepts
+        self.act(self.tb, 'offer_accept', id=offer['id'])
+        self.assertEqual((self.a['coins'], self.b['coins']), (20, 30))
+        self.assertEqual(self.a['items'].get('medkit'), 1)
+        self.assertNotIn('medkit', self.b['items'])
+        self.assertEqual(self.world.stocks[self.a['faction']]['wood'], wood - 5)
+        self.assertEqual(self.world.offers, {})
+
+    def test_trade_needs_to_stand_close(self):
+        self.a['coins'] = 10
+        self.b['x'] += 2000
+        with self.assertRaises(GameError):
+            self.act(self.ta, 'offer_make', to=self.b['id'], give={'coins':10}, want={})
+
+    def test_clan_members_do_not_fight(self):
+        fa, fb = self.a['faction'], self.b['faction']
+        self.assertTrue(self.world.hostile(self.a, self.b))
+        self.a['coins'] = 30
+        self.act(self.ta, 'clan_create', name='Северный ветер')
+        cid = self.world.sides[fa]['clan']
+        self.act(self.ta, 'clan_invite', side=fb)
+        self.assertIn(cid, self.world.snapshot(self.tb)['invites'])
+        self.act(self.tb, 'clan_join', id=cid)
+        self.assertFalse(self.world.hostile(self.a, self.b))
+        self.assertEqual(self.world.snapshot(self.ta)['players'][0]['tag'], 'СВ')
+        self.act(self.tb, 'clan_leave')
+        self.assertTrue(self.world.hostile(self.a, self.b))

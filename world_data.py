@@ -5,10 +5,12 @@ VERSION = '0.4.0'
 WORLD_SCALE = 3
 WORLD_SIZE = (20000 * WORLD_SCALE, 10000 * WORLD_SCALE)
 # Everyone plays for themselves. Each player is a side with a home settlement; computer clans are sides too.
-MAX_PLAYERS = 6
+MAX_PLAYERS = 25
 HOME_CHOICES = ['shabrovsky', 'ekaterinburg', 'revda', 'perm', 'polevskoy', 'tagil', 'kazan', 'omsk',
                 'nizhny', 'novosibirsk', 'moscow', 'krasnoyarsk']
-SIDE_COLORS = ['#e7a568', '#7fb2d0', '#a7c46a', '#d79cb7', '#e0d46a', '#9b8fd6', '#6ad0b8', '#f08a6a']
+SIDE_COLORS = ['#e7a568', '#7fb2d0', '#a7c46a', '#d79cb7', '#e0d46a', '#9b8fd6', '#6ad0b8', '#f08a6a', '#c9c9c9', '#b98a5a',
+               '#5fa0e0', '#e06a9a', '#8ad06a', '#d0a0e0', '#e0b0a0', '#70c0c0', '#c0c060', '#a0a0f0', '#f0c040', '#60e090',
+               '#e07050', '#90b0d0', '#d090c0', '#b0d090', '#f0e0a0', '#80a080', '#c08060']
 # Computer clans: id, name, colour, home, fighter type, preferred capture method.
 AI_SIDES = [('ai_scar', 'Банда Шрама', '#c0503c', 'pervouralsk', 'raider', 'assault'),
             ('ai_dawn', 'Община «Рассвет»', '#5f9a7a', 'tyumen', 'ranger', 'talk')]
@@ -56,8 +58,8 @@ ROADS = [('petersburg','moscow'),('moscow','nizhny'),('nizhny','kazan'),
 REGIONS = {
     'Северо-Запад': {'biome':'mixed','cold':1}, 'Центральная Россия': {'biome':'mixed','cold':0},
     'Поволжье': {'biome':'steppe','cold':0}, 'Урал': {'biome':'ural','cold':1},
-    'Западная Сибирь': {'biome':'taiga','cold':2}, 'Сибирь': {'biome':'taiga','cold':2},
-    'Прибайкалье': {'biome':'taiga','cold':2}, 'Якутия': {'biome':'tundra','cold':3},
+    'Западная Сибирь': {'biome':'snowtaiga','cold':2}, 'Сибирь': {'biome':'snowtaiga','cold':2},
+    'Прибайкалье': {'biome':'snowtaiga','cold':2}, 'Якутия': {'biome':'tundra','cold':3},
     'Дальний Восток': {'biome':'taiga','cold':1}, 'Север': {'biome':'tundra','cold':3},
     'Крайний Север': {'biome':'tundra','cold':3},
 }
@@ -89,14 +91,14 @@ RIVERS = [[n, w, [(x * _S, y * _S) for x, y in pts]] for n, w, pts in RIVERS]
 LAKES = [[n, [(x * _S, y * _S) for x, y in pts]] for n, pts in LAKES]
 HILLS = [(n, x * _S, y * _S, rx * _S, ry * _S) for n, x, y, rx, ry in HILLS]
 POI_KINDS = {
-    'factory': {'name':'Заброшенный завод','loot':{'metal':16,'stone':6},'guards':3},
-    'gas': {'name':'Заправка','loot':{'fuel':16,'food':4},'guards':1},
-    'military': {'name':'Воинская часть','loot':{'metal':22,'fuel':8},'guards':4},
-    'farm': {'name':'Брошенный колхоз','loot':{'food':20,'wood':6},'guards':1},
-    'village': {'name':'Пустая деревня','loot':{'wood':12,'food':8},'guards':1},
-    'oil': {'name':'Нефтебаза','loot':{'fuel':24},'guards':3},
-    'mine': {'name':'Рудник','loot':{'stone':16,'metal':10},'guards':2},
-    'rail': {'name':'Железнодорожная станция','loot':{'metal':10,'food':10,'fuel':6},'guards':2},
+    'factory': {'name':'Заброшенный завод','loot':{'metal':8,'stone':3},'guards':3},
+    'gas': {'name':'Заправка','loot':{'fuel':8,'food':2},'guards':1},
+    'military': {'name':'Воинская часть','loot':{'metal':11,'fuel':4},'guards':4},
+    'farm': {'name':'Брошенный колхоз','loot':{'food':10,'wood':3},'guards':1},
+    'village': {'name':'Пустая деревня','loot':{'wood':6,'food':4},'guards':1},
+    'oil': {'name':'Нефтебаза','loot':{'fuel':12},'guards':3},
+    'mine': {'name':'Рудник','loot':{'stone':8,'metal':5},'guards':2},
+    'rail': {'name':'Железнодорожная станция','loot':{'metal':5,'food':5,'fuel':3},'guards':2},
 }
 POIS = [
     ('revda_plant','Медеплавильный завод','factory',7100,4150),('sysert','Сысерть','village',8300,4900),
@@ -124,15 +126,15 @@ BUILDINGS = {
     'house': {'name':'Жилой дом','cost':{'wood':20,'stone':14,'metal':6},
               'desc':'За каждый уровень в поселение возвращаются восемь жителей.','workers':0},
     'sawmill': {'name':'Лесопилка','cost':{'wood':18,'stone':12,'metal':8},
-                'desc':'Бригада заготавливает древесину для общего запаса фракции.','workers':3,'output':['wood',5]},
+                'desc':'Бригада заготавливает древесину для общего запаса фракции.','workers':3,'output':['wood',2]},
     'quarry': {'name':'Карьер','cost':{'wood':20,'stone':16,'metal':10},
-               'desc':'Камень для ремонта домов и укреплений.','workers':3,'output':['stone',5]},
+               'desc':'Камень для ремонта домов и укреплений.','workers':3,'output':['stone',2]},
     'workshop': {'name':'Мастерская','cost':{'wood':26,'stone':20,'metal':16},
-                 'desc':'Восстанавливает металл и изготавливает оружие и броню.','workers':3,'output':['metal',4]},
+                 'desc':'Восстанавливает металл и изготавливает оружие и броню.','workers':3,'output':['metal',2]},
     'farm': {'name':'Ферма','cost':{'wood':16,'stone':10,'metal':5},
-             'desc':'Теплицы и огороды: продовольствие для рабочих, походов и переговоров.','workers':2,'output':['food',6]},
+             'desc':'Теплицы и огороды: продовольствие для рабочих, походов и переговоров.','workers':2,'output':['food',3]},
     'garage': {'name':'Гараж','cost':{'wood':24,'stone':16,'metal':16},
-               'desc':'Добывает топливо, чинит машины. Гараж убежища ускоряет и укрепляет машины фракции.','workers':2,'output':['fuel',3]},
+               'desc':'Добывает топливо, чинит машины. Гараж убежища ускоряет и укрепляет машины фракции.','workers':2,'output':['fuel',1]},
     'warehouse': {'name':'Склад','cost':{'wood':22,'stone':18,'metal':8},
                   'desc':'Каждый уровень увеличивает предельный запас каждого ресурса фракции на 250.','workers':1},
     'radio': {'name':'Радиостанция','cost':{'wood':30,'stone':24,'metal':25},
@@ -169,51 +171,51 @@ STORAGE_PER_WAREHOUSE = 250
 # 'cost' in faction resources (workshop), 'level' is the character level needed to buy.
 WEAPONS = [
     {'name':'Пистолет Макарова','dmg':16,'cd':.45,'range':420,'ammo':.12,'cost':{},'price':0,'level':1,'width':20},
-    {'name':'Охотничье ружьё','dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1,'price':120,'level':1,'width':28},
-    {'name':'Автомат Калашникова','dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':420,'level':6,'width':20,'spread':.05},
-    {'name':'Обрез','dmg':44,'cd':1.1,'range':300,'ammo':.3,'price':80,'level':2,'width':38},
-    {'name':'Карабин СКС','dmg':38,'cd':.7,'range':600,'ammo':.2,'price':240,'level':4,'width':20},
-    {'name':'Снайперская винтовка СВД','dmg':72,'cd':1.6,'range':780,'ammo':.4,'price':680,'level':12,'width':16},
-    {'name':'Пулемёт ПКМ','dmg':15,'cd':.1,'range':520,'ammo':.1,'price':950,'level':18,'width':22,'spread':.08},
+    {'name':'Охотничье ружьё','dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1,'price':180,'level':1,'width':28},
+    {'name':'Автомат Калашникова','dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':630,'level':6,'width':20,'spread':.05},
+    {'name':'Обрез','dmg':44,'cd':1.1,'range':300,'ammo':.3,'price':120,'level':2,'width':38},
+    {'name':'Карабин СКС','dmg':38,'cd':.7,'range':600,'ammo':.2,'price':360,'level':4,'width':20},
+    {'name':'Снайперская винтовка СВД','dmg':72,'cd':1.6,'range':780,'ammo':.4,'price':1020,'level':12,'width':16},
+    {'name':'Пулемёт ПКМ','dmg':15,'cd':.1,'range':520,'ammo':.1,'price':1425,'level':18,'width':22,'spread':.08},
 ]
 ARMOR = [
     {'name':'Куртка','reduce':0,'cost':{},'price':0,'level':1},
-    {'name':'Разгрузка с пластинами','reduce':.2,'cost':{'metal':26,'food':6},'workshop':1,'price':160,'level':3},
-    {'name':'Бронежилет','reduce':.36,'cost':{'metal':64,'stone':10},'workshop':3,'price':520,'level':10},
+    {'name':'Разгрузка с пластинами','reduce':.2,'cost':{'metal':26,'food':6},'workshop':1,'price':240,'level':3},
+    {'name':'Бронежилет','reduce':.36,'cost':{'metal':64,'stone':10},'workshop':3,'price':780,'level':10},
 ]
 # Shop goods besides weapons and armor. Coins are earned for quests and story chapters.
 # Survival gear bought for coins. 'warm' lowers cold exposure, 'slots' is how many items fit.
 CLOTHES = [
     {'name':'Ветровка','warm':0,'price':0,'level':1},
-    {'name':'Ватник','warm':15,'price':90,'level':1},
-    {'name':'Овчинный тулуп','warm':30,'price':220,'level':4},
-    {'name':'Арктический комплект','warm':45,'price':480,'level':10},
+    {'name':'Ватник','warm':15,'price':135,'level':1},
+    {'name':'Овчинный тулуп','warm':30,'price':330,'level':4},
+    {'name':'Арктический комплект','warm':45,'price':720,'level':10},
 ]
 BACKPACKS = [
     {'name':'Карманы','slots':6,'price':0,'level':1},
-    {'name':'Сумка через плечо','slots':12,'price':60,'level':1},
-    {'name':'Туристический рюкзак','slots':20,'price':180,'level':3},
-    {'name':'Армейский рюкзак','slots':30,'price':400,'level':8},
+    {'name':'Сумка через плечо','slots':12,'price':90,'level':1},
+    {'name':'Туристический рюкзак','slots':20,'price':270,'level':3},
+    {'name':'Армейский рюкзак','slots':30,'price':600,'level':8},
 ]
 # Personal items: each takes one slot in the backpack.
 ITEMS = {
-    'canned': {'name':'Тушёнка','desc':'Сытость +40.','price':15,'food':40},
-    'crackers': {'name':'Сухари','desc':'Сытость +20, жажда +5.','price':8,'food':20,'water':-5},
-    'water': {'name':'Бутылка воды','desc':'Жажда утолена на 45.','price':10,'water':45},
-    'tea': {'name':'Термос с чаем','desc':'Жажда +25, тепло +35.','price':25,'water':25,'warmth':35},
-    'bandage': {'name':'Бинт','desc':'Останавливает кровотечение, +5 здоровья.','price':12,'hp':5,'stop_bleed':True},
-    'medkit': {'name':'Аптечка','desc':'+60 здоровья и останавливает кровотечение.','price':35,'hp':60,'stop_bleed':True},
-    'pills': {'name':'Антибиотики','desc':'Лечат отравление.','price':30,'cure':True},
-    'repairkit': {'name':'Ремкомплект','desc':'Чинит машину в любом месте (R рядом с машиной).','price':45},
-    'canister': {'name':'Канистра бензина','desc':'+20 топлива в бак твоей машины (T рядом с машиной).','price':25},
+    'canned': {'name':'Тушёнка','desc':'Сытость +40.','price':20,'food':40},
+    'crackers': {'name':'Сухари','desc':'Сытость +20, жажда +5.','price':10,'food':20,'water':-5},
+    'water': {'name':'Бутылка воды','desc':'Жажда утолена на 45.','price':15,'water':45},
+    'tea': {'name':'Термос с чаем','desc':'Жажда +25, тепло +35.','price':40,'water':25,'warmth':35},
+    'bandage': {'name':'Бинт','desc':'Останавливает кровотечение, +5 здоровья.','price':20,'hp':5,'stop_bleed':True},
+    'medkit': {'name':'Аптечка','desc':'+60 здоровья и останавливает кровотечение.','price':50,'hp':60,'stop_bleed':True},
+    'pills': {'name':'Антибиотики','desc':'Лечат отравление.','price':45,'cure':True},
+    'repairkit': {'name':'Ремкомплект','desc':'Чинит машину в любом месте (R рядом с машиной).','price':70},
+    'canister': {'name':'Канистра бензина','desc':'+20 топлива в бак твоей машины (T рядом с машиной).','price':40},
     'meat_raw': {'name':'Сырое мясо','desc':'Сытость +25, но можно отравиться. Пожарь у костра своего поселения.','price':0,'food':25,'risk':.35},
     'meat': {'name':'Жареное мясо','desc':'Сытость +45.','price':0,'food':45},
 }
 LOOT_ITEMS = ['canned', 'crackers', 'water', 'water', 'bandage', 'crackers', 'pills', 'canned', 'tea', 'medkit', 'canister']
 # Shop goods paid in coins that go straight to the faction stock.
 SHOP_ITEMS = {
-    'supplies': {'name':'Ящик снабжения','desc':'+20 припасов и +15 топлива в запас фракции.','price':60},
-    'materials': {'name':'Стройматериалы','desc':'+30 древесины, +25 камня, +15 металла фракции.','price':90},
+    'supplies': {'name':'Ящик снабжения','desc':'+20 припасов и +15 топлива в запас фракции.','price':90},
+    'materials': {'name':'Стройматериалы','desc':'+30 древесины, +25 камня, +15 металла фракции.','price':135},
 }
 STORY_COINS = 120
 NPC_TYPES = {
@@ -221,6 +223,12 @@ NPC_TYPES = {
     'raider': {'name':'Боец бандитов','hp':70,'speed':125,'dmg':11,'range':360,'cd':1.2,'loot':{'metal':4}},
     'ranger': {'name':'Дружинник','hp':70,'speed':125,'dmg':11,'range':360,'cd':1.2,'loot':{'food':4}},
     'militia': {'name':'Ополченец','hp':55,'speed':110,'dmg':9,'range':340,'cd':1.4,'loot':{'food':2}},
+    # Settlement garrisons stay inside the town; shelter guards never leave their zone.
+    'occupier': {'name':'Мародёр','hp':40,'speed':110,'dmg':7,'range':320,'cd':1.6,'loot':{'metal':1,'food':1},'zone':470,'aggro':420},
+    'occupier_elite': {'name':'Головорез','hp':110,'speed':120,'dmg':14,'range':420,'cd':1.1,'loot':{'metal':3},'zone':470,'aggro':470},
+    'defender': {'name':'Охранник','hp':100,'speed':120,'dmg':12,'range':440,'cd':1.0,'loot':{},'zone':470,'aggro':470},
+    'guardian': {'name':'Охрана убежища','hp':600,'speed':120,'dmg':36,'range':560,'cd':.55,'loot':{},'zone':470,'aggro':560,'accurate':True},
+    'bandit': {'name':'Бандит','hp':70,'speed':130,'dmg':11,'range':380,'cd':1.2,'loot':{'metal':2},'aggro':480},
     'convoy': {'name':'Грузовик','hp':150,'speed':165,'dmg':0,'range':0,'cd':0,'loot':{}},
     # Wild animals: melee predators and a shy elk worth hunting. Meat goes into the hunter's backpack.
     'wolf': {'name':'Волк','hp':40,'speed':178,'dmg':9,'range':34,'cd':1.0,'melee':True,'aggro':430,'loot':{'food':3},'meat':1},
@@ -232,8 +240,8 @@ NPC_TYPES = {
     'spitter': {'name':'Кислотник','hp':50,'speed':120,'dmg':12,'range':300,'cd':1.8,'acid':True,'aggro':480,'loot':{'fuel':3}},
     'brute': {'name':'Громила','hp':260,'speed':108,'dmg':32,'range':50,'cd':2.0,'melee':True,'aggro':380,'loot':{'metal':10,'stone':6}},
 }
-NPC_FACTION = {'wolf':'wild','bear':'wild','boar':'wild','elk':'game','mutant':'mutants','spitter':'mutants','brute':'mutants'}
-WILDLIFE = {'tundra':['wolf','wolf','elk','bear'],'taiga':['wolf','bear','elk','elk','boar'],
+NPC_FACTION = {'bandit':'outlaws','wolf':'wild','bear':'wild','boar':'wild','elk':'game','mutant':'mutants','spitter':'mutants','brute':'mutants'}
+WILDLIFE = {'tundra':['wolf','wolf','elk','bear'],'snowtaiga':['wolf','wolf','bear','elk','elk'],'taiga':['wolf','bear','elk','elk','boar'],
             'ural':['wolf','boar','elk','elk','bear'],'mixed':['boar','elk','wolf','elk'],'steppe':['boar','wolf','boar']}
 CAR_TANK = 45
 POST = {'name':'Пост на трассе','desc':'Лечит тебя рядом, стреляет по врагам, собирает пошлину с дороги и забирает четверть груза чужих колонн.'}
@@ -313,19 +321,56 @@ EVENTS = [
     {'name':'Запустить как есть','chance':45,'cost':{},'reward':{'fuel':18},'rep':0,'risk':28},
     {'name':'Снять трубы','chance':95,'cost':{},'reward':{'metal':9},'rep':0,'risk':0}]},
 ]
+# Quests come only from people in settlements. 'giver' is the kind of person who offers and accepts them.
 QUESTS = [
- {'kind':'harvest','coins':30,'name':'Запас на первое время','text':'Собери ресурсы в окрестностях 3 раза. Подойди к дереву, камням или ящикам и нажми E.','target':3,'reward':{'wood':16,'metal':8}},
- {'kind':'build','coins':40,'name':'Вернуть свет в окна','text':'Восстанови или улучши любое здание своей фракции.','target':1,'reward':{'stone':16,'food':12}},
- {'kind':'event','coins':45,'name':'Голос в эфире','text':'Успешно разреши одно происшествие. Ищи жёлтый знак вопроса на площади.','target':1,'reward':{'metal':14,'fuel':10}},
- {'kind':'explore','coins':40,'name':'Дальше знакомой дороги','text':'Впервые посети ещё одно поселение. Используй машину и карту M.','target':1,'reward':{'fuel':16,'food':8}},
- {'kind':'deliver','coins':55,'name':'Нужны припасы','text':'Доставь 12 припасов на площадь указанного поселения. Доставка гарантирована, если ты добрался.','target':1,'reward':{'metal':20,'wood':14}},
- {'kind':'capture','coins':90,'name':'Новая точка опоры','text':'Установи контроль над одним поселением. Начни с нейтрального.','target':1,'reward':{'wood':35,'stone':25,'fuel':16}},
- {'kind':'aid','coins':35,'name':'Плечом к плечу','text':'Поддержи жителей своего поселения через меню площади.','target':1,'reward':{'metal':12,'food':18}},
- {'kind':'kills','coins':60,'name':'Чистая дорога','text':'Обезвредь двух мародёров. Они собираются у заброшенных заводов и заправок.','target':2,'reward':{'metal':16,'food':10}},
- {'kind':'loot','coins':50,'name':'Старые тайники','text':'Обыщи тайник в заброшенном месте: завод, деревня, нефтебаза. Отмечены на карте.','target':1,'reward':{'fuel':10,'stone':12}},
- {'kind':'hunt','coins':45,'name':'Охотничий сезон','text':'Добудь двух диких зверей: лося, кабана, волка или медведя. Мясо пожарь у костра.','target':2,'reward':{'food':20}},
- {'kind':'mutants','coins':70,'name':'Тварь из руин','text':'Убей трёх мутантов. Они выходят из заводов, шахт и с Севера, ночью их больше.','target':3,'reward':{'metal':20,'fuel':10}},
- {'kind':'trade','coins':30,'name':'Рыночный день','text':'Соверши обмен у торговцев на площади нейтрального или своего поселения.','target':1,'reward':{'food':12,'wood':10}},
+ {'kind':'harvest','giver':'mechanic','coins':20,'name':'Металлолом','target':4,'reward':{'metal':4},
+  'text':'Собери ресурсы на четырёх точках в окрестностях: брёвна, камни, ящики, железо.',
+  'intro':'Станок стоит — нечем кормить. Притащи хоть что-нибудь: доски, железо, камень. Мне всё сгодится.',
+  'done':'Вот это дело. Держи, честно заработал.'},
+ {'kind':'loot','giver':'mechanic','coins':35,'name':'Старые тайники','target':1,'reward':{'fuel':4},
+  'text':'Обыщи тайник в заброшенном месте: завод, нефтебаза, деревня. Отмечены ромбами на карте.',
+  'intro':'Перед тишиной склады набивали под завязку. Кто дошёл — тот и богат. Сходи, проверь хоть один.',
+  'done':'Живой вернулся — уже удача. Держи свою долю.'},
+ {'kind':'build','giver':'elder','coins':30,'name':'Вернуть свет в окна','target':1,'reward':{'stone':4,'food':3},
+  'text':'Начни восстановление любого здания в своём поселении.',
+  'intro':'Люди живут в подвалах, как крысы. Подними хоть одну крышу — и они поверят, что жить можно.',
+  'done':'Видел свет в окнах этой ночью. Спасибо тебе.'},
+ {'kind':'aid','giver':'elder','coins':25,'name':'Плечом к плечу','target':1,'reward':{'food':4},
+  'text':'Помоги жителям своего поселения через меню площади.',
+  'intro':'Еды до весны не хватит. Если у тебя есть свои люди — поддержи их, они это запомнят.',
+  'done':'Дети сегодня легли сытыми. Это дорогого стоит.'},
+ {'kind':'deliver','giver':'trader','coins':40,'name':'Посылка','target':1,'reward':{'metal':3,'wood':3},
+  'text':'Доставь 6 припасов на площадь указанного поселения.',
+  'intro':'Есть груз, есть адрес, нет охраны. Довезёшь — заплачу. Не довезёшь — значит, не судьба.',
+  'done':'Дошло, значит. Хорошо. Держи, как договаривались.'},
+ {'kind':'trade','giver':'trader','coins':20,'name':'Рыночный день','target':1,'reward':{'food':3},
+  'text':'Соверши обмен у торговцев на площади нейтрального или своего поселения.',
+  'intro':'Рынок держится на тех, кто меняется. Сделай хоть одну сделку — и я тебя запомню.',
+  'done':'Вот теперь ты свой на этом рынке.'},
+ {'kind':'explore','giver':'trader','coins':30,'name':'Дальше знакомой дороги','target':1,'reward':{'fuel':3},
+  'text':'Впервые доберись до ещё одного поселения.',
+  'intro':'Говорят, за рекой ещё живут люди. Съезди, посмотри, что там. Карта — по клавише M.',
+  'done':'Значит, не одни мы остались. Хорошие новости дорого стоят.'},
+ {'kind':'kills','giver':'major','coins':45,'name':'Чистая дорога','target':3,'reward':{'metal':4},
+  'text':'Убей трёх мародёров или бандитов. Они бродят у дорог и сидят в брошенных городах.',
+  'intro':'Отставить разговоры. Трасса забита отребьем. Три головы — и считай, что ты на довольствии.',
+  'done':'Доклад принят. Трасса стала чище. Свободен.'},
+ {'kind':'capture','giver':'major','coins':80,'name':'Новая точка опоры','target':1,'reward':{'wood':6,'stone':5},
+  'text':'Очисти поселение от засевших там мародёров и установи над ним контроль.',
+  'intro':'Город без хозяина — это город для мародёров. Выбей их и подними свой флаг. Крупные города — не суйся в одиночку.',
+  'done':'Флаг видно с дороги. Так держать.'},
+ {'kind':'mutants','giver':'major','coins':60,'name':'Тварь из руин','target':2,'reward':{'metal':5},
+  'text':'Убей двух мутантов. Они выходят из заводов, шахт и с Севера, ночью их больше.',
+  'intro':'Из руин лезет то, чему нет названия. Двух. Без героизма — бей и отходи.',
+  'done':'Видел их вблизи? Вот и я больше не сплю. Держи.'},
+ {'kind':'hunt','giver':'hunter','coins':30,'name':'Охотничий сезон','target':2,'reward':{'food':5},
+  'text':'Добудь двух диких зверей: лося, кабана, волка или медведя.',
+  'intro':'Зверь вернулся в леса, пока людей не стало. Принеси мне две туши — научу, как жить с этой земли.',
+  'done':'Мясо есть — зиму протянем. Бери, заслужил.'},
+ {'kind':'event','giver':'medic','coins':35,'name':'Чужая беда','target':1,'reward':{'food':3},
+  'text':'Успешно разреши одно происшествие на площади любого поселения.',
+  'intro':'У людей беда за бедой: то лихорадка, то завал. Помоги кому-нибудь — нам всем зачтётся.',
+  'done':'Говорят, ты помог. Таких сейчас мало.'},
 ]
 # Faction storylines. Each chapter ends with a choice whose consequences persist.
 STORY = {
@@ -406,6 +451,63 @@ STORY_LINE[2]['choices'] = [dict(c, text=c['text'].replace('вас', 'тебя')
 STORY_LINE[3]['text'] = 'Колонны связывают поселения. Доведи до дома две колонны с грузом.'
 STORY_LINE[4].update(title='Свои города', text='Установи контроль над тремя поселениями, включая домашнее.')
 STORY_LINE[5]['text'] = 'Последний шаг — радиостанция второго уровня в домашнем поселении и пять поселений под контролем. Тогда эфир услышит вся страна.'
+# Shelters: every player and clan has one bunker in the wild. It cannot be captured;
+# its guards warn intruders at SHELTER_WARN and open fire inside SHELTER_RADIUS.
+SHELTER_RADIUS = 470
+SHELTER_WARN = 800
+SHELTER_GUARDS = 5
+BIG_TOWNS = {'moscow','petersburg','ekaterinburg','novosibirsk','kazan','nizhny','krasnoyarsk','omsk','perm',
+             'vladivostok','khabarovsk','irkutsk'}
+START_STOCK = {'wood':20.0,'stone':12.0,'metal':8.0,'food':20.0,'fuel':10.0}
+NODE_RESPAWN = 240
+# Character looks: cells of web/assets/characters.png (5 x 4).
+LOOKS = ['Худи','Худи и разгрузка','Худи и плитник','Худи и каска','Рейдер с рюкзаком',
+         'Полевая форма','Пехотинец','Камуфляж с кепи','Камуфляж и каска','Тёмный камуфляж',
+         'Пустынная кепи','Пустынный штурмовик','Лесной камуфляж','Городской камуфляж','Синяя форма',
+         'Зимний маскхалат','Зимний штурмовик','Чёрный спецназ','Бродяга с шарфом','Тяжёлый рейдер']
+NPC_LOOKS = {'marauder':[0,1,2],'occupier':[0,1,2,18],'occupier_elite':[3,4,9],'defender':[5,6],'guardian':[17],
+             'bandit':[18,12,13],'raider':[18,19],'ranger':[7,8],'militia':[6],'civil':[0,1]}
+NPC_LOOKS_COLD = {'marauder':[15],'occupier':[15,0],'occupier_elite':[16],'guardian':[16],'bandit':[15,18],'defender':[16,6]}
+# People who hand out quests. Dialogue lines may use {town}, {region}, {name}.
+GIVERS = {
+ 'elder': {'role':'Староста','look':13,'names':['Михалыч','Петрович','Тамара Ильинична','Семёныч','Зоя Павловна','Иваныч'],
+  'greet':['А, путник. Нечасто к нам заходят живые. Чего надо?','Я тут за старшего, пока никого постарше не осталось. Говори.',
+           'Тише, люди спят после ночной смены. Ты по делу?'],
+  'lore':['В {town} до тишины жило тысяч сто. Теперь — сколько видишь.','Зима в {region} лютая. Кто не запас дров к октябрю — тот не дожил до марта.',
+          'Электричество ушло в первую же ночь. Потом ушли и те, кто ждал, что его вернут.']},
+ 'trader': {'role':'Торговка','look':10,'names':['Люда','Валентина','Галка','Нина Сергеевна'],
+  'greet':['Смотреть — бесплатно, трогать — за деньги. Чего изволишь?','Свежие новости, тушёнка и патроны. Новости — даром.',
+           'Ты не из местных. Значит, при деньгах или при беде.'],
+  'lore':['По трассе на {town} опять бандиты стоят. Объезжай лесом.','Монета сейчас — то, что на что-то меняется. Остальное — бумага.',
+          'Из Сибири везут мясо, с Урала — железо. Кто держит дороги — тот и сыт.']},
+ 'mechanic': {'role':'Механик','look':2,'names':['Колян','Димон','Серёга-Гайка','Палыч'],
+  'greet':['Руки не подаю, они в мазуте. Чего?','Если машина не едет — это ко мне. Если едет — тоже ко мне, значит, скоро не поедет.',
+           'Тишина ничего не сломала. Сломалось всё само, без присмотра.'],
+  'lore':['Бензин в {region} на вес золота. Канистру за пазухой носи.','На заводах ещё лежит металл, но туда ходят не только люди.',
+          'Генератор я собрал из трёх. Работает, если пнуть.']},
+ 'major': {'role':'Отставной майор','look':8,'names':['майор Гусев','майор Ткачёв','майор Рябов'],
+  'greet':['Стой. Назовись. ...Ладно, свободен — говори по существу.','Порядок держится на тех, кто не боится стрелять. Ты из таких?',
+           'Докладывай коротко. Времени мало, патронов ещё меньше.'],
+  'lore':['В крупных городах засели серьёзные люди. В одиночку туда — только за смертью.','Убежища охраняют те, кто стреляет без предупреждения второй раз.',
+          'Мутанты ночью смелеют. Днём — прячутся по цехам.']},
+ 'hunter': {'role':'Охотник','look':7,'names':['Егорыч','дед Матвей','Савва'],
+  'greet':['Тихо ходи — зверя спугнёшь. Чего тебе?','Лес теперь снова хозяин. Мы у него в гостях.',
+           'Волки нынче наглые. Человека не боятся — его мало осталось.'],
+  'lore':['Медведь в {region} весной голодный. Не стой у него на тропе.','Лося бей с первого выстрела — второго он тебе не даст.',
+          'Сырое мясо ешь только с голоду. Лучше у костра обжарь.']},
+ 'medic': {'role':'Фельдшер','look':0,'names':['Анна Петровна','Ольга','док Шмелёв'],
+  'greet':['Не кашляешь? Не кровишь? Тогда проходи.','Бинтов мало, спирта ещё меньше. С чем пришёл?',
+           'Я лечу всех. Даже тех, кто потом стреляет в моих же больных.'],
+  'lore':['Речную воду не пей сырой. Половина моих больных — оттуда.','Холод убивает тише пули. Одевайся теплее, если идёшь на Север.',
+          'Антибиотики сейчас дороже золота. Береги, если найдёшь.']},
+ 'radio': {'role':'Радист','look':1,'names':['Радист Кеша','Вера-связистка','Радист Борис'],
+  'greet':['Шшш... эфир живой. Ты слышишь? Нет? А я слышу.','Связь — это то, что отделяет людей от стаи.',
+           'Кто-то держит частоту на Урале. Я хочу знать, кто.'],
+  'lore':['Каждую ночь в три часа кто-то передаёт цифры. Никто не знает, кто.','Пять городов на одной частоте — и страна снова заговорит.',
+          'Радиостанцию поднять — полдела. Удержать — вот работа.']},
+}
+GIVER_PLAN = ['elder','trader','mechanic','major','hunter','medic']   # two per settlement, three in big cities
+MAX_ACTIVE_QUESTS = 3
 WORLD_EVENTS = ['refugees', 'fire', 'marauders', 'airdrop', 'weather']
 WEATHER = {'clear':'Ясно', 'rain':'Дождь', 'fog':'Туман', 'storm':'Гроза', 'snow':'Снег'}
 DAY_SECONDS = 1440 / 1.4           # one in-game day in real seconds
@@ -417,5 +519,5 @@ def config():
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'post':POST,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
-            'perks':PERKS,'car_tank':CAR_TANK,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
+            'perks':PERKS,'looks':LOOKS,'npc_looks':NPC_LOOKS,'npc_looks_cold':NPC_LOOKS_COLD,'shelter_radius':SHELTER_RADIUS,'shelter_warn':SHELTER_WARN,'car_tank':CAR_TANK,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}

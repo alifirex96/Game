@@ -8,7 +8,7 @@ import time
 import unittest
 from pathlib import Path
 from server import GameError, GameServer, World, discovery_responder
-from world_data import BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE, TOWNS
+from world_data import BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE, TOWNS, WEAPONS
 
 def keep_alive(world):
     for p in world.players.values():
@@ -26,7 +26,9 @@ class FeatureTests(unittest.TestCase):
         self.token = self.world.join('Тест', 'survivors')
         self.p = self.world.players[self.token]
         self.f = self.p['faction']
-        self.base = self.world.home(self.f)
+        self.base = self.world.towns['shabrovsky']
+        self.world._set_owner(self.base, self.f)
+        self.base['levels'].update(depot=1, house=1)      # what a capture leaves behind
 
     def act(self, op, **data):
         data.update(op=op, request_id='r' + str(random.random()))
@@ -144,8 +146,9 @@ class FeatureTests(unittest.TestCase):
         self.assertTrue(self.world.hostile(self.p, {'faction': 'ai_scar'}))
 
     def test_shelter_protects_from_marauders(self):
-        self.goto(self.base, 40)
-        m = self.world.spawn_npc('marauder', 'marauders', self.base['x'], self.base['y'] + 100)
+        home = self.world.home(self.f)
+        self.goto(home, 40)
+        m = self.world.spawn_npc('marauder', 'marauders', home['x'], home['y'] + 100)
         self.world.hurt(self.p, 30, m)
         self.assertEqual(self.p['hp'], 100)
 
@@ -159,6 +162,9 @@ class FeatureTests(unittest.TestCase):
     def test_story_choice_sets_flag_and_advances(self):
         self.p['visited'].append('ekaterinburg')
         self.assertTrue(self.world._story_ready(self.f))
+        with self.assertRaises(GameError):
+            self.act('story_choice', choice=1)          # only the radio operator takes chapters
+        self.goto(self.world.givers['ekaterinburg:radio'], 40)
         self.act('story_choice', choice=1)
         self.assertIn('secret_freq', self.world.story[self.f]['flags'])
         self.assertEqual(self.world.story[self.f]['index'], 1)
@@ -185,12 +191,55 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.base['levels']['farm'], 1)
         self.assertEqual(self.base['levels']['house'], 1)
 
-    def test_assault_raises_militia(self):
+    def test_marauders_hold_free_towns_until_killed(self):
         town = self.world.towns['revda']
-        self.world.begin_capture(town, self.f, 'assault')
-        militia = [n for n in self.world.npcs.values() if n['type'] == 'militia']
-        self.assertGreaterEqual(len(militia), 1)
-        self.assertTrue(all(n['enemy'] == self.f for n in militia))
+        self.goto(town, 40)
+        self.world.stocks[self.f].update(metal=200, food=200)
+        self.world.tick_garrisons(self.world.active_players())
+        guards = self.world.garrison(town)
+        self.assertEqual(len(guards), 3)
+        self.assertTrue(all(n['type'] == 'occupier' and n['faction'] == 'marauders' for n in guards))
+        with self.assertRaises(GameError):
+            self.act('capture', town='revda', method='assault')
+        for n in guards:
+            self.world.hurt(n, 999, self.p)
+        self.world.garrison_clock = 0
+        self.world.tick_garrisons(self.world.active_players())
+        self.assertEqual(self.world.garrison(town), [])          # they do not come back at once
+        self.world._set_owner(town, self.f)
+        self.world.garrison_clock = 0
+        self.world.tick_garrisons(self.world.active_players())
+        defenders = self.world.garrison(town)
+        self.assertGreaterEqual(len(defenders), 2)
+        self.assertTrue(all(n['type'] == 'defender' and n['faction'] == self.f for n in defenders))
+
+    def test_big_cities_have_a_stronger_garrison(self):
+        town = self.world.towns['ekaterinburg']
+        self.goto(town, 40)
+        self.world.tick_garrisons(self.world.active_players())
+        kinds = [n['type'] for n in self.world.garrison(town)]
+        self.assertEqual(kinds.count('occupier'), 5)
+        self.assertEqual(kinds.count('occupier_elite'), 2)
+
+    def test_shelter_guards_warn_then_shoot(self):
+        other = self.world.players[self.world.join('Сосед')]
+        home = self.world.home(other['faction'])
+        self.p['x'], self.p['y'] = home['x'], home['y'] + 700
+        self.world.tick_garrisons(self.world.active_players())
+        guards = [n for n in self.world.npcs.values() if n['type'] == 'guardian' and n['job']['shelter'] == home['id']]
+        self.assertEqual(len(guards), 5)
+        self.assertTrue(any(e['title'].startswith('Стой') and e['player'] == self.p['id'] for e in self.world.log))
+        self.world._build_grid()
+        for n in guards:
+            n['cd'] = 0; self.world._think(n)
+        self.assertEqual(self.p['hp'], 100)                       # outside the fence: warning only
+        self.p['x'], self.p['y'] = home['x'], home['y'] + 150
+        self.world._build_grid()
+        for n in guards:
+            n['cd'] = 0; n['target'] = None; self.world._think(n)
+        self.assertLess(self.p['hp'], 100)
+        own = [n for n in self.world.npcs.values() if n['type'] == 'guardian' and n['faction'] == self.f]
+        self.assertTrue(all(not self.world.hostile(n, self.p) for n in own))
 
     def test_light_snapshot_omits_towns(self):
         state = self.world.snapshot(self.token, full=False)
@@ -213,7 +262,7 @@ class SaveTests(unittest.TestCase):
             self.assertEqual(loaded.players[token]['gear']['armor'], 2)
             self.assertIn('p1', loaded.posts)
             self.assertIn('iron_road', loaded.story[side]['flags'])
-            self.assertEqual(loaded.sides[side]['home'], 'shabrovsky')
+            self.assertEqual(loaded.sides[side]['shelter'], w.sides[side]['shelter'])
             self.assertEqual(loaded.room_code, '654321')
 
     def test_version_one_save_is_migrated(self):
@@ -349,10 +398,22 @@ class ShopTests(unittest.TestCase):
 
     def test_coins_come_from_quests(self):
         self.assertEqual(self.p['coins'], 0)
+        g = next(g for g in self.world.givers.values() if g['town'] == 'revda' and g['type'] != 'radio')
+        self.p['x'] += 800
+        with self.assertRaises(GameError):
+            self.act('talk', giver=g['id'])                          # too far away
+        self.p['x'], self.p['y'] = g['x'], g['y'] + 30
+        dialog = self.act('talk', giver=g['id'])['dialog']
+        self.assertTrue(dialog['greet'])
+        offer = dialog['offers'][0]
+        self.act('quest_accept', giver=g['id'], kind=offer['kind'])
         q = self.p['quests'][0]
+        with self.assertRaises(GameError):
+            self.act('quest_turnin', giver=g['id'], id=q['id'])     # not done yet
         self.p['stats'][q['kind']] += q['target']
-        self.act('claim', id=q['id'])
+        self.act('quest_turnin', giver=g['id'], id=q['id'])
         self.assertEqual(self.p['coins'], q['coins'])
+        self.assertEqual(self.p['quests'], [])
 
     def test_buying_weapons_needs_coins_and_level(self):
         with self.assertRaises(GameError):
@@ -364,7 +425,7 @@ class ShopTests(unittest.TestCase):
         self.act('buy', town='revda', kind='weapon', index=3)
         self.assertIn(3, self.p['weapons'])
         self.assertEqual(self.p['gear']['weapon'], 3)
-        self.assertEqual(self.p['coins'], 2000 - 80)
+        self.assertEqual(self.p['coins'], 2000 - WEAPONS[3]['price'])
         with self.assertRaises(GameError):
             self.act('buy', town='revda', kind='weapon', index=5)       # level 12 needed
         with self.assertRaises(GameError):
@@ -459,13 +520,15 @@ class SurvivalTests(unittest.TestCase):
         self.p['water'] = 10.0
         self.act('drink')
         self.assertGreaterEqual(self.p['water'], 44)
-        base = self.world.towns['shabrovsky']
+        base = self.world.home(self.f)
         self.p['x'], self.p['y'] = base['x'], base['y'] + 40
         self.p.update(food=5.0, water=5.0)
-        self.act('canteen', town='shabrovsky')
+        with self.assertRaises(GameError):
+            self.act('canteen', town='revda')                    # not ours
+        self.act('canteen', town='shelter')
         self.assertGreater(self.p['food'], 50)
         with self.assertRaises(GameError):
-            self.act('canteen', town='shabrovsky')
+            self.act('canteen', town='shelter')
 
     def test_shop_sells_clothes_backpacks_and_food(self):
         t = self.world.towns['revda']
@@ -486,6 +549,11 @@ class WildlifeAndFuelTests(unittest.TestCase):
         self.f = self.p['faction']
         self.p['x'], self.p['y'] = 8000.0 * 3, 6200.0 * 3
 
+    def quiet(self):
+        self.world._spawn_marauders = lambda active: None
+        self.world._spawn_creatures = lambda active: None
+        self.world.tick_garrisons = lambda active: None
+
     def act(self, op, **data):
         data.update(op=op, request_id='w' + str(random.random()))
         return self.world.command(self.token, data)
@@ -503,9 +571,9 @@ class WildlifeAndFuelTests(unittest.TestCase):
         self.world.hurt(elk, 999, self.p)
         self.assertEqual(self.p['items'].get('meat_raw'), 3)
         self.assertEqual(self.p['stats']['hunt'], 1)
-        base = self.world.towns['shabrovsky']
+        base = self.world.home(self.f)
         self.p['x'], self.p['y'] = base['x'], base['y'] + 40
-        self.act('cook', town='shabrovsky')
+        self.act('cook', town='shelter')
         self.assertEqual(self.p['items'].get('meat'), 3)
         self.assertNotIn('meat_raw', self.p['items'])
 
@@ -521,6 +589,7 @@ class WildlifeAndFuelTests(unittest.TestCase):
         self.assertFalse(self.world.hostile(wolf, elk))
 
     def test_each_car_has_its_own_tank(self):
+        self.quiet()
         stock = self.world.stocks[self.f]['fuel']
         car = self.p['car']; car['fuel'] = 5.0
         self.p['vehicle'] = True; self.p['x'], self.p['y'] = car['x'], car['y']

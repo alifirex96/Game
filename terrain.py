@@ -69,6 +69,7 @@ class Terrain:
             parts = [{'x':x+dx,'y':y+dy,'w':w,'h':h,'sprite':s} for dx, dy, w, h, s in POI_LAYOUTS[kind]]
             self.pois[pid] = {'id':pid,'name':name,'kind':kind,'x':x,'y':y,'parts':parts,
                               'kind_name':POI_KINDS[kind]['name']}
+        self.shelters = self._shelter_sites()
         self.rects = []
         self.grid = {}
         self.graph = {t: [] for t in self.towns}
@@ -90,6 +91,25 @@ class Terrain:
             a, b = towns[i], towns[i + 1]
             out += [list(self.gate(a, b)), list(self.gate(b, a)), [self.towns[b]['x'], self.towns[b]['y']]]
         return out
+
+    def _shelter_sites(self):
+        """Bunker sites off the highways, far from towns, ruins and each other."""
+        sites = []
+        for ax, ay, bx, by, a, b in self.road_segments:
+            length = math.hypot(bx - ax, by - ay)
+            nx = -(by - ay) / length; ny = (bx - ax) / length
+            for u in (.3, .7):
+                for side in (1, -1):
+                    x = ax + (bx - ax) * u + nx * 750 * side; y = ay + (by - ay) * u + ny * 750 * side
+                    if not (700 < x < WORLD_SIZE[0] - 700 and 700 < y < WORLD_SIZE[1] - 700):
+                        continue
+                    if self.water(x, y, 300) or self.in_town(x, y, 900) or any(math.hypot(x - p['x'], y - p['y']) < 900 for p in self.pois.values()):
+                        continue
+                    if any(math.hypot(x - s['x'], y - s['y']) < 2000 for s in sites):
+                        continue
+                    near = min(self.towns.values(), key=lambda t: math.hypot(t['x'] - x, t['y'] - y))
+                    sites.append({'id':'sh' + str(len(sites)), 'x':round(x), 'y':round(y), 'town':near['id']})
+        return sites
 
     def add_rect(self, rect):
         """Index a solid axis-aligned rectangle (dict with x, y, w, h centred)."""
@@ -184,7 +204,7 @@ def resource_nodes(terrain):
     """Deterministic harvest points: around towns, near ruins and along every road."""
     nodes = {}
     kinds = list(RESOURCES)
-    amounts = {'wood':8,'stone':8,'metal':6,'food':7,'fuel':8}
+    amounts = {'wood':4,'stone':4,'metal':2,'food':3,'fuel':3}   # scarce on purpose
 
     def place(nid, kind, x, y, amount=None):
         for step in range(12):

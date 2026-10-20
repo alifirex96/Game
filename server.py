@@ -16,8 +16,9 @@ from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
-from world_data import (VERSION, WORLD_SIZE, RESOURCES, TOWNS, REGIONS, MAX_PLAYERS, HOME_CHOICES,
-                        SIDE_COLORS, AI_SIDES, STORY_LINE, POST, BUILDINGS, EVENTS, QUESTS, WEAPONS, ARMOR, POI_KINDS,
+from world_data import (VERSION, WORLD_SIZE, RESOURCES, TOWNS, REGIONS, MAX_PLAYERS,
+                        SIDE_COLORS, AI_SIDES, STORY_LINE, POST, SHELTER_RADIUS, SHELTER_WARN, SHELTER_GUARDS,
+                        BIG_TOWNS, START_STOCK, NODE_RESPAWN, LOOKS, GIVERS, GIVER_PLAN, MAX_ACTIVE_QUESTS, BUILDINGS, EVENTS, QUESTS, WEAPONS, ARMOR, POI_KINDS,
                         POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
                         WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, xp_to_next, max_hp, config)
 from terrain import Terrain, town_buildings, resource_nodes, landmark_rect
@@ -28,6 +29,8 @@ SAVE_VERSION = 2
 DISCOVERY_PORT = 8766
 STAT_KEYS = ('harvest','build','event','explore','deliver','capture','aid','kills','loot','trade','hunt','mutants')
 FSTAT_KEYS = ('kills','convoy','tribute','post','trade','capture')
+CLAN_SIZE = 6
+TRADE_RANGE = 260
 
 def clamp(v, low, high):
     return max(low, min(high, v))
@@ -75,6 +78,10 @@ class World(NpcMixin):
         self.poi_state = {}
         self.weather = {'kind':'clear','until':300.0}
         self.truce = {'pairs':{},'proposals':[],'cooldown':{}}
+        self.clans = {}
+        self.offers = {}
+        self.warned_zone = {}
+        self.garrison_state = {}
         self.story = {}
         self.fstats = {}
         self.ai_state = {}
@@ -86,36 +93,57 @@ class World(NpcMixin):
         self._make_world()
         if self.save_path and self.save_path.exists():
             self.load()
-        for sid, name, color, home, fighter, method in AI_SIDES:
-            if sid not in self.sides and self.towns[home]['owner'] is None:
-                self.add_side(sid, name, color, home, ai={'fighter':fighter,'method':method})
+        for sid, name, color, town, fighter, method in AI_SIDES:
+            if sid not in self.sides and self.towns[town]['owner'] is None:
+                site = self.free_shelter(near=self.towns[town])
+                if site:
+                    self.add_side(sid, name, color, site['id'], ai={'fighter':fighter,'method':method}, town=town)
         for f in self.sides:
             if not self.story[f]['start']:
                 self._story_start(f)
 
     # ---- sides ----------------------------------------------------------
-    def add_side(self, sid, name, color, home, ai=None):
-        self.sides[sid] = {'id':sid,'name':name,'color':color,'home':home,'ai':bool(ai),
+    def add_side(self, sid, name, color, shelter, ai=None, town=None):
+        """A side owns a shelter (bunker) that can never be captured; towns have to be taken."""
+        self.sides[sid] = {'id':sid,'name':name,'color':color,'shelter':shelter,'ai':bool(ai),'clan':None,
                            'fighter':(ai or {}).get('fighter','raider'),'method':(ai or {}).get('method','assault')}
-        self.stocks[sid] = dict(wood=44.0,stone=32.0,metal=26.0,food=48.0,fuel=35.0)
+        self.stocks[sid] = dict(START_STOCK)
         self.reputation[sid] = 0
         self.story[sid] = {'index':0,'flags':[],'start':{}}
         self.fstats[sid] = {k:0 for k in FSTAT_KEYS}
-        t = self.towns[home]
-        t.update(owner=sid, base=True, loyalty=70, capture=None, shield=0.0, construct={}, fires={})
-        for k in ('depot','house'):
-            t['levels'][k] = max(1, t['levels'][k])
+        if town:
+            t = self.towns[town]
+            t.update(owner=sid, loyalty=60, capture=None, shield=0.0, construct={}, fires={})
+            for k in ('depot','house'):
+                t['levels'][k] = max(1, t['levels'][k])
         self._story_start(sid)
+
+    def free_shelter(self, near=None):
+        taken = {s['shelter'] for s in self.sides.values()}
+        free = [s for s in self.terrain.shelters if s['id'] not in taken]
+        if not free:
+            return None
+        ref = near or self.towns['shabrovsky']
+        return min(free, key=lambda s: dist(s, ref))
 
     def release_side(self, sid):
         """A side that left for good gives its settlements back to their people."""
         for t in self.towns.values():
             if t['owner'] == sid:
-                self._set_owner(t, None); t['base'] = False; t['loyalty'] = 45
+                self._set_owner(t, None); t['loyalty'] = 45
         for pid in [k for k, v in self.posts.items() if v['faction'] == sid]:
             del self.posts[pid]
         for nid in [k for k, n in self.npcs.items() if n['faction'] == sid]:
             del self.npcs[nid]
+        for c in self.clans.values():
+            if sid in c['members']: c['members'].remove(sid)
+            if sid in c['invites']: c['invites'].remove(sid)
+        for cid, c in list(self.clans.items()):
+            if not c['members']:
+                del self.clans[cid]
+            elif c['leader'] == sid:
+                c['leader'] = c['members'][0]
+        self.offers = {k: o for k, o in self.offers.items() if sid not in (o['from_side'], o['to_side'])}
         for store in (self.sides, self.stocks, self.reputation, self.story, self.fstats, self.ai_state):
             store.pop(sid, None)
 
@@ -123,9 +151,20 @@ class World(NpcMixin):
         return self.sides[sid]['name'] if sid in self.sides else 'Независимые'
 
     def home(self, sid):
-        return self.towns[self.sides[sid]['home']]
+        """The side's shelter: {'id','x','y','town'} where 'town' is the nearest settlement."""
+        return self.shelters[self.sides[sid]['shelter']]
+
+    def best_level(self, sid, kind):
+        return max([t['levels'][kind] for t in self.towns.values() if t['owner'] == sid] or [0])
+
+    def allied(self, a, b):
+        ca = self.sides.get(a, {}).get('clan'); cb = self.sides.get(b, {}).get('clan')
+        return a == b or (ca is not None and ca == cb)
 
     def truce_between(self, a, b):
+        """Clan mates and sides with a running truce do not fight each other."""
+        if a != b and self.allied(a, b):
+            return True
         return a != b and self.truce['pairs'].get('|'.join(sorted((a, b))), 0) > self.elapsed
 
     _dist = staticmethod(dist)
@@ -147,6 +186,23 @@ class World(NpcMixin):
             for part in poi['parts']:
                 if part['sprite']!='pump':self.terrain.add_rect(part)
         self.nodes = resource_nodes(self.terrain)
+        self.shelters = {sh['id']: dict(sh, name='Убежище у ' + self.towns[sh['town']]['name']) for sh in self.terrain.shelters}
+        for sh in self.shelters.values():
+            self.terrain.add_rect({'x':sh['x'],'y':sh['y'] - 10,'w':90,'h':60})
+        # Two people with work on every square, three in big cities.
+        self.givers = {}
+        for i, tid in enumerate(self.towns):
+            t = self.towns[tid]
+            kinds = [GIVER_PLAN[i % len(GIVER_PLAN)], GIVER_PLAN[(i + 3) % len(GIVER_PLAN)]]
+            if tid in BIG_TOWNS:
+                kinds.append('radio')
+            for k, kind in enumerate(kinds):
+                a = .6 + k * 2.1
+                gid = tid + ':' + kind
+                spec = GIVERS[kind]
+                self.givers[gid] = {'id':gid,'town':tid,'type':kind,'role':spec['role'],'look':spec['look'],
+                                    'name':spec['names'][(i + k) % len(spec['names'])],
+                                    'x':round(t['x'] + math.cos(a) * 168),'y':round(t['y'] + math.sin(a) * 140)}
 
     def _notice(self, title, text='', faction=None, player=None, tone='info', skip=None):
         self.seq += 1
@@ -154,20 +210,24 @@ class World(NpcMixin):
         self.log=self.log[-60:]
 
     def _public_player(self, p):
-        out={k:p[k] for k in ('id','name','faction','x','y','angle','hp','stamina','vehicle','dead_until','gear','level','xp')}
+        out={k:p[k] for k in ('id','name','faction','x','y','angle','hp','stamina','vehicle','dead_until','gear','level','xp','look')}
+        clan=self.clans.get(self.sides.get(p['faction'],{}).get('clan'))
+        out['tag']=clan['tag'] if clan else ''
         out['max_hp']=max_hp(p['level'])
         out['car']={k:p['car'].get(k,0) for k in ('x','y','angle','hp','wrecked_until','fuel')}
         out['shot']=p.get('shot',-10);out['busy']=p.get('busy',-10);out['moving']=bool(p['input'][0] or p['input'][1])
         out['sprint']=bool(p['input'][2])
         return out
 
-    def join(self, name, faction=None, token=None):
+    def join(self, name, faction=None, token=None, look=None):
         """Every player is a side of their own. The faction argument is ignored (kept for old clients)."""
+        look=int(clamp(finite(look,0),0,len(LOOKS)-1)) if look is not None else None
         if token in self.players:
             p=self.players[token]
             p['last_seen']=time.monotonic()
             p['name']=str(name).strip()[:20] or p['name']
             self.sides[p['faction']]['name']=p['name']
+            if look is not None:p['look']=look
             return token
         name=str(name).strip()[:20] or 'Путник'
         now=time.monotonic()
@@ -176,30 +236,27 @@ class World(NpcMixin):
             if not stale:
                 raise GameError('В комнате уже '+str(MAX_PLAYERS)+' игроков. Дождись свободного места.')
             self.release_side(stale[0][1]['faction']);del self.players[stale[0][0]]
-        free=[tid for tid in HOME_CHOICES if self.towns[tid]['owner'] is None] or \
-             [tid for tid,t in self.towns.items() if t['owner'] is None]
-        if not free:
-            raise GameError('Свободных поселений для нового игрока не осталось.')
-        tid=free[0];town=self.towns[tid]
+        site=self.free_shelter()
+        if not site:
+            raise GameError('Свободных мест для убежища не осталось.')
+        town=self.towns[site['town']]
         used={s['color'] for s in self.sides.values()}
         color=next((c for c in SIDE_COLORS if c not in used),SIDE_COLORS[len(self.sides)%len(SIDE_COLORS)])
         token=secrets.token_urlsafe(32);pid=secrets.token_hex(6);sid='p_'+pid
-        self.add_side(sid,name,color,tid)
-        p={'id':pid,'name':name,'faction':sid,
-           'x':town['x'],'y':town['y']+70,'angle':0.0,
+        self.add_side(sid,name,color,site['id'])
+        p={'id':pid,'name':name,'faction':sid,'look':look if look is not None else self.rng.randrange(len(LOOKS)),
+           'x':site['x'],'y':site['y']+80,'angle':0.0,
            'hp':100.0,'stamina':100.0,'vehicle':False,
-           'car':{'x':town['x']+90,'y':town['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0,'fuel':30.0},
+           'car':{'x':site['x']+90,'y':site['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0,'fuel':20.0},
            'dead_until':0.0,'last_seen':now,'last_input':now,'input':[0,0,False],
            'aim':[0,1],'paused':False,'last_action':{},'receipts':OrderedDict(),
            'stats':{k:0 for k in STAT_KEYS},'gear':{'weapon':0,'armor':0,'clothes':0,'backpack':0},'level':1,'xp':0,
-           'coins':0,'weapons':[0],'items':{'water':1,'crackers':1,'bandage':1},
-           'food':80.0,'water':80.0,'warmth':90.0,'bleeding':False,'sick':0.0,'warned':[],
-           'visited':[tid],'quests':[],'quest_serial':0,'completed':0,'pending':None}
+           'coins':0,'weapons':[0],'items':{'water':1,'crackers':1},
+           'food':70.0,'water':70.0,'warmth':90.0,'bleeding':False,'sick':0.0,'warned':[],
+           'visited':[],'quests':[],'quest_serial':0,'completed':0,'pending':None}
         self._place_randomly(p)
-        for q in range(3):
-            p['quests'].append(self._quest(p,q))
         self.players[token]=p
-        self._notice(name+' присоединился','Домашнее поселение: '+town['name']+'.')
+        self._notice(name+' присоединился','Убежище — у поселения '+town['name']+'.')
         self.dirty=True
         return token
 
@@ -232,7 +289,7 @@ class World(NpcMixin):
         fuel=max(10.0,p['car'].get('fuel',30.0)) if isinstance(p.get('car'),dict) else 30.0
         p['car']={'x':cx,'y':cy,'angle':self.rng.uniform(-math.pi,math.pi),'hp':100.0,'wrecked_until':0.0,'fuel':fuel}
         near=min(self.towns.values(),key=lambda t:dist(t,p))
-        self._notice('Ты очнулся у дороги','Рядом: '+near['name']+'. Дом: '+self.home(p['faction'])['name']+' — метка на карте M.',player=p['id'])
+        self._notice('Ты очнулся у дороги','Рядом: '+near['name']+'. '+self.home(p['faction'])['name']+' — метка на карте M.',player=p['id'])
 
     def max_hp(self,p):
         return max_hp(p['level'])
@@ -253,16 +310,43 @@ class World(NpcMixin):
             self._notice(p['name']+' достиг уровня '+str(p['level']),'',faction=p['faction'],skip=p['id'])
         if p['level']>=MAX_LEVEL:p['xp']=0
 
-    def _quest(self,p,index):
-        q=copy.deepcopy(QUESTS[index%len(QUESTS)])
+    def _quest(self,p,tpl,giver):
+        q=copy.deepcopy(tpl)
         p['quest_serial']+=1
         q['id']=p['id']+'-q'+str(p['quest_serial'])
         q['start']=p['stats'][q['kind']]
+        q['from']=giver['name']+', '+self.towns[giver['town']]['name']
         if q['kind']=='deliver':
-            choices=[t for t in self.towns.values() if not t['base']]
-            target=min(choices,key=lambda t:dist(p,t))
+            others=sorted((t for t in self.towns.values() if t['id']!=giver['town']),key=lambda t:dist(t,self.towns[giver['town']]))
+            target=self.rng.choice(others[:4])
             q['town']=target['id']; q['text']+=' Место: '+target['name']+'.'
         return q
+
+    def _giver_near(self,p,gid):
+        g=self.givers.get(str(gid))
+        if not g: raise GameError('Здесь никого нет.')
+        if p['vehicle']: raise GameError('Выйди из машины, чтобы поговорить.')
+        self._near(p,g,150)
+        return g
+
+    def dialog(self,p,g):
+        """What a person on the square says and offers this player."""
+        spec=GIVERS[g['type']];t=self.towns[g['town']]
+        fill=lambda line:line.format(town=t['name'],region=t['region'],name=p['name'])
+        pick=lambda lines:fill(lines[int(self.elapsed//30+len(g['id']))%len(lines)])
+        mine=[q for q in p['quests'] if q['giver']==g['type']]
+        done=[q for q in mine if p['stats'][q['kind']]-q['start']>=q['target']]
+        active={q['kind'] for q in p['quests']}
+        offers=[] if len(p['quests'])>=MAX_ACTIVE_QUESTS else \
+            [{k:tpl[k] for k in ('kind','name','text','intro','coins','reward','target')} for tpl in QUESTS if tpl['giver']==g['type'] and tpl['kind'] not in active]
+        out={'giver':{k:g[k] for k in ('id','name','role','type','look','town')},'greet':pick(spec['greet']),'lore':pick(spec['lore']),
+             'offers':offers,'full':len(p['quests'])>=MAX_ACTIVE_QUESTS,
+             'turnins':[{'id':q['id'],'name':q['name'],'coins':q.get('coins',0),'reward':q['reward'],'done':q.get('done','')} for q in done],
+             'progress':[{'id':q['id'],'name':q['name'],'n':max(0,p['stats'][q['kind']]-q['start']),'target':q['target']} for q in mine if q not in done]}
+        if g['type']=='radio':
+            f=p['faction'];c=self._chapter(f)
+            out['story']={'chapter':c,'ready':self._story_ready(f),'progress':self._story_progress(f)}
+        return out
 
     def player(self,token):
         p=self.players.get(token)
@@ -327,7 +411,7 @@ class World(NpcMixin):
         intel=t['intel'].get(f,{})
         bonus=intel.get('bonus',0) if intel.get('until',0)>self.elapsed else 0
         defense=levels['guard']*12+levels['depot']*3+(t['loyalty']*.15 if t['owner'] else 0)
-        radio=self.home(f)['levels']['radio']*5 if f in self.sides else 0
+        radio=self.best_level(f,'radio')*5 if f in self.sides else 0
         if method=='scout': return 85
         if method in ('intimidate','gift'): return 80 if method=='intimidate' else 90
         if method=='talk': value=66+self.reputation[f]*.15+radio+bonus-defense+(5 if self.flag(f,'secret_freq') else 0)
@@ -344,13 +428,15 @@ class World(NpcMixin):
         if self.has_perk(p,25) and method in ('talk','bribe','assault'):value=min(95,value+5)
         return value
 
-    def town_view(self,p,t):
+    def town_view(self,p,t,guards=None):
         population,workers,active=self.economy(t)
         result=copy.deepcopy(t)
         result.pop('intel',None)
         result.update(population=population,workers=workers,active=active)
         result['intel']=t['intel'].get(p['faction'],{}).get('bonus',0) if t['intel'].get(p['faction'],{}).get('until',0)>self.elapsed else 0
-        result['chances']={m:self.chance(p,t,m) for m in ('talk','bribe','assault','scout','raid')}
+        # Chances are worked out only for settlements close by: with 25 players this is the costly part.
+        result['chances']={m:self.chance(p,t,m) for m in ('talk','bribe','assault','scout','raid')} if dist(p,t)<1400 else {}
+        result['guards']=guards.get(t['id'],0) if guards is not None else self.garrison_count(t)
         result['event_ready']=self.elapsed>=self.events_done.get(t['id']+':'+p['faction'],0)
         return result
 
@@ -364,25 +450,32 @@ class World(NpcMixin):
                 'players':[self._public_player(o) for o in self.players.values() if now-o['last_seen']<12 or o is p],
                 'stock':{k:round(v,2) for k,v in self.stocks[f].items()},'reputation':round(self.reputation[f],1),
                 'storage':self.storage(f),
-                'towns':{k:self.town_view(p,t) for k,t in self.towns.items()},
-                'harvested':{k:v for k,v in self.harvested.items() if v>self.elapsed},
+
                 'npcs':[self.npc_view(n) for n in self.npcs.values() if dist(n,p)<2600 or (n['type']=='convoy' and n['faction']==f)],
                 'posts':[{k:o[k] for k in ('id','faction','x','y','hp','name')} for o in self.posts.values()],
                 'airdrops':list(self.airdrops.values()),
                 'loot':{pid:st.get(f,0) for pid,st in self.poi_state.items() if st.get(f,0)>self.elapsed},
                 'weather':self.weather,
-                'sides':{sid:{'name':s['name'],'color':s['color'],'home':s['home'],'ai':s['ai'],
+                'sides':{sid:{'name':s['name'],'color':s['color'],'shelter':s['shelter'],'ai':s['ai'],'clan':s.get('clan'),
                               'towns':sum(1 for t in self.towns.values() if t['owner']==sid)} for sid,s in self.sides.items()},
+                'clans':{cid:{k:c[k] for k in ('id','name','tag','leader','members','color')} for cid,c in self.clans.items()},
+                'invites':[cid for cid,c in self.clans.items() if f in c['invites']],
+                'offers':[self.offer_view(o) for o in self.offers.values() if o['until']>self.elapsed and p['id'] in (o['from'],o['to'])],
                 'truce':{'pairs':{g:self.truce['pairs'].get('|'.join(sorted((f,g))),0) for g in self.sides if g!=f},
                          'proposals':[x for x in self.truce['proposals'] if x['until']>self.elapsed and f in (x['from'],x['to'])]},
                 'story':{'index':story['index'],'flags':story['flags'],'chapter':chapter,'ready':self._story_ready(f),
                          'progress':self._story_progress(f)},
                 'fstats':self.fstats[f],'ai':{g:self.ai_faction(g) for g in self.sides},
                 'messages':[e for e in self.log if (e['faction'] in (None,f)) and (e['player'] in (None,p['id'])) and e.get('skip')!=p['id']],
-                'effects':self.effects[-40:],'winner':self.winner,'load_warning':self.load_warning,'full':full}
-        if not full:
-            # Light snapshots between full ones: settlements change slowly, characters move fast.
-            del out['towns'],out['harvested']
+                'effects':[e for e in self.effects if abs(e['x']-p['x'])<2600 and abs(e['y']-p['y'])<2000][-40:],'winner':self.winner,'load_warning':self.load_warning,'full':full}
+        if full:
+            # Light snapshots skip settlements: they change slowly, characters move fast.
+            guards={}
+            for n in self.npcs.values():
+                job=n.get('job') or {}
+                if n['hp']>0 and job.get('kind')=='garrison':guards[job['town']]=guards.get(job['town'],0)+1
+            out['towns']={k:self.town_view(p,t,guards) for k,t in self.towns.items()}
+            out['harvested']={k:v for k,v in self.harvested.items() if v>self.elapsed}
         return out
 
     # ---- story ----------------------------------------------------------
@@ -400,7 +493,7 @@ class World(NpcMixin):
         if kind=='visit':
             done=any(g['town'] in p['visited'] for p in self.players.values() if p['faction']==f)
             return [int(done),1]
-        if kind=='building':return [min(g['level'],self.home(f)['levels'][g['building']]),g['level']]
+        if kind=='building':return [min(g['level'],self.best_level(f,g['building'])),g['level']]
         if kind=='towns':return [min(g['target'],sum(1 for t in self.towns.values() if t['owner']==f)),g['target']]
         if kind=='victory':return [int(self.winner==f),1]
         key={'convoy':'convoy','tribute':'tribute','post':'post','kills':'kills'}[kind]
@@ -435,7 +528,8 @@ class World(NpcMixin):
         self.dirty=True
         if op not in ('shoot','vehicle','heal'):
             p['busy']=self.elapsed
-            self.save()
+            # With 25 players a disk write per action is too much: the world is written within two seconds.
+            self.save_clock=max(self.save_clock,8)
         return result
 
     def _act(self,p,op,data):
@@ -448,7 +542,7 @@ class World(NpcMixin):
             if self.harvested.get(n['id'],0)>self.elapsed: raise GameError('Здесь пока нечего собирать. Запасы восстановятся позже.')
             self._cooldown(p,'harvest',.7)
             amount=n['amount']+(2 if self.has_perk(p,5) else 0)
-            self._reward(f,{n['kind']:amount}); self.harvested[n['id']]=self.elapsed+100
+            self._reward(f,{n['kind']:amount}); self.harvested[n['id']]=self.elapsed+NODE_RESPAWN
             p['stats']['harvest']+=1;self.gain_xp(p,'harvest')
             extra=''
             if n['kind']=='food' and self.rng.random()<.4 and self.give_item(p,self.rng.choice(('canned','crackers','water'))):extra=' · что-то в рюкзак'
@@ -557,9 +651,9 @@ class World(NpcMixin):
             if op=='deliver':
                 q=next((q for q in p['quests'] if q['kind']=='deliver' and q.get('town')==t['id'] and p['stats']['deliver']-q['start']<q['target']),None)
                 if not q: raise GameError('Для этого поселения нет активного задания на доставку.')
-                self._pay(f,{'food':12}); p['stats']['deliver']+=1;self.gain_xp(p,'deliver')
+                self._pay(f,{'food':6}); p['stats']['deliver']+=1;self.gain_xp(p,'deliver')
                 self.reputation[f]=min(100,self.reputation[f]+4)
-                return {'title':'Припасы доставлены','text':'Забери награду в журнале J.','success':True}
+                return {'title':'Припасы доставлены','text':'Вернись к торговцу за оплатой.','success':True}
             if op=='trade':
                 return self._trade(p,t,data)
             if op=='aid':
@@ -571,7 +665,7 @@ class World(NpcMixin):
                 t['cooldowns'][key]=self.elapsed+40
                 return {'title':'Жители получили помощь','text':'Лояльность +14.','success':True}
             if op=='tax':
-                if t['owner']!=f or t['base']: raise GameError('Дань собирают в захваченных поселениях, кроме домашнего.')
+                if t['owner']!=f: raise GameError('Дань собирают только в своих поселениях.')
                 if self.elapsed<t['cooldowns'].get('tax',0): raise GameError('Дань уже собрана. Подожди минуту.')
                 penalty=12 if self.flag(f,'fair_share') else 18
                 bonus=4 if self.flag(f,'iron_hand') else 0
@@ -584,8 +678,8 @@ class World(NpcMixin):
             if op=='raid':
                 return self._raid(p,t)
             if t['owner']==f: raise GameError('Поселение уже принадлежит твоей стороне.')
-            if t['base']: raise GameError('Домашние поселения игроков и кланов захватить нельзя.')
-            if t['owner'] and self.truce_between(f,t['owner']): raise GameError('С хозяином поселения действует перемирие.')
+            if t['owner'] and self.truce_between(f,t['owner']): raise GameError('С хозяином поселения действует перемирие или вы в одном клане.')
+            if self.garrison_alive(t,f): raise GameError('Площадь держат '+('мародёры' if not t['owner'] else 'охранники '+self.side_name(t['owner']))+'. Сначала перебей их.')
             if t['capture']: raise GameError('Уже идёт захват. Помоги удержать площадь.')
             if t['shield']>self.elapsed: raise GameError('После смены владельца поселение защищено две минуты.')
             cooldown_key='attempt:'+f
@@ -607,21 +701,35 @@ class World(NpcMixin):
                 self.begin_capture(t,f,method)
             elif method=='assault': self._damage(p,25)
             return {'title':('Удерживай площадь 30 секунд' if not prep else 'Подготовка не удалась') if ok else 'Попытка не удалась',
-                    'text':('Нужен хотя бы один союзник пешком в круге. Защитники останавливают захват.'+(' Ополчение поднялось на защиту!' if method=='assault' else '') if ok else 'Ресурсы потрачены; повторная попытка станет доступна позже.'),
+                    'text':('Нужен хотя бы один союзник пешком в круге. Враги рядом останавливают захват.' if ok else 'Ресурсы потрачены; повторная попытка станет доступна позже.'),
                     'success':ok,'chance':chance,'roll':roll}
-        if op=='claim':
+        if op=='talk':
+            g=self._giver_near(p,data.get('giver'))
+            return {'dialog':self.dialog(p,g),'quiet':True}
+        if op=='quest_accept':
+            g=self._giver_near(p,data.get('giver'))
+            tpl=next((q for q in QUESTS if q['giver']==g['type'] and q['kind']==data.get('kind')),None)
+            if not tpl: raise GameError('Такой работы здесь нет.')
+            if len(p['quests'])>=MAX_ACTIVE_QUESTS: raise GameError('У тебя уже '+str(MAX_ACTIVE_QUESTS)+' задания. Сначала закончи что-нибудь.')
+            if any(q['kind']==tpl['kind'] for q in p['quests']): raise GameError('Похожее дело у тебя уже есть.')
+            q=self._quest(p,tpl,g);p['quests'].append(q)
+            return {'title':'Задание: '+q['name'],'text':q['text']+' Сдать — '+GIVERS[g['type']]['role'].lower()+' в любом поселении.','success':True,'dialog':self.dialog(p,g)}
+        if op=='quest_turnin':
+            g=self._giver_near(p,data.get('giver'))
             q=next((q for q in p['quests'] if q['id']==data.get('id')),None)
-            if not q or p['stats'][q['kind']]-q['start']<q['target']: raise GameError('Задание ещё не выполнено.')
-            self._reward(f,q['reward']);self.reputation[f]=min(100,self.reputation[f]+3)
-            coins=q.get('coins',30);p['coins']+=coins
-            p['completed']+=1; idx=p['quests'].index(q)
-            # Cycle through varied objectives; only one delivery can be active at once.
-            next_index=(p['completed']+2)%len(QUESTS)
-            active_kinds={item['kind'] for item in p['quests'] if item is not q}
-            while QUESTS[next_index]['kind'] in active_kinds: next_index=(next_index+1)%len(QUESTS)
-            p['quests'][idx]=self._quest(p,next_index);self.gain_xp(p,'quest')
-            return {'title':'Задание выполнено','text':'+'+str(coins)+' монет · '+self.resource_text(q['reward']),'success':True}
+            if not q or q['giver']!=g['type']: raise GameError('Это задание сдают другому человеку.')
+            if p['stats'][q['kind']]-q['start']<q['target']: raise GameError('Задание ещё не выполнено.')
+            self._reward(f,q['reward']);self.reputation[f]=min(100,self.reputation[f]+2)
+            coins=q.get('coins',20);p['coins']+=coins;p['completed']+=1
+            p['quests'].remove(q);self.gain_xp(p,'quest')
+            return {'title':'Задание сдано','text':g['name']+': «'+q.get('done','Спасибо.')+'» +'+str(coins)+' монет · '+self.resource_text(q['reward']),'success':True,'dialog':self.dialog(p,g)}
+        if op=='quest_drop':
+            q=next((q for q in p['quests'] if q['id']==data.get('id')),None)
+            if not q: raise GameError('Задание не найдено.')
+            p['quests'].remove(q)
+            return {'title':'Задание брошено','text':q['name'],'success':False}
         if op=='story_choice':
+            if not any(g['type']=='radio' and dist(g,p)<160 for g in self.givers.values()): raise GameError('Главу сдают радисту в крупном городе.')
             if not self._story_ready(f): raise GameError('Глава ещё не завершена.')
             c=self._chapter(f);choice=data.get('choice')
             if not isinstance(choice,int) or not 0<=choice<len(c['choices']): raise GameError('Выбери решение.')
@@ -663,10 +771,9 @@ class World(NpcMixin):
                 return {'title':'Вода из реки','text':'Жажда утолена, но вода была грязной: отравление. Помогут антибиотики.','success':False}
             return {'title':'Вода из реки','text':'Жажда +35. Сырая вода может вызвать отравление.','success':True}
         if op=='canteen':
-            t=self._town_action(p,str(data.get('town')))
-            if t['owner']!=f: raise GameError('Накормят только в поселении твоей стороны.')
-            if t['cooldowns'].get('canteen:'+p['id'],0)>self.elapsed: raise GameError('Повара ещё не приготовили следующую порцию.')
-            self._pay(f,{'food':3});t['cooldowns']['canteen:'+p['id']]=self.elapsed+90
+            t=self._service(p,data)
+            if p['last_action'].get('canteen',-1000)+90>self.elapsed: raise GameError('Повара ещё не приготовили следующую порцию.')
+            self._pay(f,{'food':3});p['last_action']['canteen']=self.elapsed
             p['food']=min(100,p['food']+50);p['water']=min(100,p['water']+70);p['warmth']=min(100,p['warmth']+20)
             return {'title':'Столовая и колодец','text':'Сытость +50, жажда +70. −3 припаса фракции.','success':True}
         if op=='refuel':
@@ -681,16 +788,15 @@ class World(NpcMixin):
                 car['fuel']=min(tank,car.get('fuel',0)+20)
                 return {'title':'Канистра залита','text':'Бак: '+str(int(car['fuel']))+' / '+str(tank)+'.','success':True}
             # Filling up from the faction stock is possible only in a settlement your side holds.
-            t=self.towns.get(str(data.get('town')))
-            if not t or t['owner']!=f: raise GameError('Заправиться можно только в поселении своей стороны.')
-            if dist(car,t)>650 or (not p['vehicle'] and dist(p,t)>650): raise GameError('Подгони машину к поселению.')
+            t=self.home(f) if data.get('town')=='shelter' else self.towns.get(str(data.get('town')))
+            if not t or t.get('owner',f)!=f: raise GameError('Заправиться можно только в своём убежище или своём поселении.')
+            if dist(car,t)>650 or (not p['vehicle'] and dist(p,t)>650): raise GameError('Подгони машину ближе.')
             need=tank-car.get('fuel',0);take=min(need,self.stocks[f]['fuel'])
             if take<1: raise GameError('В запасе фракции нет топлива. Его дают гаражи, канистры у дорог и торговля.')
             self.stocks[f]['fuel']-=take;car['fuel']=car.get('fuel',0)+take
             return {'title':'Заправка в '+t['name'],'text':'+'+str(int(take))+' топлива из запаса фракции. Бак: '+str(int(car['fuel']))+' / '+str(tank)+'.','success':True}
         if op=='cook':
-            t=self._town_action(p,str(data.get('town')))
-            if t['owner']!=f: raise GameError('Костёр горит только в поселении твоей стороны.')
+            t=self._service(p,data)
             raw=p['items'].get('meat_raw',0)
             if not raw: raise GameError('Нет сырого мяса. Добудь зверя на охоте.')
             del p['items']['meat_raw'];p['items']['meat']=p['items'].get('meat',0)+raw
@@ -709,7 +815,7 @@ class World(NpcMixin):
             if p['vehicle']: raise GameError('Выйди из машины.')
             st=self.poi_state.setdefault(poi['id'],{})
             if st.get(f,0)>self.elapsed: raise GameError('Тайник уже обыскан. Запасы появятся через '+str(int(st[f]-self.elapsed))+' сек.')
-            if any(n['type']=='marauder' and n['hp']>0 and dist(n,poi)<330 for n in self.npcs.values()): raise GameError('Сначала разберись с мародёрами у тайника.')
+            if any(n['type'] in ('marauder','bandit') and n['hp']>0 and dist(n,poi)<330 for n in self.npcs.values()): raise GameError('Сначала разберись с мародёрами у тайника.')
             loot=POI_KINDS[poi['kind']]['loot'];st[f]=self.elapsed+300
             self._reward(f,loot);p['stats']['loot']+=1;self.gain_xp(p,'loot')
             got=self._loot_items(p,2)
@@ -768,6 +874,142 @@ class World(NpcMixin):
             self.truce['pairs'][key]=0;self.reputation[f]=clamp(self.reputation[f]-15,-100,100)
             self._notice('Перемирие нарушено',self.side_name(f)+' разорвал договор с '+self.side_name(g)+'.',tone='error')
             return {'title':'Перемирие разорвано','text':'Репутация −15.','success':False}
+        if op.startswith('offer_'):
+            return self._offer(p,op,data)
+        if op.startswith('clan_'):
+            return self._clan(p,op,data)
+        raise GameError('Неизвестное действие.')
+
+    def _service(self,p,data):
+        """Canteen and fire: in your own shelter or in a settlement your side holds."""
+        f=p['faction']
+        if data.get('town')=='shelter':
+            sh=self.home(f)
+            if p['vehicle']: raise GameError('Сначала выйди из машины: F.')
+            self._near(p,sh,220)
+            return sh
+        t=self._town_action(p,str(data.get('town')))
+        if t['owner']!=f: raise GameError('Это есть только в своём убежище и в поселениях твоей стороны.')
+        return t
+
+    # ---- trade between players -------------------------------------------
+    def _bundle(self,raw):
+        """A clean {'coins':n,'items':{},'res':{}} from client data."""
+        raw=raw if isinstance(raw,dict) else {}
+        out={'coins':int(clamp(finite(raw.get('coins',0)),0,99999)),'items':{},'res':{}}
+        for k,v in (raw.get('items') or {}).items():
+            n=int(clamp(finite(v),0,99))
+            if k in ITEMS and n:out['items'][k]=n
+        for k,v in (raw.get('res') or {}).items():
+            n=int(clamp(finite(v),0,9999))
+            if k in RESOURCES and n:out['res'][k]=n
+        return out
+
+    def _has_bundle(self,p,b):
+        return p['coins']>=b['coins'] and all(p['items'].get(k,0)>=v for k,v in b['items'].items()) and self._can_pay(p['faction'],b['res'])
+
+    def _move_bundle(self,a,b,bundle):
+        a['coins']-=bundle['coins'];b['coins']+=bundle['coins']
+        for k,v in bundle['items'].items():
+            a['items'][k]-=v
+            if not a['items'][k]:del a['items'][k]
+            b['items'][k]=b['items'].get(k,0)+v
+        if a['faction']!=b['faction']:
+            self._pay(a['faction'],bundle['res']);self._reward(b['faction'],bundle['res'])
+
+    def bundle_text(self,b):
+        parts=([str(b['coins'])+' монет'] if b['coins'] else [])+[ITEMS[k]['name']+' ×'+str(v) for k,v in b['items'].items()]+ \
+              [str(v)+' '+RESOURCES[k].lower() for k,v in b['res'].items()]
+        return ', '.join(parts) or 'ничего'
+
+    def offer_view(self,o):
+        names={q['id']:q['name'] for q in self.players.values()}
+        return dict(o,from_name=names.get(o['from'],'?'),to_name=names.get(o['to'],'?'),give_text=self.bundle_text(o['give']),want_text=self.bundle_text(o['want']))
+
+    def _offer(self,p,op,data):
+        if op=='offer_make':
+            other=next((o for o in self.players.values() if o['id']==data.get('to')),None)
+            if not other or other is p or other['hp']<=0: raise GameError('Игрок не найден.')
+            if dist(p,other)>TRADE_RANGE: raise GameError('Для обмена нужно стоять рядом.')
+            give=self._bundle(data.get('give'));want=self._bundle(data.get('want'))
+            if give==self._bundle({}) and want==self._bundle({}): raise GameError('Предложение пустое.')
+            if not self._has_bundle(p,give): raise GameError('У тебя нет того, что ты предлагаешь.')
+            if sum(give['items'].values())+sum(other['items'].values())>self.slots(other)+sum(want['items'].values()): raise GameError('У '+other['name']+' не хватит места в рюкзаке.')
+            if sum(1 for o in self.offers.values() if o['from']==p['id'] and o['until']>self.elapsed)>=3: raise GameError('У тебя уже три предложения. Дождись ответа.')
+            oid=secrets.token_hex(5)
+            self.offers[oid]={'id':oid,'from':p['id'],'to':other['id'],'from_side':p['faction'],'to_side':other['faction'],'give':give,'want':want,'until':self.elapsed+90}
+            self._notice('Предложение обмена',p['name']+' отдаёт: '+self.bundle_text(give)+'; просит: '+self.bundle_text(want)+'. Ответ — T.',player=other['id'])
+            return {'title':'Предложение отправлено','text':other['name']+' может ответить 90 секунд.','success':True}
+        o=self.offers.get(str(data.get('id')))
+        if not o or o['until']<=self.elapsed or p['id'] not in (o['from'],o['to']): raise GameError('Предложение уже не действует.')
+        if op=='offer_cancel':
+            del self.offers[o['id']]
+            other=o['to'] if o['from']==p['id'] else o['from']
+            self._notice('Обмен отклонён',p['name']+' отказался.',player=other)
+            return {'title':'Обмен отменён','success':False}
+        if op!='offer_accept' or o['to']!=p['id']: raise GameError('Принять может только тот, кому предложили.')
+        giver=next((q for q in self.players.values() if q['id']==o['from']),None)
+        if not giver or dist(giver,p)>TRADE_RANGE: raise GameError('Для обмена нужно стоять рядом.')
+        if not self._has_bundle(giver,o['give']): raise GameError('У '+giver['name']+' уже нет обещанного.')
+        if not self._has_bundle(p,o['want']): raise GameError('У тебя нет того, что просят.')
+        if sum(p['items'].values())-sum(o['want']['items'].values())+sum(o['give']['items'].values())>self.slots(p): raise GameError('Не хватит места в рюкзаке.')
+        if sum(giver['items'].values())-sum(o['give']['items'].values())+sum(o['want']['items'].values())>self.slots(giver): raise GameError('У '+giver['name']+' не хватит места в рюкзаке.')
+        del self.offers[o['id']]
+        self._move_bundle(giver,p,o['give']);self._move_bundle(p,giver,o['want'])
+        for q in (p,giver):q['stats']['trade']+=1;self.gain_xp(q,'trade')
+        self._notice('Обмен состоялся',p['name']+' принял предложение.',player=giver['id'])
+        return {'title':'Обмен состоялся','text':'Получено: '+self.bundle_text(o['give'])+'.','success':True}
+
+    # ---- clans -------------------------------------------------------------
+    def _clan(self,p,op,data):
+        f=p['faction'];mine=self.sides[f].get('clan');clan=self.clans.get(mine)
+        if op=='clan_create':
+            if clan: raise GameError('Ты уже в клане.')
+            name=' '.join(str(data.get('name','')).split())[:24]
+            if len(name)<3: raise GameError('Название клана — от трёх букв.')
+            if any(c['name'].lower()==name.lower() for c in self.clans.values()): raise GameError('Такой клан уже есть.')
+            if p['coins']<30: raise GameError('Создание клана стоит 30 монет.')
+            p['coins']-=30;cid='c_'+secrets.token_hex(4)
+            tag=''.join(w[0] for w in name.split())[:4].upper() if len(name.split())>1 else name[:4].upper()
+            self.clans[cid]={'id':cid,'name':name,'tag':tag,'leader':f,'members':[f],'invites':[],'color':self.sides[f]['color']}
+            self.sides[f]['clan']=cid
+            self._notice('Основан клан «'+name+'»',p['name']+' собирает людей.')
+            return {'title':'Клан «'+name+'»','text':'Приглашай игроков рядом через меню клана. В клане не стреляют друг в друга.','success':True}
+        if op=='clan_join':
+            c=self.clans.get(str(data.get('id')))
+            if clan: raise GameError('Сначала выйди из своего клана.')
+            if not c or f not in c['invites']: raise GameError('Приглашения нет.')
+            if len(c['members'])>=CLAN_SIZE: raise GameError('В клане уже '+str(CLAN_SIZE)+' человек.')
+            c['invites'].remove(f);c['members'].append(f);self.sides[f]['clan']=c['id']
+            for g in c['members']:self.truce['pairs'].pop('|'.join(sorted((f,g))),None)
+            self._notice(p['name']+' вступил в клан','«'+c['name']+'»')
+            return {'title':'Ты в клане «'+c['name']+'»','success':True}
+        if op=='clan_decline':
+            c=self.clans.get(str(data.get('id')))
+            if c and f in c['invites']:c['invites'].remove(f)
+            return {'title':'Приглашение отклонено','success':False}
+        if not clan: raise GameError('Ты не состоишь в клане.')
+        if op=='clan_leave':
+            clan['members'].remove(f);self.sides[f]['clan']=None
+            if not clan['members']:del self.clans[clan['id']]
+            elif clan['leader']==f:clan['leader']=clan['members'][0]
+            self._notice(p['name']+' покинул клан','«'+clan['name']+'»')
+            return {'title':'Ты вышел из клана','success':False}
+        g=str(data.get('side'))
+        if clan['leader']!=f: raise GameError('Это решает глава клана.')
+        if op=='clan_invite':
+            target=next((o for o in self.players.values() if o['faction']==g),None)
+            if not target or g==f: raise GameError('Игрок не найден.')
+            if self.sides[g].get('clan'): raise GameError(target['name']+' уже в клане.')
+            if len(clan['members'])+len(clan['invites'])>=CLAN_SIZE+2: raise GameError('Слишком много приглашений.')
+            if g not in clan['invites']:clan['invites'].append(g)
+            self._notice('Приглашение в клан','«'+clan['name']+'» зовёт тебя. Ответ — Esc → Кланы.',player=target['id'])
+            return {'title':'Приглашение отправлено','text':target['name'],'success':True}
+        if op=='clan_kick':
+            if g not in clan['members'] or g==f: raise GameError('Такого человека в клане нет.')
+            clan['members'].remove(g);self.sides[g]['clan']=None
+            self._notice('Исключён из клана',self.side_name(g)+' · «'+clan['name']+'»')
+            return {'title':'Исключён','text':self.side_name(g),'success':True}
         raise GameError('Неизвестное действие.')
 
     def slots(self,p):
@@ -869,12 +1111,10 @@ class World(NpcMixin):
     def begin_capture(self,t,f,method):
         t['capture']={'faction':f,'progress':0.0,'duration':30.0,'method':method,'contested':False,'active':True}
         self._notice('Начался захват',t['name']+' · площадь удерживает '+self.side_name(f)+'.')
-        if method=='assault':
-            self.spawn_militia(t,f)
 
     def _set_owner(self,t,f):
         t['owner']=f;t['construct']={};t['fires']={}
-        self.clear_militia(t)
+        self.clear_garrison(t)
 
     @staticmethod
     def resource_text(resources):
@@ -888,15 +1128,15 @@ class World(NpcMixin):
             self._notice('Ты ранен','Через 7 секунд очнёшься в новом месте у дороги.',player=p['id'],tone='error')
 
     def _death_penalty(self,p):
-        """Death costs every coin and every captured settlement; only the home stays."""
+        """Death costs every coin and every captured settlement; only the shelter stays."""
         f=p['faction'];lost=[]
         for t in self.towns.values():
-            if t['owner']==f and not t['base']:
+            if t['owner']==f:
                 self._set_owner(t,None);t['loyalty']=45;t['capture']=None;t['shield']=0.0;lost.append(t['name'])
             elif t['capture'] and t['capture']['faction']==f:
-                t['capture']=None;self.clear_militia(t)
+                t['capture']=None
         coins=p['coins'];p['coins']=0
-        if coins or lost:self._notice('Всё потеряно','Монеты: −'+str(coins)+('. Поселения снова независимы: '+', '.join(lost) if lost else '')+'. Дом остаётся за тобой.',player=p['id'],tone='error')
+        if coins or lost:self._notice('Всё потеряно','Монеты: −'+str(coins)+('. Поселения снова независимы: '+', '.join(lost) if lost else '')+'. Убежище остаётся за тобой.',player=p['id'],tone='error')
         if lost:self._notice(p['name']+' погиб',', '.join(lost)+' — снова независимые поселения.',skip=p['id'])
         self.dirty=True
 
@@ -917,7 +1157,7 @@ class World(NpcMixin):
         if not active or all(p['paused'] for p in active): return
         dt=clamp(dt,0,.1);self.elapsed+=dt;self.production_clock+=dt;self.save_clock+=dt
         self.effects=[e for e in self.effects if e['until']>self.elapsed]
-        garage={f:self.home(f)['levels']['garage'] for f in self.sides}
+        garage={f:self.best_level(f,'garage') for f in self.sides}
         for p in active:
             car=p['car']
             if car.get('wrecked_until',0) and self.elapsed>=car['wrecked_until']:
@@ -956,7 +1196,7 @@ class World(NpcMixin):
                     p['visited'].append(t['id']);p['stats']['explore']+=1;self.gain_xp(p,'explore')
                     self._notice('Новое место',t['name'],player=p['id'])
             home=self.home(p['faction'])
-            if dist(p,home)<220:p['hp']=min(self.max_hp(p),p['hp']+dt*4)
+            if dist(p,home)<SHELTER_RADIUS*.6:p['hp']=min(self.max_hp(p),p['hp']+dt*4)
         self.tick_npcs(dt,active)
         self.tick_squads()
         self.tick_defenses(dt)
@@ -971,7 +1211,7 @@ class World(NpcMixin):
         if not self.winner:
             for f in self.sides:
                 count=sum(1 for t in self.towns.values() if t['owner']==f)
-                if count>=5 and self.home(f)['levels']['radio']>=2:
+                if count>=5 and self.best_level(f,'radio')>=2:
                     self.winner=f;self._notice('Связь восстановлена',self.side_name(f)+' связал пять поселений. Мир остаётся доступен для игры.');self.save()
         if self.save_clock>=10:
             self.save_clock=0;self.save()
@@ -987,7 +1227,7 @@ class World(NpcMixin):
         exposure=REGIONS[town['region']]['cold']*10+(10 if p['y']<1300*WORLD_SCALE else 0)+(12 if night else 0)
         exposure+={'rain':10,'storm':18,'snow':16,'fog':4}.get(self.weather['kind'],0)+(15 if wading else 0)
         exposure-=CLOTHES[p['gear']['clothes']]['warm']+(25 if p['vehicle'] else 0)
-        fire=(town['owner']==p['faction'] and dist(town,p)<300) or any(o['faction']==p['faction'] and dist(o,p)<220 for o in self.posts.values())
+        fire=(town['owner']==p['faction'] and dist(town,p)<300) or dist(self.home(p['faction']),p)<300 or any(o['faction']==p['faction'] and dist(o,p)<220 for o in self.posts.values())
         target=100 if fire else clamp(100-max(0,exposure)*1.6,0,100)
         rate=2.5 if fire else .6
         p['warmth']+=clamp(target-p['warmth'],-rate*dt,rate*dt)
@@ -1034,7 +1274,7 @@ class World(NpcMixin):
             if attackers and not enemies:c['progress']+=dt
             elif not attackers:c['progress']-=dt*1.2
             if c['progress']< -4:
-                t['capture']=None;self.clear_militia(t);self._notice('Захват сорван',t['name']+' · атакующие покинули площадь.')
+                t['capture']=None;self._notice('Захват сорван',t['name']+' · атакующие покинули площадь.')
             elif c['progress']>=c['duration']:
                 self._set_owner(t,f);t['shield']=self.elapsed+120
                 t['loyalty']=38 if c['method']=='assault' else 72
@@ -1126,7 +1366,7 @@ class World(NpcMixin):
                  'players':players,'harvested':self.harvested,'events_done':self.events_done,'winner':self.winner,
                  'posts':self.posts,'convoys':convoys,'weather':self.weather,'truce':self.truce,'story':self.story,
                  'fstats':self.fstats,'ai_state':self.ai_state,'poi_state':self.poi_state,'settings':self.settings,
-                 'airdrops':self.airdrops,'room_code':self.room_code,'scale':WORLD_SCALE}
+                 'airdrops':self.airdrops,'room_code':self.room_code,'scale':WORLD_SCALE,'clans':self.clans}
         try:
             self.save_path.parent.mkdir(parents=True,exist_ok=True)
             tmp=self.save_path.with_suffix('.tmp')
@@ -1186,33 +1426,48 @@ class World(NpcMixin):
                 story[sid]={'index':int(clamp(finite(sv.get('index',0)),0,len(STORY_LINE))),'flags':[str(x) for x in sv.get('flags',[])],'start':sv.get('start') or {}}
                 fs=side_data('fstats',old,{}) or {}
                 fstats[sid]={k:int(finite(fs.get(k,0))) for k in FSTAT_KEYS}
+            taken=set()
+            def shelter_for(info,near):
+                sh=info.get('shelter')
+                if sh in self.shelters and sh not in taken:taken.add(sh);return sh
+                free=[s for s in self.shelters.values() if s['id'] not in taken]
+                if not free:raise ValueError('Shelters')
+                best=min(free,key=lambda s:dist(s,towns[near]) if near in towns else 0)
+                taken.add(best['id']);return best['id']
             if isinstance(raw.get('sides'),dict):
                 for sid,info in raw['sides'].items():
-                    if not isinstance(info,dict) or info.get('home') not in towns:raise ValueError('Side')
-                    adopt(sid,{'id':sid,'name':str(info.get('name',''))[:30],'color':str(info.get('color','#cccccc'))[:9],'home':info['home'],
+                    if not isinstance(info,dict):raise ValueError('Side')
+                    # 0.4 sides had a home settlement; it stays theirs, the shelter is found next to it.
+                    adopt(sid,{'id':sid,'name':str(info.get('name',''))[:30],'color':str(info.get('color','#cccccc'))[:9],
+                               'shelter':shelter_for(info,info.get('home')),'clan':None,
                                'ai':bool(info.get('ai')),'fighter':info.get('fighter','raider'),'method':info.get('method','assault')},sid)
+                    if info.get('home') in towns and 'shelter' not in info:towns[info['home']]['owner']=sid
             else:
                 # Saves from the survivors-and-bandits era: every player becomes a side of their own.
-                old_bases={'survivors':'shabrovsky','bandits':'pervouralsk'};heirs={}
+                heirs={}
                 for token,p in players.items():
                     old=p['faction'];sid='p_'+p['id']
-                    home=old_bases.get(old) if old not in heirs else None
-                    if home is None or any(s['home']==home for s in sides.values()):
-                        home=next(tid for tid in HOME_CHOICES+list(towns) if not any(s['home']==tid for s in sides.values()) and towns[tid]['owner'] in (None,old) and tid not in old_bases.values())
-                    adopt(sid,{'id':sid,'name':p['name'],'color':SIDE_COLORS[len(sides)%len(SIDE_COLORS)],'home':home,'ai':False,
-                               'fighter':'raider','method':'assault'},old if old not in heirs else None)
+                    adopt(sid,{'id':sid,'name':p['name'],'color':SIDE_COLORS[len(sides)%len(SIDE_COLORS)],'shelter':shelter_for({},'shabrovsky'),
+                               'clan':None,'ai':False,'fighter':'raider','method':'assault'},old if old not in heirs else None)
                     heirs.setdefault(old,sid);p['faction']=sid
                 for t in towns.values():
                     t['owner']=heirs.get(t['owner'])
+            clans={}
+            for cid,c in (raw.get('clans') or {}).items():
+                members=[m for m in c.get('members',[]) if m in sides and not sides[m]['clan']][:CLAN_SIZE]
+                if not members:continue
+                clans[cid]={'id':cid,'name':str(c.get('name','Клан'))[:24],'tag':str(c.get('tag',''))[:4],'members':members,
+                            'leader':c.get('leader') if c.get('leader') in members else members[0],
+                            'invites':[m for m in c.get('invites',[]) if m in sides],'color':str(c.get('color','#cccccc'))[:9]}
+                for m in members:sides[m]['clan']=cid
             for p in players.values():
                 if p['faction'] not in sides:raise ValueError('Player side')
+                p.setdefault('look',0);p['look']=int(clamp(finite(p['look']),0,len(LOOKS)-1))
             for t in towns.values():
                 if t['owner'] not in sides:t['owner']=None
-            for s in sides.values():
-                towns[s['home']].update(owner=s['id'],base=True)
             self.elapsed=max(0,finite(raw['time']));self.production_clock=finite(raw.get('production_clock',0))%12
             self.towns=towns;self.players=players;self.sides=sides;self.stocks=stocks;self.reputation=reputation
-            self.story=story;self.fstats=fstats
+            self.story=story;self.fstats=fstats;self.clans=clans
             self.harvested=raw.get('harvested',{});self.events_done=raw.get('events_done',{})
             self.winner=raw.get('winner') if raw.get('winner') in sides else None
             self.posts={pid:dict(v,x=finite(v.get('x'))*stretch,y=finite(v.get('y'))*stretch) for pid,v in raw.get('posts',{}).items() if v.get('faction') in sides}
@@ -1246,8 +1501,9 @@ class GameServer(ThreadingHTTPServer):
         super().__init__(address,Handler)
 
 STATIC={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/game.js':'game.js',
-        '/sprites.js':'sprites.js','/render.js':'render.js','/audio.js':'audio.js','/icon.svg':'icon.svg'}
-TYPES={'html':'text/html; charset=utf-8','css':'text/css; charset=utf-8','js':'application/javascript; charset=utf-8','svg':'image/svg+xml'}
+        '/sprites.js':'sprites.js','/render.js':'render.js','/audio.js':'audio.js','/icon.svg':'icon.svg',
+        '/assets/characters.png':'assets/characters.png'}
+TYPES={'html':'text/html; charset=utf-8','css':'text/css; charset=utf-8','js':'application/javascript; charset=utf-8','svg':'image/svg+xml','png':'image/png'}
 
 class Handler(BaseHTTPRequestHandler):
     server_version='AfterSilence/'+VERSION
@@ -1270,6 +1526,7 @@ class Handler(BaseHTTPRequestHandler):
             w=self.server.world
             cfg=config();cfg['buildings_world']=list(w.buildings.values());cfg['nodes']=list(w.nodes.values())
             cfg['pois']=list(w.terrain.pois.values())
+            cfg['givers']=list(w.givers.values());cfg['shelters']=list(w.shelters.values())
             cfg['road_lines']=[{'ax':s[0],'ay':s[1],'bx':s[2],'by':s[3],'a':s[4],'b':s[5]} for s in w.terrain.road_segments]
             cfg['join_code']=self.server.join_code if self._local() else None
             cfg['lan_addresses']=lan_addresses(self.server.server_port) if cfg['join_code'] else []
@@ -1315,7 +1572,7 @@ class Handler(BaseHTTPRequestHandler):
                     if len(attempts)>=12:self._json(429,{'error':'Слишком много попыток. Подожди минуту.'});return
                     if not self._local() and not secrets.compare_digest(str(data.get('code','')),self.server.join_code):
                         attempts.append(now);self._json(403,{'error':'Неверный код комнаты.'});return
-                    token=self.server.world.join(data.get('name',''),None,data.get('token'))
+                    token=self.server.world.join(data.get('name',''),None,data.get('token'),data.get('look'))
                     self._json(200,{'token':token,'state':self.server.world.snapshot(token)});return
                 if path=='/api/host':
                     # Room settings are changed only on the host computer itself.
