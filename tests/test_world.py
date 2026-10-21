@@ -13,10 +13,9 @@ class WorldTests(unittest.TestCase):
         self.assertGreaterEqual(len(self.world.towns), 15)
         self.assertGreater(len(self.world.nodes), 15)
 
-    def test_computer_clans_start_with_a_town_and_a_shelter(self):
+    def test_computer_clans_start_with_a_town(self):
         for sid, name, color, home, fighter, method in AI_SIDES:
             self.assertEqual(self.world.towns[home]['owner'], sid)
-            self.assertIn(self.world.sides[sid]['shelter'], self.world.shelters)
         self.assertFalse(any(t['base'] for t in self.world.towns.values()))
 
     def test_every_player_is_a_side_with_a_home(self):
@@ -24,11 +23,11 @@ class WorldTests(unittest.TestCase):
         b = self.world.players[self.world.join('B')]
         self.assertNotEqual(a['faction'], b['faction'])
         for p in (a, b):
-            self.assertIn(self.world.sides[p['faction']]['shelter'], self.world.shelters)
+            self.assertIsNone(self.world.sides[p['faction']]['camp'])          # camps are built, not given
             self.assertFalse(any(t['owner'] == p['faction'] for t in self.world.towns.values()))
+            self.assertGreater(p['items']['ammo9'], 0)
             for resource in ('wood', 'stone', 'metal', 'food', 'fuel'):
                 self.assertGreater(self.world.stocks[p['faction']][resource], 0)
-        self.assertNotEqual(self.world.sides[a['faction']]['shelter'], self.world.sides[b['faction']]['shelter'])
 
     def test_player_limit(self):
         self.assertEqual(MAX_PLAYERS, 25)
@@ -47,12 +46,19 @@ class WorldTests(unittest.TestCase):
         f = p['faction']
         for tid in ('revda', 'kazan'):
             self.world.towns[tid]['owner'] = f
-        p['coins'] = 500
+        p['coins'] = 500; p['items'] = {'medkit':1, 'nails':20}
+        x, y = p['x'], p['y']
         self.world._damage(p, 9999)
-        self.assertEqual(p['coins'], 0)
+        self.assertEqual(p['coins'], 0); self.assertEqual(p['items'], {})
         self.assertIsNone(self.world.towns['revda']['owner'])
         self.assertIsNone(self.world.towns['kazan']['owner'])
-        self.assertEqual(self.world.sides[f]['shelter'], self.world.home(f)['id'])
+        body = next(iter(self.world.bodies.values()))
+        self.assertEqual((body['x'], body['y']), (round(x, 1), round(y, 1)))
+        # Anyone can pick the body clean, the owner included.
+        other = self.world.players[self.world.join('B')]; other['x'], other['y'] = x + 20, y; other['items'] = {}
+        self.world.loot_body(other, body['id'])
+        self.assertEqual(other['coins'], 500); self.assertEqual(other['items'], {'medkit':1, 'nails':20})
+        self.assertEqual(self.world.bodies, {})
 
     def test_quests_come_only_from_people(self):
         token = self.world.join('Player', 'survivors')

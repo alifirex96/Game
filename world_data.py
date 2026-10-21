@@ -1,14 +1,12 @@
 """Static game rules and the schematic map of Russia. Python 3.7+, standard library only."""
 VERSION = '0.5.0'
 # Map coordinates below are written at 1:1 and stretched by WORLD_SCALE, so settlements are far apart
-# while towns, roads and rivers keep their real size. At 12 neighbouring towns are 12–39 thousand px apart:
-# about half a minute to a minute and a half by car, two to five minutes on foot.
-WORLD_SCALE = 12
+# while roads and rivers keep their real width. At 24 neighbouring towns are 25–78 thousand px apart:
+# one to three minutes by car, several minutes on foot.
+WORLD_SCALE = 24
 WORLD_SIZE = (20000 * WORLD_SCALE, 10000 * WORLD_SCALE)
 # Everyone plays for themselves. Each player is a side with a home settlement; computer clans are sides too.
 MAX_PLAYERS = 25
-HOME_CHOICES = ['shabrovsky', 'ekaterinburg', 'revda', 'perm', 'polevskoy', 'tagil', 'kazan', 'omsk',
-                'nizhny', 'novosibirsk', 'moscow', 'krasnoyarsk']
 SIDE_COLORS = ['#e7a568', '#7fb2d0', '#a7c46a', '#d79cb7', '#e0d46a', '#9b8fd6', '#6ad0b8', '#f08a6a', '#c9c9c9', '#b98a5a',
                '#5fa0e0', '#e06a9a', '#8ad06a', '#d0a0e0', '#e0b0a0', '#70c0c0', '#c0c060', '#a0a0f0', '#f0c040', '#60e090',
                '#e07050', '#90b0d0', '#d090c0', '#b0d090', '#f0e0a0', '#80a080', '#c08060']
@@ -122,7 +120,7 @@ POIS = [
 ]
 POIS = [(p[0], p[1], p[2], p[3] * _S, p[4] * _S) for p in POIS]
 # Long highways get roadside stops of their own: filling stations, villages, farms and checkpoints.
-ROADSIDE_EVERY = 13000
+ROADSIDE_EVERY = 18000
 ROADSIDE_KINDS = ['gas', 'village', 'gas', 'farm', 'village', 'military', 'gas', 'village']
 ROADSIDE_NAMES = ['Берёзовка', 'Сосновка', 'Ивановка', 'Каменка', 'Озёрное', 'Заречье', 'Липовка', 'Покровка',
                   'Никольское', 'Ольховка', 'Дубки', 'Красный Яр', 'Михайловка', 'Вязовка', 'Горки', 'Луговое',
@@ -154,7 +152,18 @@ BUILDINGS = {
 SLOTS = [('depot',-185,-150),('house',145,-155),('sawmill',-360,100),
          ('quarry',350,100),('workshop',-185,185),('farm',160,190),
          ('garage',-360,285),('radio',350,285),('guard',95,-340),('warehouse',160,335)]
-TOWN_GATE = (480, 420)             # highways meet the town streets at these edge points
+TOWN_GATE = (480, 420)             # the smallest town's half size; bigger towns grow with their population
+# Real population in thousands: it decides how far a city spreads (blocks, streets, abandoned houses).
+POPULATION = {'petersburg':5600,'moscow':13000,'nizhny':1230,'kazan':1310,'perm':1030,'pervouralsk':115,
+              'shabrovsky':2,'ekaterinburg':1540,'tyumen':850,'novosibirsk':1630,'krasnoyarsk':1200,'irkutsk':620,
+              'yakutsk':360,'khabarovsk':610,'vladivostok':600,'murmansk':270,'arkhangelsk':300,'vorkuta':55,
+              'norilsk':175,'tagil':330,'revda':60,'polevskoy':60,'omsk':1110,'magadan':90}
+
+def town_size(tid):
+    """Half width and half height of a settlement in world px."""
+    pop = POPULATION.get(tid, 60)
+    half = int(max(TOWN_GATE[0], min(2600, 540 * (pop / 60.0) ** .28)))
+    return half, int(max(TOWN_GATE[1], half * .9))
 # Every settlement has a real landmark of the city or its surroundings in the north-west block.
 LANDMARK_POS = (-345, -290)
 LANDMARKS = {
@@ -179,13 +188,13 @@ STORAGE_PER_WAREHOUSE = 250
 # mag: rounds before an automatic reload; reload: seconds. Switching weapons takes SWAP_TIME.
 SWAP_TIME = .5
 WEAPONS = [
-    {'name':'Пистолет Макарова','mag':8,'reload':1.4,'dmg':16,'cd':.45,'range':420,'ammo':.12,'cost':{},'price':0,'level':1,'width':20},
-    {'name':'Охотничье ружьё','mag':2,'reload':2.0,'dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1,'price':180,'level':1,'width':28},
-    {'name':'Автомат Калашникова','mag':30,'reload':2.3,'dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':630,'level':6,'width':20,'spread':.05},
-    {'name':'Обрез','mag':2,'reload':1.8,'dmg':44,'cd':1.1,'range':300,'ammo':.3,'price':120,'level':2,'width':38},
-    {'name':'Карабин СКС','mag':10,'reload':2.0,'dmg':38,'cd':.7,'range':600,'ammo':.2,'price':360,'level':4,'width':20},
-    {'name':'Снайперская винтовка СВД','mag':10,'reload':2.6,'dmg':72,'cd':1.6,'range':780,'ammo':.4,'price':1020,'level':12,'width':16},
-    {'name':'Пулемёт ПКМ','mag':100,'reload':4.5,'dmg':15,'cd':.1,'range':520,'ammo':.1,'price':1425,'level':18,'width':22,'spread':.08},
+    {'name':'Пистолет Макарова','ammo_item':'ammo9','mag':8,'reload':1.4,'dmg':16,'cd':.45,'range':420,'ammo':.12,'cost':{},'price':0,'level':1,'width':20},
+    {'name':'Охотничье ружьё','ammo_item':'shells','mag':2,'reload':2.0,'dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1,'price':180,'level':1,'width':28},
+    {'name':'Автомат Калашникова','ammo_item':'ammo762','mag':30,'reload':2.3,'dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':630,'level':6,'width':20,'spread':.05},
+    {'name':'Обрез','ammo_item':'shells','mag':2,'reload':1.8,'dmg':44,'cd':1.1,'range':300,'ammo':.3,'price':120,'level':2,'width':38},
+    {'name':'Карабин СКС','ammo_item':'ammo762','mag':10,'reload':2.0,'dmg':38,'cd':.7,'range':600,'ammo':.2,'price':360,'level':4,'width':20},
+    {'name':'Снайперская винтовка СВД','ammo_item':'ammo54','mag':10,'reload':2.6,'dmg':72,'cd':1.6,'range':780,'ammo':.4,'price':1020,'level':12,'width':16},
+    {'name':'Пулемёт ПКМ','ammo_item':'ammo54','mag':100,'reload':4.5,'dmg':15,'cd':.1,'range':520,'ammo':.1,'price':1425,'level':18,'width':22,'spread':.08},
 ]
 ARMOR = [
     {'name':'Куртка','reduce':0,'cost':{},'price':0,'level':1},
@@ -201,25 +210,87 @@ CLOTHES = [
     {'name':'Арктический комплект','warm':45,'price':720,'level':10},
 ]
 BACKPACKS = [
-    {'name':'Карманы','slots':6,'price':0,'level':1},
+    {'name':'Карманы','slots':8,'price':0,'level':1},
     {'name':'Сумка через плечо','slots':12,'price':90,'level':1},
     {'name':'Туристический рюкзак','slots':20,'price':270,'level':3},
     {'name':'Армейский рюкзак','slots':30,'price':600,'level':8},
 ]
 # Personal items: each takes one slot in the backpack.
 ITEMS = {
-    'canned': {'name':'Тушёнка','desc':'Сытость +40.','price':20,'food':40},
-    'crackers': {'name':'Сухари','desc':'Сытость +20, жажда +5.','price':10,'food':20,'water':-5},
-    'water': {'name':'Бутылка воды','desc':'Жажда утолена на 45.','price':15,'water':45},
+    'canned': {'stack':3,'name':'Тушёнка','desc':'Сытость +40.','price':20,'food':40},
+    'crackers': {'stack':5,'name':'Сухари','desc':'Сытость +20, жажда +5.','price':10,'food':20,'water':-5},
+    'water': {'stack':2,'name':'Бутылка воды','desc':'Жажда утолена на 45.','price':15,'water':45},
     'tea': {'name':'Термос с чаем','desc':'Жажда +25, тепло +35.','price':40,'water':25,'warmth':35},
-    'bandage': {'name':'Бинт','desc':'Останавливает кровотечение, +5 здоровья.','price':20,'hp':5,'stop_bleed':True},
+    'bandage': {'stack':5,'name':'Бинт','desc':'Останавливает кровотечение, +5 здоровья.','price':20,'hp':5,'stop_bleed':True},
     'medkit': {'name':'Аптечка','desc':'+60 здоровья и останавливает кровотечение.','price':50,'hp':60,'stop_bleed':True},
-    'pills': {'name':'Антибиотики','desc':'Лечат отравление.','price':45,'cure':True},
+    'pills': {'stack':5,'name':'Антибиотики','desc':'Лечат отравление.','price':45,'cure':True},
     'repairkit': {'name':'Ремкомплект','desc':'Чинит машину в любом месте (R рядом с машиной).','price':70},
     'canister': {'name':'Канистра бензина','desc':'+20 топлива в бак твоей машины (T рядом с машиной).','price':40},
-    'meat_raw': {'name':'Сырое мясо','desc':'Сытость +25, но можно отравиться. Пожарь у костра своего поселения.','price':0,'food':25,'risk':.35},
-    'meat': {'name':'Жареное мясо','desc':'Сытость +45.','price':0,'food':45},
+    'meat_raw': {'stack':4,'name':'Сырое мясо','desc':'Сытость +25, но можно отравиться. Пожарь у костра своего поселения.','price':0,'food':25,'risk':.35},
+    'meat': {'stack':4,'name':'Жареное мясо','desc':'Сытость +45.','price':0,'food':45},
+    # Materials for crafting: several fit in one backpack slot ('stack').
+    'planks': {'name':'Доски','desc':'Для стен, мебели и ящиков.','price':6,'stack':10,'mat':True},
+    'nails': {'name':'Гвозди','desc':'Для любой постройки.','price':2,'stack':30,'mat':True},
+    'scrap': {'name':'Металлолом','desc':'Из него делают патроны, гвозди, броню.','price':8,'stack':10,'mat':True},
+    'cloth': {'name':'Ткань','desc':'Бинты, верёвка, одежда, спальник.','price':6,'stack':10,'mat':True},
+    'rope': {'name':'Верёвка','desc':'Для одежды, рюкзаков и брони.','price':10,'stack':5,'mat':True},
+    'gunpowder': {'name':'Порох','desc':'Для патронов на верстаке.','price':15,'stack':20,'mat':True},
+    'herbs': {'name':'Травы','desc':'Чай и аптечки.','price':5,'stack':10,'mat':True},
+    'hide': {'name':'Шкура','desc':'Тёплая одежда и рюкзаки.','price':12,'stack':5,'mat':True},
+    'tape': {'name':'Изолента','desc':'Ремонт машин и самодельное оружие.','price':10,'stack':5,'mat':True},
+    # Ammunition loads magazines on reload (X); without it a gun is useless.
+    'ammo9': {'name':'Патроны 9×18','desc':'Для пистолета Макарова.','price':2,'stack':40,'ammo':True},
+    'shells': {'name':'Патроны 12 калибра','desc':'Для ружья и обреза.','price':4,'stack':20,'ammo':True},
+    'ammo762': {'name':'Патроны 7,62×39','desc':'Для автомата и карабина СКС.','price':3,'stack':30,'ammo':True},
+    'ammo54': {'name':'Патроны 7,62×54R','desc':'Для СВД и пулемёта ПКМ.','price':5,'stack':30,'ammo':True},
 }
+# Where materials turn up: ruins by kind, houses, animals.
+POI_MATERIALS = {
+    'factory':['scrap','nails','tape','gunpowder','scrap'], 'gas':['tape','scrap','rope'], 'military':['ammo762','gunpowder','cloth','ammo9','ammo54'],
+    'farm':['rope','cloth','planks','herbs'], 'village':['planks','cloth','herbs','nails','shells'], 'oil':['gunpowder','scrap','tape'],
+    'mine':['scrap','gunpowder','nails'], 'rail':['nails','scrap','cloth','planks'],
+}
+HOUSE_FINDS = ['cloth','nails','planks','rope','tape','herbs','scrap','ammo9','cloth','canned','water','bandage','crackers','gunpowder','shells','pills']
+HOUSE_SEARCH_COOLDOWN = 900
+# Crafting: 'at' is where it can be made — by hand anywhere, at a fire, or at a workbench in a camp.
+# 'res' takes the side's shared resources; 'gear' sets equipment; 'part' builds a piece of the camp.
+RECIPES = [
+    {'id':'bandage','name':'Бинт','at':'hand','needs':{'cloth':2},'makes':{'bandage':1}},
+    {'id':'rope','name':'Верёвка','at':'hand','needs':{'cloth':3},'makes':{'rope':1}},
+    {'id':'meat','name':'Жареное мясо','at':'fire','needs':{'meat_raw':1},'makes':{'meat':1}},
+    {'id':'tea','name':'Чай на травах','at':'fire','needs':{'herbs':2,'water':1},'makes':{'tea':1}},
+    {'id':'planks','name':'Доски из брёвен','at':'bench','res':{'wood':4},'makes':{'planks':2}},
+    {'id':'scrap','name':'Металлолом из металла','at':'bench','res':{'metal':3},'makes':{'scrap':2}},
+    {'id':'nails','name':'Гвозди','at':'bench','needs':{'scrap':1},'makes':{'nails':10}},
+    {'id':'gunpowder','name':'Порох из селитры и топлива','at':'bench','needs':{'herbs':1},'res':{'fuel':4},'makes':{'gunpowder':1}},
+    {'id':'ammo9','name':'Патроны 9×18 ×10','at':'bench','needs':{'gunpowder':1,'scrap':1},'makes':{'ammo9':10}},
+    {'id':'shells','name':'Патроны 12 калибра ×6','at':'bench','needs':{'gunpowder':1,'scrap':1,'cloth':1},'makes':{'shells':6}},
+    {'id':'ammo762','name':'Патроны 7,62×39 ×10','at':'bench','needs':{'gunpowder':2,'scrap':2},'makes':{'ammo762':10}},
+    {'id':'ammo54','name':'Патроны 7,62×54R ×10','at':'bench','needs':{'gunpowder':3,'scrap':2},'makes':{'ammo54':10}},
+    {'id':'medkit','name':'Аптечка','at':'bench','needs':{'bandage':2,'herbs':3},'makes':{'medkit':1}},
+    {'id':'repairkit','name':'Ремкомплект','at':'bench','needs':{'scrap':3,'tape':1,'nails':5},'makes':{'repairkit':1}},
+    {'id':'canister','name':'Канистра','at':'bench','needs':{'scrap':5},'makes':{'canister':1}},
+    {'id':'sawnoff','name':'Обрез','at':'bench','level':2,'needs':{'scrap':10,'planks':3,'nails':6,'tape':2},'gear':('weapon',3)},
+    {'id':'vest','name':'Разгрузка с пластинами','at':'bench','level':3,'needs':{'scrap':10,'cloth':6,'rope':2},'gear':('armor',1)},
+    {'id':'vatnik','name':'Ватник','at':'bench','needs':{'cloth':8,'rope':1},'gear':('clothes',1)},
+    {'id':'tulup','name':'Овчинный тулуп','at':'bench','level':4,'needs':{'hide':4,'cloth':4,'rope':2},'gear':('clothes',2)},
+    {'id':'bag','name':'Сумка','at':'bench','needs':{'cloth':5,'rope':2},'gear':('backpack',1)},
+    {'id':'pack','name':'Туристический рюкзак','at':'bench','level':3,'needs':{'cloth':8,'rope':4,'hide':2},'gear':('backpack',2)},
+]
+# Pieces of a camp. Open-ground camps stand inside a square fence; a camp in an abandoned house uses its walls.
+CAMP_PARTS = {
+    'fire': {'name':'Костёр','house_name':'Печка','needs':{'planks':2,'scrap':1},'hp':150,'desc':'Тепло, готовка, чай. Рядом заживают раны.'},
+    'bed': {'name':'Спальник','needs':{'cloth':4,'planks':2},'hp':120,'desc':'После гибели очнёшься здесь.'},
+    'stash': {'name':'Ящик','needs':{'planks':6,'nails':10},'hp':300,'desc':'Хранит вещи (40 мест) и монеты. Чужие откроют, если пробьют стены.'},
+    'bench': {'name':'Верстак','needs':{'planks':8,'nails':12,'scrap':4},'hp':250,'desc':'Патроны, снаряжение, ремкомплекты.'},
+    'collector': {'name':'Сборник дождевой воды','needs':{'scrap':3,'cloth':2},'hp':120,'desc':'Чистая вода раз в две минуты.'},
+    'wall': {'name':'Частокол','needs':{'planks':5,'nails':8},'hp':400,'desc':'Секция ограды. Восемь секций и ворота закрывают лагерь.'},
+    'gate': {'name':'Ворота','house_name':'Дверь','needs':{'planks':6,'nails':10,'scrap':2},'hp':500,'desc':'Пропускает тебя и клан, остальных — нет.'},
+}
+CAMP_HALF = 100           # half size of an open-ground camp's fence
+CAMP_STASH_SLOTS = 40
+HOUSE_WALL_HP = 900
+BODY_TIME = 900           # a body with its backpack lies this long
 LOOT_ITEMS = ['canned', 'crackers', 'water', 'water', 'bandage', 'crackers', 'pills', 'canned', 'tea', 'medkit', 'canister']
 # Shop goods paid in coins that go straight to the faction stock.
 SHOP_ITEMS = {
@@ -232,11 +303,10 @@ NPC_TYPES = {
     'raider': {'name':'Боец бандитов','hp':70,'speed':125,'dmg':11,'range':360,'cd':1.2,'loot':{'metal':4}},
     'ranger': {'name':'Дружинник','hp':70,'speed':125,'dmg':11,'range':360,'cd':1.2,'loot':{'food':4}},
     'militia': {'name':'Ополченец','hp':55,'speed':110,'dmg':9,'range':340,'cd':1.4,'loot':{'food':2}},
-    # Settlement garrisons stay inside the town; shelter guards never leave their zone.
+    # Settlement garrisons stay inside the town.
     'occupier': {'name':'Мародёр','hp':40,'speed':110,'dmg':7,'range':320,'cd':1.6,'loot':{'metal':1,'food':1},'zone':470,'aggro':420},
     'occupier_elite': {'name':'Головорез','hp':110,'speed':120,'dmg':14,'range':420,'cd':1.1,'loot':{'metal':3},'zone':470,'aggro':470},
     'defender': {'name':'Охранник','hp':100,'speed':120,'dmg':12,'range':440,'cd':1.0,'loot':{},'zone':470,'aggro':470},
-    'guardian': {'name':'Охрана убежища','hp':600,'speed':120,'dmg':36,'range':560,'cd':.55,'loot':{},'zone':470,'aggro':560,'accurate':True},
     'bandit': {'name':'Бандит','hp':70,'speed':130,'dmg':11,'range':380,'cd':1.2,'loot':{'metal':2},'aggro':480},
     'convoy': {'name':'Грузовик','hp':150,'speed':165,'dmg':0,'range':0,'cd':0,'loot':{}},
     # Wild animals: melee predators and a shy elk worth hunting. Meat goes into the hunter's backpack.
@@ -478,11 +548,6 @@ STORY_LINE[2]['choices'] = [dict(c, text=c['text'].replace('вас', 'тебя')
 STORY_LINE[3]['text'] = 'Колонны связывают поселения. Доведи до дома две колонны с грузом.'
 STORY_LINE[4].update(title='Свои города', text='Установи контроль над тремя поселениями.')
 STORY_LINE[5]['text'] = 'Последний шаг — радиостанция второго уровня в одном из твоих поселений и пять поселений под контролем. Тогда эфир услышит вся страна.'
-# Shelters: every player and clan has one bunker in the wild. It cannot be captured;
-# its guards warn intruders at SHELTER_WARN and open fire inside SHELTER_RADIUS.
-SHELTER_RADIUS = 470
-SHELTER_WARN = 800
-SHELTER_GUARDS = 5
 BIG_TOWNS = {'moscow','petersburg','ekaterinburg','novosibirsk','kazan','nizhny','krasnoyarsk','omsk','perm',
              'vladivostok','khabarovsk','irkutsk'}
 START_STOCK = {'wood':20.0,'stone':12.0,'metal':8.0,'food':20.0,'fuel':10.0}
@@ -492,9 +557,9 @@ LOOKS = ['Худи','Худи и разгрузка','Худи и плитник
          'Полевая форма','Пехотинец','Камуфляж с кепи','Камуфляж и каска','Тёмный камуфляж',
          'Пустынная кепи','Пустынный штурмовик','Лесной камуфляж','Городской камуфляж','Синяя форма',
          'Зимний маскхалат','Зимний штурмовик','Чёрный спецназ','Бродяга с шарфом','Тяжёлый рейдер']
-NPC_LOOKS = {'marauder':[0,1,2],'occupier':[0,1,2,18],'occupier_elite':[3,4,9],'defender':[5,6],'guardian':[17],
+NPC_LOOKS = {'marauder':[0,1,2],'occupier':[0,1,2,18],'occupier_elite':[3,4,9],'defender':[5,6],
              'bandit':[18,12,13],'raider':[18,19],'ranger':[7,8],'militia':[6],'civil':[0,1]}
-NPC_LOOKS_COLD = {'marauder':[15],'occupier':[15,0],'occupier_elite':[16],'guardian':[16],'bandit':[15,18],'defender':[16,6]}
+NPC_LOOKS_COLD = {'marauder':[15],'occupier':[15,0],'occupier_elite':[16],'bandit':[15,18],'defender':[16,6]}
 # People who hand out quests. Dialogue lines may use {town}, {region}, {name}.
 # 'art' is the cell in web/assets/givers.png (figure on the square) and web/assets/portraits.jpg (face in dialogues).
 GIVERS = {
@@ -547,5 +612,5 @@ def config():
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'post':POST,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
-            'perks':PERKS,'looks':LOOKS,'hero_looks':[hero_look(n) for n in range(1, MAX_LEVEL + 1)],'side_colors':SIDE_COLORS,'npc_looks':NPC_LOOKS,'npc_looks_cold':NPC_LOOKS_COLD,'shelter_radius':SHELTER_RADIUS,'shelter_warn':SHELTER_WARN,'car_tank':CAR_TANK,'cars':CARS,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
+            'perks':PERKS,'looks':LOOKS,'hero_looks':[hero_look(n) for n in range(1, MAX_LEVEL + 1)],'side_colors':SIDE_COLORS,'npc_looks':NPC_LOOKS,'npc_looks_cold':NPC_LOOKS_COLD,'recipes':RECIPES,'camp_parts':CAMP_PARTS,'camp_half':CAMP_HALF,'stash_slots':CAMP_STASH_SLOTS,'car_tank':CAR_TANK,'cars':CARS,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}

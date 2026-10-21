@@ -2,10 +2,14 @@
 import heapq
 import math
 from world_data import (WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS, ROADSIDE_EVERY, ROADSIDE_KINDS, ROADSIDE_NAMES,
-                        RESOURCES, SLOTS, BUILDINGS, TOWN_GATE, LANDMARKS, LANDMARK_POS)
+                        RESOURCES, SLOTS, BUILDINGS, TOWN_GATE, LANDMARKS, LANDMARK_POS, POPULATION, town_size)
 
 CELL = 1000
-TOWN_HALF = (480, 420)        # half-size of the cleared town area
+RECT_CELL = 250               # finer buckets for walls and buildings: cities have hundreds of houses
+TOWN_HALF = (480, 420)        # half-size of the smallest settlement
+CORE = (520, 480)             # the square and the ten public buildings; rivers never cross it
+WALL = 8                      # thickness of house walls
+DOOR = 28
 
 def seg_dist(px, py, ax, ay, bx, by):
     dx = bx - ax; dy = by - ay
@@ -37,7 +41,10 @@ POI_LAYOUTS = {
 
 class Terrain:
     def __init__(self):
-        self.towns = {t[0]: {'id':t[0],'x':t[2],'y':t[3]} for t in TOWNS}
+        self.towns = {}
+        for t in TOWNS:
+            r, h = town_size(t[0])
+            self.towns[t[0]] = {'id':t[0],'x':t[2],'y':t[3],'r':r,'h':h}
         # Highways run between town gates, where the cross streets reach the edge of a settlement.
         self.road_segments = [self.gate(a, b) + self.gate(b, a) + (a, b) for a, b in ROADS]
         self.water_segments = []
@@ -61,8 +68,8 @@ class Terrain:
                     self.water_grid.setdefault((gx, gy), [[], []])[1].append(lake)
         self.town_grid = {}
         for t in self.towns.values():
-            for gx in range(int((t['x'] - 1000) // CELL), int((t['x'] + 1000) // CELL) + 1):
-                for gy in range(int((t['y'] - 1000) // CELL), int((t['y'] + 1000) // CELL) + 1):
+            for gx in range(int((t['x'] - t['r'] - 600) // CELL), int((t['x'] + t['r'] + 600) // CELL) + 1):
+                for gy in range(int((t['y'] - t['h'] - 600) // CELL), int((t['y'] + t['h'] + 600) // CELL) + 1):
                     self.town_grid.setdefault((gx, gy), []).append(t)
         self.pois = {}
         for pid, name, kind, x, y in POIS:
@@ -70,20 +77,111 @@ class Terrain:
             self.pois[pid] = {'id':pid,'name':name,'kind':kind,'x':x,'y':y,'parts':parts,
                               'kind_name':POI_KINDS[kind]['name']}
         self._roadside_stops()
-        self.shelters = self._shelter_sites()
         self.rects = []
         self.grid = {}
+        self.streets = []; self.street_grid = {}; self.houses = {}
+        for t in self.towns.values():
+            self._lay_out_town(t)
         self.graph = {t: [] for t in self.towns}
         for a, b in ROADS:
             d = math.hypot(self.towns[a]['x'] - self.towns[b]['x'], self.towns[a]['y'] - self.towns[b]['y'])
             self.graph[a].append((b, d)); self.graph[b].append((a, d))
 
     def gate(self, tid, other):
+        """Highways enter a town where its main avenues reach the edge."""
         t = self.towns[tid]; o = self.towns[other]
         dx = o['x'] - t['x']; dy = o['y'] - t['y']
-        if abs(dx) / TOWN_GATE[0] >= abs(dy) / TOWN_GATE[1]:
-            return (t['x'] + (TOWN_GATE[0] if dx > 0 else -TOWN_GATE[0]), t['y'])
-        return (t['x'], t['y'] + (TOWN_GATE[1] if dy > 0 else -TOWN_GATE[1]))
+        if abs(dx) / t['r'] >= abs(dy) / t['h']:
+            return (t['x'] + (t['r'] if dx > 0 else -t['r']), t['y'])
+        return (t['x'], t['y'] + (t['h'] if dy > 0 else -t['h']))
+
+    # ---- settlements: avenues, a street grid and abandoned houses ------------
+    def _add_street(self, x1, y1, x2, y2, width):
+        s = (x1, y1, x2, y2, width); self.streets.append(s)
+        for gx in range(int((min(x1, x2) - width) // CELL), int((max(x1, x2) + width) // CELL) + 1):
+            for gy in range(int((min(y1, y2) - width) // CELL), int((max(y1, y2) + width) // CELL) + 1):
+                self.street_grid.setdefault((gx, gy), []).append(s)
+
+    def on_street(self, x, y, pad=0):
+        return any(seg_dist(x, y, s[0], s[1], s[2], s[3]) < s[4] / 2 + pad for s in self.street_grid.get((int(x // CELL), int(y // CELL)), ()))
+
+    def _lay_out_town(self, t):
+        tx, ty, R, H = t['x'], t['y'], t['r'], t['h']
+        pop = POPULATION.get(t['id'], 60)
+        # Two avenues cross at the square and carry on as the highways.
+        self._add_street(tx - R, ty, tx + R, ty, 68); self._add_street(tx, ty - H, tx, ty + H, 68)
+        step = 300 if pop >= 300 else 250
+        xs = [k * step for k in range(1, int(R // step) + 1) if k * step < R - 80]
+        ys = [k * step for k in range(1, int(H // step) + 1) if k * step < H - 80]
+        for s in (1, -1):
+            for d in xs:
+                if d < CORE[0]: self._add_street(tx + s * d, ty - H, tx + s * d, ty - CORE[1], 44); self._add_street(tx + s * d, ty + CORE[1], tx + s * d, ty + H, 44)
+                else: self._add_street(tx + s * d, ty - H, tx + s * d, ty + H, 44)
+            for d in ys:
+                if d < CORE[1]: self._add_street(tx - R, ty + s * d, tx - CORE[0], ty + s * d, 44); self._add_street(tx + CORE[0], ty + s * d, tx + R, ty + s * d, 44)
+                else: self._add_street(tx - R, ty + s * d, tx + R, ty + s * d, 44)
+        # Blocks between the streets fill with houses: wooden izbas in villages and on the outskirts,
+        # five-storey panel blocks in cities.
+        public = [b for b in town_buildings(t['id'], tx, ty)]
+        lm = landmark_rect(t['id'], tx, ty)
+        if lm: public.append(dict(lm, w=lm['w'] / .6, h=lm['h'] / .5))
+        edges_x = sorted({-R} | {-d for d in xs} | {0} | set(xs) | {R}); edges_y = sorted({-H} | {-d for d in ys} | {0} | set(ys) | {H})
+        rnd = _seeded(t['id'])
+        for i in range(len(edges_x) - 1):
+            for j in range(len(edges_y) - 1):
+                bx0, bx1, by0, by1 = edges_x[i], edges_x[i + 1], edges_y[j], edges_y[j + 1]
+                far = max(abs(bx0 + bx1) / 2 / R, abs(by0 + by1) / 2 / H)
+                panel = pop >= 250 and far < .8
+                tries = 2 if panel else 4
+                for k in range(tries):
+                    if panel:
+                        horiz = rnd() < .5; w, h = (150 + rnd() * 50, 62) if horiz else (62, 150 + rnd() * 50); kind = 'panel'
+                    else:
+                        w, h = 56 + rnd() * 18, 46 + rnd() * 12; kind = 'izba' if pop < 400 or far > .8 else 'house2'
+                    x = tx + bx0 + 30 + w / 2 + rnd() * max(1, (bx1 - bx0) - 60 - w)
+                    y = ty + by0 + 30 + h / 2 + rnd() * max(1, (by1 - by0) - 60 - h)
+                    self._try_house(t, kind, x, y, w, h, public)
+
+    def _try_house(self, t, kind, x, y, w, h, public):
+        if abs(x - t['x']) + w / 2 > t['r'] - 20 or abs(y - t['y']) + h / 2 > t['h'] - 20:
+            return
+        if math.hypot(x - t['x'], y - t['y']) < 175 + max(w, h) / 2:
+            return
+        for b in public:
+            if abs(x - b['x']) < (w + b['w']) / 2 + 34 and abs(y - b['y']) < (h + b['h']) / 2 + 40:
+                return
+        for hx, hy in ((x, y), (x - w / 2, y - h / 2), (x + w / 2, y - h / 2), (x - w / 2, y + h / 2), (x + w / 2, y + h / 2)):
+            if self.on_street(hx, hy, 18) or self.water(hx, hy, 20):
+                return
+        for o in self.house_grid_near(x, y):
+            if abs(x - o['x']) < (w + o['w']) / 2 + 26 and abs(y - o['y']) < (h + o['h']) / 2 + 26:
+                return
+        # The door faces the nearest avenue side of the block.
+        door = 's' if y < t['y'] else 'n'
+        if abs(x - t['x']) > abs(y - t['y']) * 1.4: door = 'e' if x < t['x'] else 'w'
+        hid = 'h' + str(len(self.houses))
+        house = {'id':hid, 'town':t['id'], 'kind':kind, 'x':round(x), 'y':round(y), 'w':round(w), 'h':round(h), 'door':door}
+        house['walls'] = house_walls(house)
+        self.houses[hid] = house
+        self._house_grid.setdefault((int(x // CELL), int(y // CELL)), []).append(house)
+        for r in house['walls']:
+            self.add_rect(r)
+
+    def house_grid_near(self, x, y):
+        if not hasattr(self, '_house_grid'):
+            self._house_grid = {}
+        gx, gy = int(x // CELL), int(y // CELL)
+        out = []
+        for i in (-1, 0, 1):
+            for j in (-1, 0, 1):
+                out.extend(self._house_grid.get((gx + i, gy + j), ()))
+        return out
+
+    def house_at(self, x, y, pad=0):
+        for h in self.house_grid_near(x, y):
+            if abs(x - h['x']) < h['w'] / 2 + pad and abs(y - h['y']) < h['h'] / 2 + pad:
+                return h
+        return None
 
     def route_points(self, towns):
         """Waypoints that follow the highways: gate, gate, square for every hop."""
@@ -117,51 +215,46 @@ class Terrain:
                 self.pois[pid] = {'id':pid,'name':name,'kind':kind,'x':round(x),'y':round(y),'parts':parts,
                                   'kind_name':POI_KINDS[kind]['name']}
 
-    def _shelter_sites(self):
-        """Bunker sites off the highways, far from towns, ruins and each other."""
-        sites = []
-        for ax, ay, bx, by, a, b in self.road_segments:
-            length = math.hypot(bx - ax, by - ay)
-            nx = -(by - ay) / length; ny = (bx - ax) / length
-            for u in (.3, .7):
-                for side in (1, -1):
-                    x = ax + (bx - ax) * u + nx * 750 * side; y = ay + (by - ay) * u + ny * 750 * side
-                    if not (700 < x < WORLD_SIZE[0] - 700 and 700 < y < WORLD_SIZE[1] - 700):
-                        continue
-                    if self.water(x, y, 300) or self.in_town(x, y, 900) or any(math.hypot(x - p['x'], y - p['y']) < 900 for p in self.pois.values()):
-                        continue
-                    if any(math.hypot(x - s['x'], y - s['y']) < 2000 for s in sites):
-                        continue
-                    near = min(self.towns.values(), key=lambda t: math.hypot(t['x'] - x, t['y'] - y))
-                    sites.append({'id':'sh' + str(len(sites)), 'x':round(x), 'y':round(y), 'town':near['id']})
-        return sites
-
     def add_rect(self, rect):
         """Index a solid axis-aligned rectangle (dict with x, y, w, h centred)."""
         self.rects.append(rect)
-        x0 = int((rect['x'] - rect['w'] / 2 - 40) // CELL); x1 = int((rect['x'] + rect['w'] / 2 + 40) // CELL)
-        y0 = int((rect['y'] - rect['h'] / 2 - 40) // CELL); y1 = int((rect['y'] + rect['h'] / 2 + 40) // CELL)
-        for gx in range(x0, x1 + 1):
-            for gy in range(y0, y1 + 1):
-                self.grid.setdefault((gx, gy), []).append(rect)
+        for key in self._rect_cells(rect):
+            self.grid.setdefault(key, []).append(rect)
+
+    def _rect_cells(self, rect):
+        x0 = int((rect['x'] - rect['w'] / 2 - 60) // RECT_CELL); x1 = int((rect['x'] + rect['w'] / 2 + 60) // RECT_CELL)
+        y0 = int((rect['y'] - rect['h'] / 2 - 60) // RECT_CELL); y1 = int((rect['y'] + rect['h'] / 2 + 60) // RECT_CELL)
+        return [(gx, gy) for gx in range(x0, x1 + 1) for gy in range(y0, y1 + 1)]
+
+    def remove_rect(self, rect):
+        if rect in self.rects:
+            self.rects.remove(rect)
+        for key in self._rect_cells(rect):
+            cell = self.grid.get(key)
+            if cell and rect in cell:
+                cell.remove(rect)
 
     def solid(self, x, y, r):
-        for b in self.grid.get((int(x // CELL), int(y // CELL)), ()):
+        for b in self.grid.get((int(x // RECT_CELL), int(y // RECT_CELL)), ()):
             if abs(x - b['x']) < b['w'] / 2 + r and abs(y - b['y']) < b['h'] / 2 + r:
                 return True
         return False
 
     def in_town(self, x, y, pad=0):
         towns = self.town_grid.get((int(x // CELL), int(y // CELL)), ()) if pad <= 500 else self.towns.values()
-        return any(abs(x - t['x']) < TOWN_HALF[0] + pad and abs(y - t['y']) < TOWN_HALF[1] + pad for t in towns)
+        return any(abs(x - t['x']) < t['r'] + pad and abs(y - t['y']) < t['h'] + pad for t in towns)
+
+    def in_core(self, x, y):
+        """The square and its public buildings, embanked against rivers."""
+        return any(abs(x - t['x']) < CORE[0] and abs(y - t['y']) < CORE[1] for t in self.town_grid.get((int(x // CELL), int(y // CELL)), ()))
 
     def on_road(self, x, y, width=60):
         return any(seg_dist(x, y, s[0], s[1], s[2], s[3]) < width for s in self.road_segments)
 
     def water(self, x, y, pad=0):
-        """True over rivers or lakes. Town areas are embanked and never count as water."""
+        """True over rivers or lakes. Rivers flow through cities; only the central square is embanked."""
         cell = self.water_grid.get((int(x // CELL), int(y // CELL)))
-        if not cell or self.in_town(x, y):
+        if not cell or self.in_core(x, y):
             return False
         segments, lakes = cell
         for ax, ay, bx, by, half in segments:
@@ -214,6 +307,31 @@ def town_buildings(tid, x, y):
         small = kind == 'guard'
         out.append({'id':tid+':'+kind,'town':tid,'kind':kind,'x':x+dx,'y':y+dy,
                     'w':64 if small else 116,'h':64 if small else 86})
+    return out
+
+
+def _seeded(text):
+    state = [sum(ord(c) * (i + 7) for i, c in enumerate(text)) % 2147483646 + 1]
+    def rnd():
+        state[0] = state[0] * 16807 % 2147483647
+        return state[0] / 2147483647.0
+    return rnd
+
+
+def house_walls(h):
+    """Four walls with a door gap: houses can be entered, searched and turned into a camp."""
+    x0, y0, x1, y1 = h['x'] - h['w'] / 2, h['y'] - h['h'] / 2, h['x'] + h['w'] / 2, h['y'] + h['h'] / 2
+    out = []
+    def wall(ax, ay, bx, by):
+        out.append({'x':(ax + bx) / 2, 'y':(ay + by) / 2, 'w':max(WALL, bx - ax), 'h':max(WALL, by - ay), 'house':h['id']})
+    for side, (ax, ay, bx, by) in (('n', (x0, y0, x1, y0 + WALL)), ('s', (x0, y1 - WALL, x1, y1)),
+                                  ('w', (x0, y0, x0 + WALL, y1)), ('e', (x1 - WALL, y0, x1, y1))):
+        if side != h['door']:
+            wall(ax, ay, bx, by); continue
+        if side in ('n', 's'):
+            mid = (x0 + x1) / 2; wall(ax, ay, mid - DOOR / 2, by); wall(mid + DOOR / 2, ay, bx, by)
+        else:
+            mid = (y0 + y1) / 2; wall(ax, ay, bx, mid - DOOR / 2); wall(ax, mid + DOOR / 2, bx, by)
     return out
 
 

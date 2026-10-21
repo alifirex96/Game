@@ -1,17 +1,19 @@
-"""Computer-controlled characters: marauders, bandits, garrisons, shelter guards, AI squads and convoys.
+"""Computer-controlled characters: marauders, bandits, garrisons, AI squads and convoys.
 
 Mixed into server.World. Everything here runs on the host, inside the world lock.
 """
 import math
 import secrets
 import time
+from world_data import AI_SIDES as AI_HOMES
 from world_data import (BUILDINGS, NPC_TYPES, POI_KINDS, ARMOR, WEAPONS, NPC_FACTION, WILDLIFE, REGIONS,
-                        RESOURCES, WORLD_SIZE, NPC_LOOKS, NPC_LOOKS_COLD, SHELTER_RADIUS, SHELTER_WARN,
-                        SHELTER_GUARDS, BIG_TOWNS)
+                        RESOURCES, WORLD_SIZE, NPC_LOOKS, NPC_LOOKS_COLD, BIG_TOWNS, ITEMS)
 
 AI_PRIORITY = ['farm', 'house', 'sawmill', 'depot', 'quarry', 'workshop', 'warehouse',
                'garage', 'guard', 'radio']
 MAX_MARAUDERS = 36
+NPC_AMMO = {'marauder':'ammo9', 'occupier':'shells', 'occupier_elite':'ammo762', 'bandit':'shells', 'raider':'ammo762',
+            'defender':'ammo762', 'ranger':'ammo762', 'militia':'shells'}
 MAX_CREATURES = 40
 MONSTERS = ('marauders', 'wild', 'mutants', 'outlaws')
 CELL = 600                 # spatial grid for target searches
@@ -19,6 +21,21 @@ WAKE = 3200                # characters further than this from every player slee
 GARRISON_RANGE = 2600      # garrisons and guards stand only where somebody can see them
 ROAMERS = ('marauder', 'bandit')
 SQUAD_COSTS = {'talk':{'food':12,'wood':8},'bribe':{'food':18,'fuel':8},'assault':{'metal':12,'food':6}}
+
+
+def ray_rect(sx, sy, ax, ay, r):
+    """Distance along a unit ray to an axis-aligned rectangle, or None."""
+    lo, hi = 0.0, 1e9
+    for s, a, c, half in ((sx, ax, r['x'], r['w'] / 2), (sy, ay, r['y'], r['h'] / 2)):
+        if abs(a) < 1e-9:
+            if abs(s - c) > half:
+                return None
+            continue
+        t1 = (c - half - s) / a; t2 = (c + half - s) / a
+        lo = max(lo, min(t1, t2)); hi = min(hi, max(t1, t2))
+        if lo > hi:
+            return None
+    return lo
 
 
 class NpcMixin:
@@ -116,9 +133,6 @@ class NpcMixin:
         if 'stats' in target:
             if target['hp'] <= 0:
                 return False
-            if attacker is not None and attacker.get('faction') != target['faction'] \
-                    and target['faction'] in self.sides and self._dist(target, self.home(target['faction'])) < SHELTER_RADIUS:
-                return False   # inside your own shelter's fence nobody can touch you
             amount *= 1 - ARMOR[target['gear']['armor']]['reduce'] - (.1 if target['level'] >= 20 else 0)
             if target['vehicle']:
                 car = target['car']
@@ -204,9 +218,15 @@ class NpcMixin:
             if attacker is not None and 'stats' in attacker:
                 if spec.get('meat'):
                     got = self.give_item(attacker, 'meat_raw', spec['meat'])
-                    self._notice('Добыча: ' + spec['name'], ('Сырое мясо ×' + str(got)) if got else 'Рюкзак полон — мясо осталось.', player=attacker['id'])
-                elif self.rng.random() < (.4 if npc['faction'] == 'mutants' else .25):
-                    self._loot_items(attacker, 1)
+                    hide = self.give_item(attacker, 'hide', 2 if npc['type'] == 'bear' else 1) if npc['type'] != 'boar' else 0
+                    self._notice('Добыча: ' + spec['name'], (('Сырое мясо ×' + str(got)) if got else 'Рюкзак полон — мясо осталось.') + (' Шкура ×' + str(hide) + '.' if hide else ''), player=attacker['id'])
+                else:
+                    # Armed people carry rounds for their guns.
+                    ammo = NPC_AMMO.get(npc['type'])
+                    if ammo and self.rng.random() < .55:
+                        self.give_item(attacker, ammo, self.rng.randint(4, 12))
+                    if self.rng.random() < (.4 if npc['faction'] == 'mutants' else .25):
+                        self._loot_items(attacker, 1)
             self._credit_kill(attacker, npc)
 
     def _wreck_car(self, p):
@@ -236,8 +256,20 @@ class NpcMixin:
             along = dx * ax + dy * ay; side = abs(dx * ay - dy * ax)
             if 0 < along < best and side < 34:
                 hit = post; best = along
+        # Camp fences, gates and furniture of other sides stop bullets and take the damage.
+        piece = None
+        for camp, slot, rect in self.camp_targets():
+            if abs(rect['x'] - shooter['x']) > best + 60 or abs(rect['y'] - shooter['y']) > best + 60:
+                continue
+            if self.camp_allowed(camp, shooter.get('faction')):
+                continue
+            d = ray_rect(shooter['x'], shooter['y'], ax, ay, rect)
+            if d is not None and d < best:
+                best = d; hit = None; piece = (camp, slot)
         end = {'x':shooter['x'] + ax * min(best, rng_), 'y':shooter['y'] + ay * min(best, rng_)}
-        if hit is not None:
+        if piece:
+            self.damage_camp_piece(piece[0], piece[1], dmg, shooter)
+        elif hit is not None:
             self.hurt(hit, dmg, shooter)
         return end
 
@@ -302,7 +334,7 @@ class NpcMixin:
                             spot = self._free_near(poi['x'], poi['y'], 160, 300)
                             if spot:
                                 self.spawn_npc('marauder', 'marauders', spot[0], spot[1]); count += 1
-            if any(self._dist(p, t) < 1000 for t in self.towns.values()) or self._dist(p, self.home(p['faction'])) < 1200:
+            if self.terrain.in_town(p['x'], p['y'], 500) or any(self._dist(p, c) < 900 for c in self.camps.values()):
                 continue
             # Bandits roam the countryside in small groups and pick fights with anyone.
             bandits = sum(1 for n in self.npcs.values() if n['type'] == 'bandit' and self._dist(n, p) < 2800)
@@ -333,7 +365,7 @@ class NpcMixin:
         count = sum(1 for n in self.npcs.values() if n['faction'] in ('wild', 'game', 'mutants'))
         night = self.is_night()
         for p in active:
-            if p['hp'] <= 0 or count >= MAX_CREATURES or any(self._dist(p, t) < 1100 for t in self.towns.values()):
+            if p['hp'] <= 0 or count >= MAX_CREATURES or self.terrain.in_town(p['x'], p['y'], 600):
                 continue
             town = min(self.towns.values(), key=lambda t: self._dist(t, p))
             biome = REGIONS[town['region']]['biome']
@@ -454,7 +486,7 @@ class NpcMixin:
                 leash = npc['home']
                 anchor = self._anchor(npc)
                 if anchor is not None:
-                    # Garrisons and shelter guards hold their ground: they never step outside their zone.
+                    # Garrisons hold their ground: they never step outside their town.
                     zone = spec.get('zone', 470)
                     if goal and math.hypot(goal[0] - anchor['x'], goal[1] - anchor['y']) > zone:
                         goal = None
@@ -485,9 +517,9 @@ class NpcMixin:
         if npc['mode'] != 'travel':
             if self.terrain.water(nx, ny):
                 step *= .45; nx = npc['x'] + dx / d * step; ny = npc['y'] + dy / d * step
-            if self.terrain.solid(nx, npc['y'], 10):
+            if self.solid_for(nx, npc['y'], 10, npc['faction']):
                 nx = npc['x']
-            if self.terrain.solid(nx, ny, 10):
+            if self.solid_for(nx, ny, 10, npc['faction']):
                 ny = npc['y']
             if nx == npc['x'] and ny == npc['y']:
                 npc['goal'] = None
@@ -591,7 +623,8 @@ class NpcMixin:
             if not towns:
                 continue
             t = max(towns, key=lambda t: sum(t['cargo'].values()))
-            route = self.terrain.route(t['id'], self.home(f)['town'])
+            capital = self.capital(f)
+            route = self.terrain.route(t['id'], capital['id']) if capital and capital is not t else []
             cargo = {k: v for k, v in t['cargo'].items() if v > 0}
             t['cargo'] = {k: 0.0 for k in RESOURCES}
             if len(route) < 2:
@@ -599,7 +632,7 @@ class NpcMixin:
                 continue
             self.spawn_npc('convoy', f, t['x'], t['y'] + 40, mode='travel', path=self._path_points(route),
                            cargo=cargo, job={'kind':'convoy','from':t['id']})
-            self._notice('Колонна вышла', t['name'] + ' → ' + self.home(f)['name'] + '. Груз можно сопроводить.', faction=f)
+            self._notice('Колонна вышла', t['name'] + ' → ' + capital['name'] + '. Груз можно сопроводить.', faction=f)
 
     # ---- AI commander for a faction without human players ---------------
     def tick_ai(self, dt):
@@ -692,7 +725,13 @@ class NpcMixin:
             method = 'bribe' if self._can_pay(f, SQUAD_COSTS['bribe']) else None
         if method is None:
             return
-        homes = [t for t in self.towns.values() if t['owner'] == f] or [self.towns[self.home(f)['town']]]
+        homes = [t for t in self.towns.values() if t['owner'] == f]
+        if not homes:
+            # A clan that lost everything marches out again from where it started.
+            start = next((a[3] for a in AI_HOMES if a[0] == f), None)
+            if not start:
+                return
+            homes = [self.towns[start]]
         home = min(homes, key=lambda t: self.terrain.road_distance(t['id'], target['id']))
         route = self.terrain.route(home['id'], target['id'])
         if len(route) < 2:
@@ -798,8 +837,6 @@ class NpcMixin:
     def _send_home(self, npc):
         f = npc['faction']
         homes = [t for t in self.towns.values() if t['owner'] == f]
-        if f in self.sides:
-            homes.append(self.home(f))
         if not homes:
             npc['hp'] = 0
             return
@@ -807,19 +844,15 @@ class NpcMixin:
         npc['mode'] = 'travel'; npc['path'] = [[home['x'], home['y']]]; npc['job'] = {'kind':'home'}
         npc['target'] = None
 
-    # ---- garrisons and shelter guards ---------------------------------------
+    # ---- garrisons ----------------------------------------------------------
     def _anchor(self, npc):
         job = npc.get('job') or {}
         if job.get('kind') == 'garrison':
             return self.towns.get(job['town'])
-        if job.get('kind') == 'shelter':
-            return self.shelters.get(job['shelter'])
         return None
 
     def _in_zone(self, npc, anchor, o):
         """Guards answer only what happens inside their fence; garrisons a bit beyond the square."""
-        if npc['type'] == 'guardian':
-            return self._dist(anchor, o) < SHELTER_RADIUS
         return self._dist(anchor, o) < NPC_TYPES[npc['type']].get('zone', 470) + 160
 
     def garrison(self, t):
@@ -847,7 +880,7 @@ class NpcMixin:
         self.garrison_state.pop(t['id'], None)
 
     def tick_garrisons(self, active):
-        """Fill squares and shelters with their people when a player comes near."""
+        """Fill squares with their people when a player comes near."""
         if not hasattr(self, 'garrison_state'):
             self.garrison_state = {}
         if self.elapsed < getattr(self, 'garrison_clock', 0.0):
@@ -890,36 +923,6 @@ class NpcMixin:
                                        home=[spot[0], spot[1]], job={'kind':'garrison','town':t['id']})
             st['next'] = self.elapsed + 60
             st['spawned'] = True
-        for sh in self.shelters.values():
-            owner = next((sid for sid, s in self.sides.items() if s['shelter'] == sh['id']), None)
-            guards = [n for n in self.npcs.values() if n['hp'] > 0 and (n.get('job') or {}).get('shelter') == sh['id']]
-            if owner is None or not near(sh, GARRISON_RANGE):
-                if guards and (owner is None or not near(sh, GARRISON_RANGE + 900)):
-                    for n in guards:
-                        del self.npcs[n['id']]
-                continue
-            st = self.garrison_state.setdefault(sh['id'], {'next':0.0})
-            if len(guards) < SHELTER_GUARDS and st['next'] <= self.elapsed:
-                st['next'] = self.elapsed + 45
-                for i in range(SHELTER_GUARDS - len(guards)):
-                    a = (i + len(guards)) / SHELTER_GUARDS * math.pi * 2
-                    x = sh['x'] + math.cos(a) * 230; y = sh['y'] + math.sin(a) * 190
-                    self.spawn_npc('guardian', owner, x, y, mode='guard', home=[x, y],
-                                   job={'kind':'shelter','shelter':sh['id']})
-        # Fair warning before the guards open fire.
-        for p in alive:
-            for sh in self.shelters.values():
-                owner = next((sid for sid, s in self.sides.items() if s['shelter'] == sh['id']), None)
-                if owner is None or owner == p['faction'] or self.truce_between(owner, p['faction']):
-                    continue
-                d = self._dist(p, sh)
-                if d < SHELTER_WARN:
-                    key = p['id'] + ':' + sh['id']
-                    if self.warned_zone.get(key, -100) + 25 < self.elapsed:
-                        self.warned_zone[key] = self.elapsed
-                        self._notice('Стой! Территория убежища',
-                                     'Охрана «' + self.side_name(owner) + '»: «Ещё шаг за ограждение — стреляем на поражение».',
-                                     player=p['id'], tone='error')
 
     def npc_view(self, n):
         out = {k: n[k] for k in ('id', 'type', 'faction', 'hp', 'max', 'mode', 'shot')}

@@ -67,7 +67,7 @@ class VehicleTests(unittest.TestCase):
     def test_hard_crash_damages_the_car(self):
         car = self.p['car']; spec = CARS[car['model']]
         car['vx'], car['vy'] = math.cos(car['angle']) * 400, math.sin(car['angle']) * 400
-        self.w.blocked = lambda x, y, r: True        # a wall everywhere
+        self.w.blocked = lambda x, y, r, f=None: True        # a wall everywhere
         self.w.drive(self.p, .05, 0, 1, False, 0)
         self.assertLess(car['hp'], 100)
         self.assertLess(math.hypot(car['vx'], car['vy']), 150)

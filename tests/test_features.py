@@ -27,7 +27,6 @@ class FeatureTests(unittest.TestCase):
         self.p = self.world.players[self.token]
         self.f = self.p['faction']
         self.base = self.world.towns['shabrovsky']
-        self.world.sides[self.f]['shelter'] = self.world.free_shelter(near=self.base)['id']
         self.world._set_owner(self.base, self.f)
         self.base['levels'].update(depot=1, house=1)      # what a capture leaves behind
 
@@ -148,13 +147,6 @@ class FeatureTests(unittest.TestCase):
         self.assertFalse(self.world.hostile(self.p, other))
         self.assertTrue(self.world.hostile(self.p, {'faction': 'ai_scar'}))
 
-    def test_shelter_protects_from_marauders(self):
-        home = self.world.home(self.f)
-        self.goto(home, 40)
-        m = self.world.spawn_npc('marauder', 'marauders', home['x'], home['y'] + 100)
-        self.world.hurt(self.p, 30, m)
-        self.assertEqual(self.p['hp'], 100)
-
     def test_marauder_kill_rewards_faction(self):
         m = self.world.spawn_npc('marauder', 'marauders', 3000, 3000)
         metal = self.world.stocks[self.f]['metal']
@@ -224,30 +216,23 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(kinds.count('occupier'), 5)
         self.assertEqual(kinds.count('occupier_elite'), 2)
 
-    def test_shelter_guards_warn_then_shoot(self):
-        other = self.world.players[self.world.join('Сосед')]
-        home = self.world.home(other['faction'])
-        self.p['x'], self.p['y'] = home['x'], home['y'] + 700
-        self.world.tick_garrisons(self.world.active_players())
-        guards = [n for n in self.world.npcs.values() if n['type'] == 'guardian' and n['job']['shelter'] == home['id']]
-        self.assertEqual(len(guards), 5)
-        self.assertTrue(any(e['title'].startswith('Стой') and e['player'] == self.p['id'] for e in self.world.log))
-        self.world._build_grid()
-        for n in guards:
-            n['cd'] = 0; self.world._think(n)
-        self.assertEqual(self.p['hp'], 100)                       # outside the fence: warning only
-        self.p['x'], self.p['y'] = home['x'], home['y'] + 150
-        self.world._build_grid()
-        for n in guards:
-            n['cd'] = 0; n['target'] = None; self.world._think(n)
-        self.assertLess(self.p['hp'], 100)
-        own = [n for n in self.world.npcs.values() if n['type'] == 'guardian' and n['faction'] == self.f]
-        self.assertTrue(all(not self.world.hostile(n, self.p) for n in own))
-
     def test_light_snapshot_omits_towns(self):
         state = self.world.snapshot(self.token, full=False)
         self.assertNotIn('towns', state)
         self.assertIn('npcs', state)
+
+def open_ground(w):
+    """A flat spot well off the roads, good for a camp."""
+    for ax, ay, bx, by, a, b in w.terrain.road_segments:
+        for u in (.3, .5, .7):
+            for off in (600, -600, 900):
+                length = ((bx - ax) ** 2 + (by - ay) ** 2) ** .5; nx, ny = -(by - ay) / length, (bx - ax) / length
+                x, y = ax + (bx - ax) * u + nx * off, ay + (by - ay) * u + ny * off
+                if all(not w.terrain.solid(x + dx, y + dy, 8) and not w.terrain.water(x + dx, y + dy, 6) and not w.terrain.on_road(x + dx, y + dy, 50)
+                       for dx in (-110, 0, 110) for dy in (-110, 0, 110)) and not w.terrain.in_town(x, y, 300):
+                    return x, y
+    raise AssertionError('no open ground')
+
 
 class SaveTests(unittest.TestCase):
     def test_round_trip_keeps_new_systems(self):
@@ -260,13 +245,21 @@ class SaveTests(unittest.TestCase):
             w.posts['p1'] = {'id':'p1','faction':side,'x':1,'y':2,'hp':100,'built':0,'name':'Пост'}
             w.story[side]['flags'].append('iron_road')
             w.room_code = '654321'
+            p = w.players[token]; spot = open_ground(w)
+            p['x'], p['y'] = spot; p['items'].update(planks=20, nails=40)
+            camp = w.found_camp(p)
+            w.build_part(p, camp, 'wall'); w.build_part(p, camp, 'stash'); camp['stash']['items']['cloth'] = 7
             w.save()
             loaded = World(path)
             self.assertEqual(loaded.players[token]['gear']['armor'], 2)
             self.assertIn('p1', loaded.posts)
             self.assertIn('iron_road', loaded.story[side]['flags'])
-            self.assertEqual(loaded.sides[side]['shelter'], w.sides[side]['shelter'])
+            self.assertEqual(loaded.sides[side]['camp'], w.sides[side]['camp'])
             self.assertEqual(loaded.room_code, '654321')
+            c = loaded.camps[camp['id']]
+            self.assertEqual(c['stash']['items'], {'cloth':7})
+            wall = next(iter(c['fence'].values()))['rect']
+            self.assertTrue(loaded.terrain.solid(wall['x'], wall['y'], 2))
 
     def test_version_one_save_is_migrated(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -371,13 +364,18 @@ class TownLayoutTests(unittest.TestCase):
         for ax, ay, bx, by, a, b in w.terrain.road_segments:
             for (x, y), tid in (((ax, ay), a), ((bx, by), b)):
                 t = w.towns[tid]
-                on_x = abs(abs(x - t['x']) - TOWN_GATE[0]) < 1 and abs(y - t['y']) < 1
-                on_y = abs(abs(y - t['y']) - TOWN_GATE[1]) < 1 and abs(x - t['x']) < 1
+                on_x = abs(abs(x - t['x']) - t['r']) < 1 and abs(y - t['y']) < 1
+                on_y = abs(abs(y - t['y']) - t['h']) < 1 and abs(x - t['x']) < 1
                 self.assertTrue(on_x or on_y, tid)
         for t in w.towns.values():
-            for k in range(-460, 461, 20):
+            # The avenues run from edge to edge without a single obstacle.
+            for k in range(-t['r'] + 20, t['r'] - 19, 20):
                 self.assertFalse(w.terrain.solid(t['x'] + k, t['y'], 12), t['id'])
-                self.assertFalse(w.terrain.solid(t['x'], t['y'] + k * 400 / 460, 12), t['id'])
+            for k in range(-t['h'] + 20, t['h'] - 19, 20):
+                self.assertFalse(w.terrain.solid(t['x'], t['y'] + k, 12), t['id'])
+        # Cities spread with their population.
+        self.assertGreater(w.towns['moscow']['r'], 3 * w.towns['shabrovsky']['r'])
+        self.assertGreater(sum(1 for h in w.terrain.houses.values() if h['town'] == 'moscow'), 150)
         self.assertEqual(set(LANDMARKS), set(w.towns))
 
     def test_npc_routes_follow_gates(self):
@@ -498,10 +496,13 @@ class SurvivalTests(unittest.TestCase):
         self.assertEqual(self.p['items'], {})
 
     def test_backpack_limits_items(self):
-        self.p['items'] = {'water': 6}
+        self.p['items'] = {'water': 16}                 # two bottles a slot: pockets are full
         self.assertEqual(self.world.give_item(self.p, 'canned'), 0)
-        self.p['gear']['backpack'] = 1
-        self.assertEqual(self.world.give_item(self.p, 'canned', 10), 6)
+        self.p['gear']['backpack'] = 1                  # a bag: 12 slots, 4 free
+        self.assertEqual(self.world.give_item(self.p, 'canned', 20), 12)
+        self.assertEqual(self.world.give_item(self.p, 'nails', 5), 0)
+        self.p['items']['water'] = 15                   # half a slot frees one more bottle
+        self.assertEqual(self.world.give_item(self.p, 'water', 3), 1)
 
     def test_cold_north_needs_warm_clothes(self):
         north = self.world.towns['vorkuta']
@@ -523,15 +524,16 @@ class SurvivalTests(unittest.TestCase):
         self.p['water'] = 10.0
         self.act('drink')
         self.assertGreaterEqual(self.p['water'], 44)
-        base = self.world.home(self.f)
-        self.p['x'], self.p['y'] = base['x'], base['y'] + 40
+        town = self.world.towns['revda']
+        self.p['x'], self.p['y'] = town['x'], town['y'] + 40
         self.p.update(food=5.0, water=5.0)
         with self.assertRaises(GameError):
             self.act('canteen', town='revda')                    # not ours
-        self.act('canteen', town='shelter')
+        self.world._set_owner(town, self.f)
+        self.act('canteen', town='revda')
         self.assertGreater(self.p['food'], 50)
         with self.assertRaises(GameError):
-            self.act('canteen', town='shelter')
+            self.act('canteen', town='revda')
 
     def test_shop_sells_clothes_backpacks_and_food(self):
         t = self.world.towns['revda']
@@ -574,9 +576,13 @@ class WildlifeAndFuelTests(unittest.TestCase):
         self.world.hurt(elk, 999, self.p)
         self.assertEqual(self.p['items'].get('meat_raw'), 3)
         self.assertEqual(self.p['stats']['hunt'], 1)
-        base = self.world.home(self.f)
-        self.p['x'], self.p['y'] = base['x'], base['y'] + 40
-        self.act('cook', town='shelter')
+        self.p['items'] = {'meat_raw':3, 'planks':2, 'scrap':1}
+        camp = self.world.found_camp(self.p)
+        self.act('camp_build', kind='fire')
+        fire = camp['parts']['fire']; self.p['x'], self.p['y'] = fire['x'] + 30, fire['y']
+        for i in range(3):
+            self.act('craft_item', id='meat')
+            self.world.elapsed += 1
         self.assertEqual(self.p['items'].get('meat'), 3)
         self.assertNotIn('meat_raw', self.p['items'])
 

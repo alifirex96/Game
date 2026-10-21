@@ -13,7 +13,6 @@ let requestSerial=0,lastShot=0,holdMouse=false,showedWarning=false,mapState={zoo
 const palette=AS.colors;
 const sideName=id=>id&&state&&state.sides[id]?state.sides[id].name:'Независимые';
 const sideColor=id=>id&&state&&state.sides[id]?state.sides[id].color:palette.neutral;
-const shelterOf=id=>{const s=state&&state.sides[id];return s?cfg.shelters.find(h=>h.id===s.shelter):null;};
 const myClan=()=>state&&state.clans[state.sides[state.me.faction].clan]||null;
 const friendly=id=>id===state.me.faction||!!(myClan()&&myClan().members.includes(id));
 const pathIcons={
@@ -93,8 +92,8 @@ async function join(){if(joining||!cfg)return;joining=true;const btn=$('join');b
  try{const name=$('player-name').value,code=$('room-code')?$('room-code').value.trim():'';token=readStorage('as-token-'+location.host);
  const data=await fetchJson('/api/join',{name,code,token,color:heroColor});token=data.token;writeStorage('as-token-'+location.host,token);writeStorage('as-name',name);writeStorage('as-color',heroColor||'');
  latestStamp=0;lastMessage=0;state=null;acceptState(data.state);connected=true;drawPlayers={};drawNpcs={};cam={x:state.me.x,y:state.me.y};closePanel();$('hud').classList.remove('hidden');
- const home=shelterOf(state.me.faction);if(distance(home,state.me)>1500)waypoint={x:home.x,y:home.y,name:'Убежище'};
- const near=Object.values(state.towns).sort((a,b)=>distance(a,state.me)-distance(b,state.me))[0];notify('Ты очнулся у дороги','Рядом: '+near.name+'. '+home.name+' отмечено указателем.');
+ const camp=myCamp();if(camp&&distance(camp,state.me)>1500)waypoint={x:camp.x,y:camp.y,name:'Лагерь'};
+ const near=Object.values(state.towns).sort((a,b)=>distance(a,state.me)-distance(b,state.me))[0];notify('Ты очнулся у дороги','Рядом: '+near.name+'. '+(camp?'Лагерь отмечен указателем.':'Лагеря нет: зайди в пустой дом или найди площадку и нажми L.'));
  notify('Экспедиция началась','Работу дают люди на площадях: подойди и нажми E. F — машина, J — журнал, O — обмен и клан.');beep('success');
  }catch(e){notify('Не удалось войти',e.message,true);btn.disabled=false;btn.innerHTML='Войти в мир '+icon('arrow');}finally{joining=false;}}
 async function action(op,args){if(busy&&op!=='shoot')return null;if(op!=='shoot')busy=true;
@@ -118,6 +117,8 @@ addEventListener('keydown',e=>{
  if(e.code==='KeyM'){if(panel==='map')closePanel();else showMap();}
  if(e.code==='KeyJ'){if(panel==='journal')closePanel();else showJournal();}
  if(e.code==='KeyO'){if(panel==='people')closePanel();else showPeople();}
+ if(e.code==='KeyC'){if(panel==='craft')closePanel();else showCraft();}
+ if(e.code==='KeyL'){if(panel==='camp')closePanel();else{const c=myCamp();if(!c)foundCamp();else if(distance(c,state.me)<(c.house?140:260))showCamp(c);else{waypoint={x:c.x,y:c.y,name:'Лагерь'};notify('Лагерь далеко','Указатель ведёт к нему. Бросить его можно в меню лагеря.');}}}
  if(panel)return;
  if(e.code==='KeyE')interact();
  if(e.code==='KeyF')action('vehicle').then(r=>{if(r)beep('door');});
@@ -140,9 +141,9 @@ canvas.addEventListener('mousedown',e=>{if(e.button===0&&!panel){holdMouse=true;
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=clamp(zoom*(e.deltaY<0?1.1:1/1.1),.7,2);writeStorage('as-zoom',String(zoom));},{passive:false});
 function quickUse(list,empty){if(!state)return;const item=list.find(k=>state.me.items[k]>0);if(!item){notify('Пусто',empty,true);return;}action('use',{item});}
-function showInventory(){if(!state)return;const me=state.me,used=Object.values(me.items).reduce((a,b)=>a+b,0),room=cfg.backpacks[me.gear.backpack].slots;
+function showInventory(){if(!state)return;const me=state.me,used=slotsUsed(me.items),room=cfg.backpacks[me.gear.backpack].slots;
  let h='<div class="modal-body">'+vitalsHtml(true)+'<span class="eyebrow shop-eyebrow">СНАРЯЖЕНИЕ</span><div class="gear-list"><span>'+icon('gun')+esc(cfg.weapons[me.gear.weapon].name)+'</span><span>'+icon('vest')+esc(cfg.armor[me.gear.armor].name)+'</span><span>'+icon('thermo')+esc(cfg.clothes[me.gear.clothes].name)+' · тепло +'+cfg.clothes[me.gear.clothes].warm+'</span><span>'+icon('bag')+esc(cfg.backpacks[me.gear.backpack].name)+' · '+room+' мест</span></div>';
- h+='<span class="eyebrow shop-eyebrow">РЮКЗАК · '+used+' / '+room+'</span>'+(used?'<div class="craft-grid">'+Object.keys(me.items).map(k=>'<button class="decision" data-use="'+k+'" '+(k==='repairkit'||k==='canister'?'disabled':'')+'><div><b>'+esc(cfg.items[k].name)+'</b><strong>×'+me.items[k]+'</strong></div><small>'+esc(cfg.items[k].desc)+'</small><span class="decision-cost">'+(k==='repairkit'?'R рядом с машиной':k==='canister'?'T рядом с машиной':'Использовать')+'</span></button>').join('')+'</div>':'<p class="small muted">Пусто. Еду, воду и медицину продают в магазине на площадях, их находят в тайниках и у мародёров.</p>')+'<p class="small muted" style="margin-top:14px">G — поесть, V — попить (у реки — из реки), H — лечение. В своём поселении на площади есть столовая и колодец.</p></div>';
+ h+='<span class="eyebrow shop-eyebrow">РЮКЗАК · '+used+' / '+room+'</span>'+(used?'<div class="craft-grid">'+Object.keys(me.items).map(k=>'<button class="decision" data-use="'+k+'" '+(k==='repairkit'||k==='canister'||cfg.items[k].mat||cfg.items[k].ammo?'disabled':'')+'><div><b>'+esc(cfg.items[k].name)+'</b><strong>×'+me.items[k]+'</strong></div><small>'+esc(cfg.items[k].desc)+'</small><span class="decision-cost">'+(k==='repairkit'?'R рядом с машиной':k==='canister'?'T рядом с машиной':cfg.items[k].ammo?'X — зарядить':cfg.items[k].mat?'Материал · C':'Использовать')+'</span></button>').join('')+'</div>':'<p class="small muted">Пусто. Еду, воду и медицину продают в магазине на площадях, их находят в тайниках и у мародёров.</p>')+'<p class="small muted" style="margin-top:14px">G — поесть, V — попить (у реки — из реки), H — лечение. В своём поселении на площади есть столовая и колодец.</p></div>';
  modal('inventory','<span class="eyebrow">ПЕРСОНАЖ</span><h2>Рюкзак и состояние</h2>',h);screen.querySelectorAll('[data-use]').forEach(b=>b.onclick=async()=>{await action('use',{item:b.dataset.use});showInventory();});}
 function vitalsHtml(big){const me=state.me,bar=(ic,v,label,cls)=>'<div class="vital '+cls+(v<25?' low':'')+'" title="'+label+'">'+icon(ic)+'<i><em style="width:'+Math.round(v)+'%"></em></i>'+(big?'<b>'+label+' '+Math.round(v)+'%</b>':'')+'</div>';
  return '<div class="vitals'+(big?' big':'')+'">'+bar('bowl',me.food,'Сытость','food')+bar('drop',me.water,'Вода','water')+bar('thermo',me.warmth,'Тепло','warm')+(me.bleeding?'<span class="chip bad">Кровотечение · H</span>':'')+(me.sick>state.time?'<span class="chip bad">Отравление</span>':'')+'</div>';}
@@ -151,6 +152,7 @@ function weaponCd(){return state?cfg.weapons[state.me.gear.weapon].cd*1000+20:49
 function shoot(){if(!state||panel||state.me.vehicle||state.me.hp<=0)return;const now=performance.now();lastAimAt=now;if(now-lastShot<weaponCd()||state.me.reload>state.time)return;lastShot=now;
  // A light camera kick, stronger for heavy guns.
  camKick=[.6,1.6,.5,2,1.1,2.2,.6][state.me.gear.weapon]||.6;action('shoot');}
+const CAMP_R=110;
 function carSpec(){return cfg.cars[state&&state.me.car.model!=null?state.me.car.model:2]||cfg.cars[2];}
 function carTank(){return carSpec().tank;}
 // About 90 km/h at 400 px/s: speeds feel right for the shortened map.
@@ -183,12 +185,13 @@ function showSettings(){modal('settings','<span class="eyebrow">ЭТОТ КОМ�
  $('settings-done').onclick=closePanel;
 }
 function showHelp(fromTitle){modal('help','<span class="eyebrow">ПОЛЕВОЕ РУКОВОДСТВО</span><h2>Твой первый день</h2>',
- '<div class="modal-body"><div class="controls-grid"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd></span><span>Движение пешком и на машине</span><span><kbd>Shift</kbd></span><span>Бег; выносливость восстанавливается</span><span><kbd>E</kbd></span><span>Поговорить, собрать, открыть здание, площадь, тайник, убежище</span><span><kbd>F</kbd></span><span>Сесть в свою машину / выйти рядом с ней</span><span><kbd>H</kbd></span><span>Бинт или аптечка, иначе перевязка за 5 припасов</span><span><kbd>I</kbd> / <kbd>G</kbd> / <kbd>V</kbd></span><span>Рюкзак / поесть / попить (у реки — из реки)</span><span><kbd>Q</kbd> / <kbd>1</kbd>–<kbd>7</kbd></span><span>Сменить оружие</span><span><kbd>X</kbd></span><span>Перезарядка (сама начинается, когда магазин пуст)</span><span><kbd>R</kbd> / <kbd>T</kbd></span><span>Ремкомплект / канистра в бак своей машины</span><span><kbd>O</kbd></span><span>Обмен с игроками рядом и клан</span><span><kbd>B</kbd></span><span>Поставить пост на трассе</span><span><kbd>M</kbd> / <kbd>J</kbd></span><span>Карта (колесо — масштаб) / журнал заданий</span><span>Мышь + ЛКМ / <kbd>Space</kbd></span><span>Прицел и выстрел</span><span><kbd>Esc</kbd></span><span>Меню: дипломатия, кланы, настройки</span></div>'+
- '<p class="control-note">Каждый сам за себя. У тебя есть убежище: его нельзя захватить, там кормят, заправляют машину и лечат раны. Убежище стерегут бойцы: чужих они предупреждают у ограды, а за ограду пускают только пулей. Ресурсов мало — береги патроны, еду и топливо.</p>'+
+ '<div class="modal-body"><div class="controls-grid"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd></span><span>Движение пешком и на машине</span><span><kbd>Shift</kbd></span><span>Бег; выносливость восстанавливается</span><span><kbd>E</kbd></span><span>Поговорить, собрать, открыть здание, площадь, тайник, убежище</span><span><kbd>F</kbd></span><span>Сесть в свою машину / выйти рядом с ней</span><span><kbd>H</kbd></span><span>Бинт или аптечка, иначе перевязка за 5 припасов</span><span><kbd>I</kbd> / <kbd>G</kbd> / <kbd>V</kbd></span><span>Рюкзак / поесть / попить (у реки — из реки)</span><span><kbd>Q</kbd> / <kbd>1</kbd>–<kbd>7</kbd></span><span>Сменить оружие</span><span><kbd>X</kbd></span><span>Перезарядка (сама начинается, когда магазин пуст)</span><span><kbd>R</kbd> / <kbd>T</kbd></span><span>Ремкомплект / канистра в бак своей машины</span><span><kbd>O</kbd></span><span>Обмен с игроками рядом и клан</span><span><kbd>L</kbd> / <kbd>C</kbd></span><span>Лагерь / крафт</span><span><kbd>B</kbd></span><span>Поставить пост на трассе</span><span><kbd>M</kbd> / <kbd>J</kbd></span><span>Карта (колесо — масштаб) / журнал заданий</span><span>Мышь + ЛКМ / <kbd>Space</kbd></span><span>Прицел и выстрел</span><span><kbd>Esc</kbd></span><span>Меню: дипломатия, кланы, настройки</span></div>'+
+ '<p class="control-note">Каждый сам за себя. Дома нет — его строят. Зайди в пустой дом в городе или найди ровную площадку в лесу и нажми L: так основывается лагерь. В нём строят костёр, спальник (после гибели очнёшься здесь), ящик для вещей, верстак, сборник воды и ограду. Лагерь можно разгромить: чужие ломают стены и забирают всё из ящика.</p>'+
+ '<p class="control-note" style="margin-top:12px">Крафт — C. Бинты и верёвку делают в руках, еду и чай — у огня, патроны, гвозди, снаряжение — на верстаке. Материалы (доски, гвозди, металлолом, ткань, порох, травы, шкуры) лежат в брошенных домах (E у дома), в тайниках, падают со зверей и людей. Патроны теперь вещь: без них оружие бесполезно. Погибнешь — рюкзак и монеты останутся на теле, его может обыскать любой.</p>'+
  '<p class="control-note" style="margin-top:12px">Задания дают только люди на площадях поселений: староста, торговец, механик, командир, охотник и медик. Подойди, нажми E, выслушай и возьми работу. Сдают её тому же человеку в любом поселении. В крупных городах сидят радисты — им сдают главы сюжета.</p>'+
  '<p class="control-note" style="margin-top:12px">Свободные поселения держат мародёры, в крупных городах — вместе с головорезами. Перебей их, затем начни захват на площади и удерживай круг 30 секунд. Твоё поселение охраняют твои люди; они не выходят за его пределы. Сторожевая вышка добавляет охранников.</p>'+
  '<p class="control-note" style="margin-top:12px">По окрестностям бродят банды, у руин — мародёры, в лесах — звери, ночью — мутанты. В Сибири и на Севере лежит снег: без тёплой одежды долго не протянуть.</p>'+
- '<p class="control-note" style="margin-top:12px">Игроки могут меняться монетами, вещами и ресурсами (O рядом с игроком) и объединяться в кланы до 6 человек: в клане не стреляют друг в друга и не захватывают чужое. Цель партии: 5 поселений и радиостанция второго уровня. Если погибнешь — теряешь все монеты и все захваченные поселения; убежище остаётся.</p><button class="primary" id="help-back" style="width:100%;margin-top:20px">Понятно</button></div>');
+ '<p class="control-note" style="margin-top:12px">Игроки могут меняться монетами, вещами и ресурсами (O рядом с игроком) и объединяться в кланы до 6 человек: в клане не стреляют друг в друга и не захватывают чужое. Цель партии: 5 поселений и радиостанция второго уровня. Если погибнешь — теряешь захваченные поселения, а вещи и монеты остаются на теле.</p><button class="primary" id="help-back" style="width:100%;margin-top:20px">Понятно</button></div>');
  $('help-back').onclick=fromTitle?showTitle:closePanel;$('close-panel').onclick=fromTitle?showTitle:closePanel;
 }
 function costHtml(cost){return Object.keys(cost).map(k=>'<span class="cost '+(state.stock[k]>=cost[k]?'good':'bad')+'">'+icon(k)+'<b>'+cost[k]+'</b><em>/ '+Math.floor(state.stock[k])+'</em></span>').join('');}
@@ -311,14 +314,52 @@ function showDialog(d){dialogGiver=d.giver;const g=d.giver,t=state.towns[g.town]
  screen.querySelectorAll('[data-turnin]').forEach(b=>b.onclick=async()=>reopen(await action('quest_turnin',{giver:g.id,id:b.dataset.turnin})));
  screen.querySelectorAll('[data-story]').forEach(b=>b.onclick=async()=>{const r=await action('story_choice',{choice:Number(b.dataset.story)});if(r)reopen(await action('talk',{giver:g.id}));});
 }
-function showShelter(){const sh=shelterOf(state.me.faction),me=state.me,carNear=distance(me.car,sh)<650;
- modal('shelter','<span class="eyebrow">ТВОЁ УБЕЖИЩЕ</span><h2>'+esc(sh.name)+'</h2>','<div class="modal-body"><p>Бетонный бункер под землёй. Его нельзя захватить: у ограды стоят твои бойцы и стреляют по чужим без предупреждения. Внутри не достанут — здесь заживают раны.</p><div class="town-buttons"><button class="secondary" id="sh-canteen">Столовая и колодец <span>Сытость +50, вода +70 · 3 припаса</span></button><button class="secondary" id="sh-refuel" '+(!carNear||me.car.fuel>=carTank()-.5?'disabled':'')+'>Заправить машину <span>Бак '+Math.floor(me.car.fuel)+' / '+carTank()+' · запас '+Math.floor(state.stock.fuel)+(carNear?'':' · подгони машину')+'</span></button>'+(me.items.meat_raw?'<button class="secondary" id="sh-cook">Пожарить мясо <span>Сырое мясо ×'+me.items.meat_raw+'</span></button>':'')+'</div><p class="small muted" style="margin-top:12px">Ресурсы стороны: '+Object.keys(cfg.resources).map(k=>cfg.resources[k].toLowerCase()+' '+Math.floor(state.stock[k])).join(', ')+'.</p></div>');
- const go=(id,op)=>{if($(id))$(id).onclick=async()=>{await action(op,{town:'shelter'});showShelter();};};go('sh-canteen','canteen');go('sh-refuel','refuel');go('sh-cook','cook');
+function showShelter(){showCamp(myCamp());}
+// Camps: what is built, what can be built from the backpack, the crate.
+function myCamp(){return state&&state.sides[state.me.faction].camp?(state.camps||[]).find(c=>c.id===state.sides[state.me.faction].camp):null;}
+function slotsUsed(items){return Object.keys(items).reduce((a,k)=>a+Math.ceil(items[k]/((cfg.items[k]||{}).stack||1)),0);}
+function needsHtml(needs){return Object.keys(needs||{}).map(k=>{const have=state.me.items[k]||0;return '<span class="cost '+(have>=needs[k]?'good':'bad')+'"><b>'+esc(cfg.items[k].name)+'</b> '+have+' / '+needs[k]+'</span>';}).join(' ');}
+function hasNeeds(needs){return Object.keys(needs||{}).every(k=>(state.me.items[k]||0)>=needs[k]);}
+function campCanUse(c){return c.owner===state.me.faction||friendly(c.owner);}
+function showCamp(camp){if(!state)return;if(!camp){foundCamp();return;}
+ const own=campCanUse(camp),parts=cfg.camp_parts,house=!!camp.house,me=state.me;
+ let h='<div class="modal-body"><p>'+(house?'Лагерь в заброшенном доме: стены уже стоят, нужна только дверь.':'Лагерь под открытым небом: обнеси его частоколом из восьми секций с воротами.')+' '+(camp.breached?'<b class="bad">Ограда не закрыта — чужие могут залезть в ящик.</b>':'<b class="good">Ограда закрыта.</b>')+'</p>';
+ if(own){h+='<span class="eyebrow shop-eyebrow">ПОСТРОЙКИ</span><div class="craft-grid">';
+  ['fire','bed','stash','bench','collector'].forEach(k=>{const def=parts[k],part=camp.parts[k],built=part&&part.hp>0,name=house&&def.house_name?def.house_name:def.name;
+   h+='<button class="decision" data-build="'+k+'" '+(built||!hasNeeds(def.needs)?'disabled':'')+'><div><b>'+esc(name)+'</b><strong>'+(built?'есть · '+part.hp+'/'+part.max:'')+'</strong></div><small>'+esc(def.desc)+'</small><span class="decision-cost">'+(built?'':needsHtml(def.needs))+'</span></button>';});
+  const fence=Object.values(camp.fence).filter(f=>!f.house),walls=fence.filter(f=>f.kind==='wall'&&f.hp>0).length,gate=camp.fence.gate&&camp.fence.gate.hp>0;
+  if(!house)h+='<button class="decision" data-build="wall" '+(walls>=8||!hasNeeds(parts.wall.needs)?'disabled':'')+'><div><b>Частокол</b><strong>'+walls+' / 8</strong></div><small>'+esc(parts.wall.desc)+'</small><span class="decision-cost">'+needsHtml(parts.wall.needs)+'</span></button>';
+  h+='<button class="decision" data-build="gate" '+(gate||!hasNeeds(parts.gate.needs)?'disabled':'')+'><div><b>'+(house?'Дверь':'Ворота')+'</b><strong>'+(gate?'есть':'')+'</strong></div><small>'+esc(parts.gate.desc)+'</small><span class="decision-cost">'+(gate?'':needsHtml(parts.gate.needs))+'</span></button></div>';}
+ else h+='<div class="notice">Это чужой лагерь ('+esc(sideName(camp.owner))+'). '+(camp.breached?'Ограда пробита: ящик можно открыть.':'Чтобы добраться до ящика, пробей стену или ворота: стреляй или ломай (E вплотную).')+'</div>';
+ if(camp.stash&&camp.parts.stash&&camp.parts.stash.hp>0){const st=camp.stash;
+  h+='<span class="eyebrow shop-eyebrow">ЯЩИК · '+slotsUsed(st.items)+' / '+cfg.stash_slots+' МЕСТ · '+st.coins+' МОНЕТ</span><div class="stash-cols"><div><b>Рюкзак</b>'+(own?Object.keys(me.items).map(k=>'<div class="stash-row"><span>'+esc(cfg.items[k].name)+' ×'+me.items[k]+'</span><button class="quiet" data-put="'+k+'" data-n="'+me.items[k]+'">Положить</button></div>').join('')+'<div class="stash-row"><span>Монеты: '+me.coins+'</span><button class="quiet" data-put="coins" data-n="'+me.coins+'">Положить</button></div>':'<p class="small muted">Класть в чужой ящик нельзя.</p>')+'</div><div><b>Ящик</b>'+Object.keys(st.items).map(k=>'<div class="stash-row"><span>'+esc(cfg.items[k].name)+' ×'+st.items[k]+'</span><button class="quiet" data-take="'+k+'" data-n="'+st.items[k]+'">Взять</button></div>').join('')+(st.coins?'<div class="stash-row"><span>Монеты: '+st.coins+'</span><button class="quiet" data-take="coins" data-n="'+st.coins+'">Взять</button></div>':'')+'</div></div>';}
+ if(own)h+='<p class="small muted" style="margin-top:12px">C — крафт: у костра готовят еду и чай, на верстаке — патроны, гвозди, снаряжение. Спальник возвращает сюда после гибели. Рядом с костром заживают раны.</p>'+(camp.owner===me.faction?'<button class="quiet danger" id="camp-abandon" style="width:100%;margin-top:10px">Бросить лагерь</button>':'');
+ h+='</div>';
+ modal('camp','<span class="eyebrow">'+(own?'ТВОЙ ЛАГЕРЬ':'ЧУЖОЙ ЛАГЕРЬ')+'</span><h2>'+(house?'Обжитый дом':'Лагерь')+' · '+esc(sideName(camp.owner))+'</h2>',h,'wide');
+ const again=()=>{const c=(state.camps||[]).find(x=>x.id===camp.id);if(c)showCamp(c);else closePanel();};
+ screen.querySelectorAll('[data-build]').forEach(b=>b.onclick=async()=>{const r=await action('camp_build',{camp:camp.id,kind:b.dataset.build});if(r)setTimeout(again,150);});
+ screen.querySelectorAll('[data-put]').forEach(b=>b.onclick=async()=>{await action('stash_put',{camp:camp.id,item:b.dataset.put,count:Number(b.dataset.n)});setTimeout(again,150);});
+ screen.querySelectorAll('[data-take]').forEach(b=>b.onclick=async()=>{await action('stash_take',{camp:camp.id,item:b.dataset.take,count:Number(b.dataset.n)});setTimeout(again,150);});
+ if($('camp-abandon'))$('camp-abandon').onclick=async()=>{if(!confirm('Бросить лагерь? Постройки исчезнут, вещи из ящика останутся лежать.'))return;await action('camp_abandon',{camp:camp.id});closePanel();};
 }
+function foundCamp(){const p=state.me,house=R.houseAt(p.x,p.y,-6);
+ modal('camp','<span class="eyebrow">НОВЫЙ ЛАГЕРЬ</span><h2>'+(house?'Поселиться в этом доме':'Разбить лагерь здесь')+'</h2>','<div class="modal-body"><p>'+(house?'Стены у дома уже есть, их хватит надолго. Поставь дверь — и чужие не войдут, пока не выломают её или стену.':'Нужна ровная площадка примерно 200 × 200 без дорог и воды. Лагерь придётся обнести частоколом из восьми секций с воротами.')+'</p><p class="small muted">Лагерь у тебя один, клан пользуется им вместе с тобой. Потом в нём строят костёр, спальник, ящик, верстак и сборник воды — из досок, гвоздей, ткани и металлолома из рюкзака.</p><button class="primary" id="camp-ok" style="width:100%;margin-top:14px">'+(house?'Поселиться':'Основать лагерь')+'</button></div>');
+ $('camp-ok').onclick=async()=>{const r=await action('camp_found');if(r)setTimeout(()=>showCamp(myCamp()),200);};}
+function nearPart(kind,r){return (state.camps||[]).some(c=>campCanUse(c)&&c.parts[kind]&&c.parts[kind].hp>0&&distance(c.parts[kind],state.me)<r);}
+function showCraft(){if(!state)return;const me=state.me,fire=nearPart('fire',110)||Object.values(state.towns).some(t=>t.owner===me.faction&&Math.hypot(t.x+60-me.x,t.y+46-me.y)<120),bench=nearPart('bench',90);
+ const groups=[['hand','В РУКАХ',true],['fire','У ОГНЯ'+(fire?'':' · подойди к костру'),fire],['bench','НА ВЕРСТАКЕ'+(bench?'':' · нужен верстак в лагере'),bench]];
+ let h='<div class="modal-body"><p class="small muted">Рюкзак: '+slotsUsed(me.items)+' / '+cfg.backpacks[me.gear.backpack].slots+' мест. Материалы складываются: доски по 10, гвозди по 30, патроны по 20–40 в одно место.</p>';
+ groups.forEach(([at,title,ok])=>{h+='<span class="eyebrow shop-eyebrow">'+title+'</span><div class="craft-grid">';
+  cfg.recipes.filter(r=>r.at===at).forEach(r=>{const lvl=me.level>=(r.level||1),res=Object.keys(r.res||{}).every(k=>state.stock[k]>=r.res[k]),can=ok&&lvl&&res&&hasNeeds(r.needs);
+   const what=r.makes?Object.keys(r.makes).map(k=>cfg.items[k].name+(r.makes[k]>1?' ×'+r.makes[k]:'')).join(', '):'надеть сразу';
+   h+='<button class="decision" data-craft-id="'+r.id+'" '+(can?'':'disabled')+'><div><b>'+esc(r.name)+'</b><strong>'+(lvl?'':'ур. '+r.level)+'</strong></div><small>'+esc(what)+'</small><span class="decision-cost">'+needsHtml(r.needs)+(r.res?' '+costText(r.res):'')+'</span></button>';});
+  h+='</div>';});
+ modal('craft','<span class="eyebrow">РЕМЕСЛО</span><h2>Крафт</h2>',h+'</div>','wide');
+ screen.querySelectorAll('[data-craft-id]').forEach(b=>b.onclick=async()=>{const r=await action('craft_item',{id:b.dataset.craftId});if(r)setTimeout(showCraft,150);});}
 function showDiplomacy(){if(!state)return;const f=state.me.faction,tr=state.truce,now=state.time;
  let html='<div class="modal-body"><div class="town-stats"><div><b>'+Math.round(state.reputation)+'</b><span>твоя репутация</span></div><div><b>'+state.sides[f].towns+'</b><span>твоих поселений</span></div></div><p style="margin-top:16px">Каждый сам за себя. С любым игроком или кланом компьютера можно заключить перемирие на 10 минут: без стрельбы, захватов и набегов, с торговлей в их поселениях. Постоянный союз — это клан (O).</p><div class="side-list">';
- Object.keys(state.sides).filter(g=>g!==f).sort((a,b)=>state.sides[b].towns-state.sides[a].towns).forEach(g=>{const s=state.sides[g],until=tr.pairs[g]||0,incoming=tr.proposals.find(x=>x.from===g&&x.to===f),outgoing=tr.proposals.find(x=>x.from===f&&x.to===g),sh=cfg.shelters.find(h=>h.id===s.shelter),clan=state.clans[s.clan];
-  html+='<div class="side-row"><span class="dot" style="background:'+s.color+'"></span><div><b>'+(clan?'['+esc(clan.tag)+'] ':'')+esc(s.name)+'</b><small>'+(s.ai?'клан компьютера':'игрок')+' · поселений: '+s.towns+(sh?' · убежище у '+esc(state.towns[sh.town].name):'')+'</small></div>';
+ Object.keys(state.sides).filter(g=>g!==f).sort((a,b)=>state.sides[b].towns-state.sides[a].towns).forEach(g=>{const s=state.sides[g],until=tr.pairs[g]||0,incoming=tr.proposals.find(x=>x.from===g&&x.to===f),outgoing=tr.proposals.find(x=>x.from===f&&x.to===g),clan=state.clans[s.clan];
+  html+='<div class="side-row"><span class="dot" style="background:'+s.color+'"></span><div><b>'+(clan?'['+esc(clan.tag)+'] ':'')+esc(s.name)+'</b><small>'+(s.ai?'клан компьютера':'игрок')+' · поселений: '+s.towns+'</small></div>';
   if(friendly(g))html+='<span class="chip">твой клан</span>';
   else if(until>now)html+='<button class="secondary" data-truce="truce_break" data-side="'+g+'">Мир ещё '+Math.ceil(until-now)+' с · разорвать</button>';
   else if(incoming)html+='<button class="primary" data-truce="truce_accept" data-side="'+g+'">Принять мир</button>';
@@ -366,7 +407,7 @@ function confirmPost(){if(!state)return;const def=cfg.post;
  $('post-ok').onclick=async()=>{const r=await action('post');if(r)closePanel();};}
 function showMap(id){if(!state)return;modal('map','<span class="eyebrow">СХЕМАТИЧЕСКАЯ КАРТА РОССИИ</span><h2>Дороги нового мира</h2>',
  '<div class="map-body"><div class="map-view"><canvas id="big-map"></canvas><div class="map-legend"><span><i></i>Ты</span>'+Object.keys(state.sides).map(id=>'<span><i style="background:'+sideColor(id)+'"></i>'+esc(sideName(id))+(id===state.me.faction?' (ты)':'')+'</span>').join('')+'<span><i style="background:'+palette.neutral+'"></i>Под мародёрами</span><span><i class="square"></i>Убежища</span><span><i class="diamond"></i>Заброшенные места</span></div><div class="map-zoom"><button class="secondary" id="zoom-in">+</button><button class="secondary" id="zoom-out">−</button><button class="secondary" id="zoom-me">Я</button></div></div><aside class="map-info" id="map-info"></aside></div>','map-modal');
- mapState.selected=id||currentTown&&currentTown.id||shelterOf(state.me.faction).town;mapInfo(mapState.selected);
+ mapState.selected=id||currentTown&&currentTown.id;mapInfo(mapState.selected);
  const big=$('big-map');let drag=null;
  const toWorld=(e)=>{const box=big.getBoundingClientRect();if(!mapTr)return null;return{x:(e.clientX-box.left-mapTr.ox)/mapTr.scale,y:(e.clientY-box.top-mapTr.oy)/mapTr.scale};};
  const zoom=(k,at)=>{const z=clamp(mapState.zoom*k,1,32);if(at){mapState.fx=at.x;mapState.fy=at.y;}else if(mapState.fx==null){mapState.fx=state.me.x;mapState.fy=state.me.y;}mapState.zoom=z;if(z===1){mapState.fx=mapState.fy=null;}};
@@ -387,7 +428,10 @@ function interact(){if(!state||state.me.hp<=0)return;if(state.me.vehicle){notify
  if(!nearest){notify('Рядом нет цели','Подойди к человеку, ресурсу, зданию, тайнику или флагу на площади.');return;}
  const n=nearest;
  if(n.type==='giver')action('talk',{giver:n.obj.id}).then(r=>{if(r&&r.dialog)showDialog(r.dialog);});
- else if(n.type==='shelter')showShelter();
+ else if(n.type==='camp')showCamp(n.obj);
+ else if(n.type==='fence')action('camp_break',{camp:n.obj.camp.id,slot:n.obj.slot});
+ else if(n.type==='house')action('search_house',{id:n.obj.id});
+ else if(n.type==='body')action('loot_body',{id:n.obj.id});
  else if(n.type==='building')showBuilding(n.obj);
  else if(n.type==='town')showTown(n.obj.id);
  else if(n.type==='poi')action('loot',{id:n.obj.id});
@@ -397,17 +441,17 @@ function interact(){if(!state||state.me.hp<=0)return;if(state.me.vehicle){notify
 const WEATHER_ICON={clear:'sun',rain:'rain',fog:'fog',storm:'storm',snow:'snow'};
 function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.towns);currentTown=all.slice().sort((a,b)=>distance(a,p)-distance(b,p))[0];
  const clan=myClan();document.querySelector('.brand>span').textContent=(clan?'['+clan.tag+'] ':'')+sideName(p.faction).toUpperCase()+' / РЕП. '+Math.round(state.reputation)+(Object.values(state.truce.pairs).some(u=>u>state.time)?' / ПЕРЕМИРИЕ':'');
- const near=distance(currentTown,p)<740,poi=cfg.pois.find(o=>distance(o,p)<420),shel=cfg.shelters.find(o=>distance(o,p)<cfg.shelter_radius);
- const shOwner=shel&&Object.keys(state.sides).find(id=>state.sides[id].shelter===shel.id);
- $('location-name').textContent=near?currentTown.name:shOwner?'Убежище · '+sideName(shOwner):poi?poi.name:'Старая трасса';$('location-desc').textContent=near?currentTown.region+' · '+(currentTown.owner?sideName(currentTown.owner):'Под мародёрами')+(cfg.landmarks[currentTown.id]?' · ★ '+cfg.landmarks[currentTown.id].name:''):shOwner?(friendly(shOwner)?'Своя территория':'Чужая территория — охрана стреляет'):poi?poi.kind_name:'Россия · между поселениями';
+ const near=Math.abs(currentTown.x-p.x)<(cfg.towns.find(t=>t.id===currentTown.id).r||480)+150&&Math.abs(currentTown.y-p.y)<(cfg.towns.find(t=>t.id===currentTown.id).h||420)+150,poi=cfg.pois.find(o=>distance(o,p)<420);
+ const inHouse=R.houseAt(p.x,p.y,0),campHere=(state.camps||[]).find(c=>distance(c,p)<(c.house?60:CAMP_R)),shOwner=campHere&&campHere.owner;
+ $('location-name').textContent=shOwner?'Лагерь · '+sideName(shOwner):inHouse?'Заброшенный дом · '+currentTown.name:near?currentTown.name:poi?poi.name:'Старая трасса';$('location-desc').textContent=near?currentTown.region+' · '+(currentTown.owner?sideName(currentTown.owner):'Под мародёрами')+(cfg.landmarks[currentTown.id]?' · ★ '+cfg.landmarks[currentTown.id].name:''):shOwner?(friendly(shOwner)?'Свой лагерь':'Чужой лагерь'):poi?poi.kind_name:'Россия · между поселениями';
  $('resources').innerHTML=Object.keys(cfg.resources).map(k=>'<div class="resource'+(state.stock[k]>=state.storage-1?' full':'')+'" title="Общий запас фракции: '+esc(cfg.resources[k])+' · предел '+state.storage+'">'+icon(k)+'<div><b>'+Math.floor(state.stock[k])+'</b><span>'+cfg.resources[k].toUpperCase()+'</span></div></div>').join('');
  const minutes=8*60+Math.floor(state.time*1.4),days=1+Math.floor(minutes/1440),hour=Math.floor(minutes/60)%24,w=state.weather.kind;
  $('clock').innerHTML=icon(hour>=6&&hour<20?WEATHER_ICON[w]:(w==='clear'?'moon':WEATHER_ICON[w]))+'<span>ДЕНЬ '+String(days).padStart(2,'0')+' / '+String(hour).padStart(2,'0')+':'+String(minutes%60).padStart(2,'0')+' · '+esc(cfg.weather_names[w].toUpperCase())+'</span>';
  const need=cfg.xp_table[p.level-1]||1,maxLv=p.level>=cfg.max_level;
- $('coins').innerHTML=icon('coin')+'<b>'+p.coins+'</b><span title="Рюкзак: I">'+icon('bag')+Object.values(p.items).reduce((a,b)=>a+b,0)+' / '+cfg.backpacks[p.gear.backpack].slots+'</span>';
+ $('coins').innerHTML=icon('coin')+'<b>'+p.coins+'</b><span title="Рюкзак: I">'+icon('bag')+slotsUsed(p.items)+' / '+cfg.backpacks[p.gear.backpack].slots+'</span>';
  $('vitals').innerHTML=vitalsHtml(false);
  $('level').innerHTML='<b>'+p.level+'</b><span>УР.</span><i><em style="width:'+(maxLv?100:Math.round(p.xp/need*100))+'%"></em></i><small>'+(maxLv?'максимум':p.xp+' / '+need+' опыта')+'</small>';
- $('mode').innerHTML=icon(p.vehicle?'car':'walk')+'<span>'+(p.vehicle?esc(carSpec().name)+' · '+kmh(p.car)+' км/ч · '+Math.round(p.car.hp)+'% · бак '+Math.floor(p.car.fuel)+' / '+carTank():'Пешком')+'</span><span class="hp">'+icon('heart')+Math.ceil(p.hp)+' / '+p.max_hp+'</span><span class="gear">'+icon('gun')+esc(cfg.weapons[p.gear.weapon].name)+' · '+(p.reload>state.time?'перезарядка':p.mag+' / '+cfg.weapons[p.gear.weapon].mag)+'</span><span class="gear">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</span>';
+ $('mode').innerHTML=icon(p.vehicle?'car':'walk')+'<span>'+(p.vehicle?esc(carSpec().name)+' · '+kmh(p.car)+' км/ч · '+Math.round(p.car.hp)+'% · бак '+Math.floor(p.car.fuel)+' / '+carTank():'Пешком')+'</span><span class="hp">'+icon('heart')+Math.ceil(p.hp)+' / '+p.max_hp+'</span><span class="gear">'+icon('gun')+esc(cfg.weapons[p.gear.weapon].name)+' · '+(p.reload>state.time?'перезарядка':p.mag+' · запас '+(p.items[cfg.weapons[p.gear.weapon].ammo_item]||0))+'</span><span class="gear">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</span>';
  $('stamina').firstElementChild.style.width=p.stamina+'%';$('autosave').textContent=netFailures?'Соединение с ведущим потеряно':'Мир сохраняется у ведущего · '+state.players.length+' / '+cfg.max_players+' игроков';
  const s=state.story;
  if(s.chapter&&(s.ready||frame%600<300)){$('quest-index').textContent='ГЛАВА '+(s.index+1);$('quest-title').textContent=s.chapter.title;$('quest-desc').textContent=s.chapter.text;$('quest-progress').innerHTML='<div class="task '+(s.ready?'done':'')+'"><i></i>'+s.progress[0]+' / '+s.progress[1]+(s.ready?' · Сдай главу радисту в крупном городе':'')+'</div>';}
@@ -421,19 +465,24 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
  }
  nearest=null;const candidates=[];
  if(!p.vehicle&&p.hp>0){cfg.givers.forEach(g=>{const d=distance(g,p);if(d<120)candidates.push({type:'giver',obj:g,d:d-40});});
- const home=shelterOf(p.faction);if(home&&distance(home,p)<200)candidates.push({type:'shelter',obj:home,d:distance(home,p)});
+ (state.camps||[]).forEach(c=>{if(Math.abs(c.x-p.x)>400||Math.abs(c.y-p.y)>400)return;
+  Object.keys(c.parts).forEach(k=>{const pt=c.parts[k];if(pt.hp>0&&distance(pt,p)<55&&(campCanUse(c)||c.breached))candidates.push({type:'camp',obj:c,d:distance(pt,p)-10});});
+  if(!campCanUse(c))Object.keys(c.fence).forEach(k=>{const f=c.fence[k];if(f.hp>0&&Math.abs(f.x-p.x)<f.w/2+40&&Math.abs(f.y-p.y)<f.h/2+40)candidates.push({type:'fence',obj:{camp:c,slot:k,piece:f},d:30});});
+  if(campCanUse(c)&&distance(c,p)<(c.house?50:70))candidates.push({type:'camp',obj:c,d:distance(c,p)});});
+ (state.bodies||[]).forEach(b=>{const d=distance(b,p);if(d<70)candidates.push({type:'body',obj:b,d:d-30});});
+ {const h=R.houseAt(p.x,p.y,40);if(h&&!(state.camps||[]).some(c=>c.house===h.id))candidates.push({type:'house',obj:h,d:60});}
  cfg.buildings_world.forEach(b=>{const d=distance(b,p);if(d<155){const t=state.towns[b.town];candidates.push({type:'building',obj:b,d:d-25-(t.fires&&t.fires[b.kind]?60:0)});}});
  cfg.nodes.forEach(n=>{if(Math.abs(n.x-p.x)>80||Math.abs(n.y-p.y)>80)return;const d=distance(n,p);if(d<70&&!(state.harvested[n.id]>state.time))candidates.push({type:'node',obj:n,d});});
  cfg.pois.forEach(o=>{const d=distance(o,p);if(d<170&&!state.loot[o.id])candidates.push({type:'poi',obj:o,d:d-20});});
  (state.airdrops||[]).forEach(o=>{const d=distance(o,p);if(d<80)candidates.push({type:'drop',obj:o,d:d-40});});
  all.forEach(t=>{const d=distance(t,p);if(d<165)candidates.push({type:'town',obj:t,d:d+15});});candidates.sort((a,b)=>a.d-b.d);nearest=candidates[0]||null;}
  const hint=$('interaction');const carNear=p.car&&!p.vehicle&&distance(p,p.car)<=carSpec().len*.6+30&&!(p.car.wrecked_until>state.time);hint.classList.toggle('hidden',!nearest&&!p.vehicle&&!carNear);
- if(p.vehicle)hint.innerHTML='<kbd>F</kbd> '+(kmh(p.car)>18?'Останови машину, чтобы выйти':'Выйти из машины')+'<small>'+(p.car.fuel<1?'Бак пуст. Канистра — T, заправка — в убежище или своём поселении.':'W газ · S тормоз и назад · A/D руль · Shift ручник · бак '+Math.floor(p.car.fuel)+' / '+carTank())+'</small>';
- else if(nearest){const o=nearest.obj,t=nearest.type==='building'&&state.towns[o.town];let name=nearest.type==='giver'?'Поговорить: '+o.role.toLowerCase()+' '+o.name:nearest.type==='shelter'?'Убежище':nearest.type==='building'?(t.fires&&t.fires[o.kind]?'Потушить: ':'')+cfg.buildings[o.kind].name:nearest.type==='town'?'Площадь · '+o.name:nearest.type==='poi'?'Обыскать тайник · '+o.name:nearest.type==='drop'?'Забрать сброшенный груз':'Собрать: '+cfg.resources[o.kind].toLowerCase();
-  hint.innerHTML='<kbd>E</kbd>'+esc(name)+'<small>'+(nearest.type==='giver'?'Работа, слухи, награда за сделанное':nearest.type==='shelter'?'Столовая, колодец, заправка':nearest.type==='building'?(o.kind==='workshop'&&t.owner===p.faction?'Стройка и снаряжение':o.kind==='garage'&&t.owner===p.faction?'Стройка и ремонт машины':'Восстановить или улучшить'):nearest.type==='town'?'События · торговля · управление · захват':nearest.type==='poi'?costText(cfg.poi_kinds[o.kind].loot).replace(/<[^>]+>/g,'')+' · охраняют мародёры':nearest.type==='drop'?'Металл, топливо, припасы':'+'+o.amount+' в запас фракции')+'</small>';}
+ if(p.vehicle)hint.innerHTML='<kbd>F</kbd> '+(kmh(p.car)>18?'Останови машину, чтобы выйти':'Выйти из машины')+'<small>'+(p.car.fuel<1?'Бак пуст. Канистра — T, заправка — в своём поселении.':'W газ · S тормоз и назад · A/D руль · Shift ручник · бак '+Math.floor(p.car.fuel)+' / '+carTank())+'</small>';
+ else if(nearest){const o=nearest.obj,t=nearest.type==='building'&&state.towns[o.town];let name=nearest.type==='giver'?'Поговорить: '+o.role.toLowerCase()+' '+o.name:nearest.type==='camp'?(campCanUse(o)?'Лагерь':'Чужой лагерь: ящик'):nearest.type==='fence'?'Ломать: '+(o.piece.kind==='gate'?'ворота':'стену'):nearest.type==='house'?'Обыскать дом':nearest.type==='body'?'Забрать: '+o.name:nearest.type==='building'?(t.fires&&t.fires[o.kind]?'Потушить: ':'')+cfg.buildings[o.kind].name:nearest.type==='town'?'Площадь · '+o.name:nearest.type==='poi'?'Обыскать тайник · '+o.name:nearest.type==='drop'?'Забрать сброшенный груз':'Собрать: '+cfg.resources[o.kind].toLowerCase();
+  hint.innerHTML='<kbd>E</kbd>'+esc(name)+'<small>'+(nearest.type==='giver'?'Работа, слухи, награда за сделанное':nearest.type==='camp'?'Постройки, ящик · C — крафт':nearest.type==='fence'?'Прочность '+o.piece.hp+' / '+o.piece.max+'. Можно и стрелять':nearest.type==='house'?'Ткань, гвозди, доски, патроны… · L — поселиться здесь':nearest.type==='body'?(Object.keys(o.items).length+' видов вещей'+(o.coins?' и '+o.coins+' монет':'')):nearest.type==='building'?(o.kind==='workshop'&&t.owner===p.faction?'Стройка и снаряжение':o.kind==='garage'&&t.owner===p.faction?'Стройка и ремонт машины':'Восстановить или улучшить'):nearest.type==='town'?'События · торговля · управление · захват':nearest.type==='poi'?costText(cfg.poi_kinds[o.kind].loot).replace(/<[^>]+>/g,'')+' · охраняют мародёры':nearest.type==='drop'?'Металл, топливо, припасы':'+'+o.amount+' в запас фракции')+'</small>';}
  else if(!p.vehicle&&R.water(p.x,p.y,70))hint.innerHTML='<kbd>V</kbd> Попить из реки<small>Сырая вода может вызвать отравление</small>';
  else if(carNear)hint.innerHTML='<kbd>F</kbd> Сесть в машину<small>'+esc(carSpec().name)+' · '+Math.round(p.car.hp)+'% · бак '+Math.floor(p.car.fuel)+' / '+carTank()+(p.items.canister&&p.car.fuel<carTank()-1?' · T — залить канистру':'')+'</small>';
- if(p.hp<=0)hint.classList.remove('hidden'),hint.innerHTML='Ты без сознания<small>Очнёшься у дороги через '+Math.ceil(Math.max(0,p.dead_until-state.time))+' секунд</small>';
+ if(p.hp<=0)hint.classList.remove('hidden'),hint.innerHTML='Ты без сознания<small>Очнёшься '+(myCamp()&&myCamp().parts.bed&&myCamp().parts.bed.hp>0?'в лагере':'у дороги')+' через '+Math.ceil(Math.max(0,p.dead_until-state.time))+' секунд</small>';
 }
 
 /* Smoothly follow server positions; walking phase drives the animation. */
@@ -448,9 +497,7 @@ function conditionOverlay(now){const me=state.me;
  // A short red edge when hit.
  if(lastHp!=null&&me.hp<lastHp-1)hurtFlash=1;lastHp=me.hp;
  if(hurtFlash>0){ctx.strokeStyle='rgba(150,25,20,'+(hurtFlash*.45)+')';ctx.lineWidth=26;ctx.strokeRect(0,0,cw,ch);hurtFlash=Math.max(0,hurtFlash-.06);}
- // Foreign shelters: a warning at the outer ring, a red frame inside the fence.
- const danger=cfg.shelters.map(sh=>{const owner=Object.keys(state.sides).find(id=>state.sides[id].shelter===sh.id);return owner&&!friendly(owner)&&!(state.truce.pairs[owner]>state.time)?distance(sh,me):1e9;}).reduce((a,b)=>Math.min(a,b),1e9);
- if(danger<cfg.shelter_warn){const inside=danger<cfg.shelter_radius;ctx.fillStyle=inside?'rgba(150,20,15,.22)':'rgba(150,90,15,.12)';ctx.fillRect(0,0,cw,8);ctx.fillRect(0,ch-8,cw,8);R.pill(ctx,inside?'ЗОНА ОГНЯ · ОХРАНА УБЕЖИЩА СТРЕЛЯЕТ НА ПОРАЖЕНИЕ':'ТЕРРИТОРИЯ ЧУЖОГО УБЕЖИЩА · НЕ ПРИБЛИЖАЙСЯ',cw/2,ch/2+70,inside?'#e06a55':'#e0b155');}const cold=clamp((35-me.warmth)/35,0,1),blood=me.bleeding?.35+Math.sin(now/260)*.15:0,low=me.hp<me.max_hp*.3?.25:0;
+ const cold=clamp((35-me.warmth)/35,0,1),blood=me.bleeding?.35+Math.sin(now/260)*.15:0,low=me.hp<me.max_hp*.3?.25:0;
  if(cold>0){const g=ctx.createRadialGradient(cw/2,ch/2,Math.min(cw,ch)*.3,cw/2,ch/2,Math.max(cw,ch)*.7);g.addColorStop(0,'rgba(200,225,240,0)');g.addColorStop(1,'rgba(200,225,240,'+(.55*cold)+')');ctx.fillStyle=g;ctx.fillRect(0,0,cw,ch);}
  if(blood+low>0){const g=ctx.createRadialGradient(cw/2,ch/2,Math.min(cw,ch)*.35,cw/2,ch/2,Math.max(cw,ch)*.72);g.addColorStop(0,'rgba(120,10,10,0)');g.addColorStop(1,'rgba(120,10,10,'+(blood+low)+')');ctx.fillStyle=g;ctx.fillRect(0,0,cw,ch);}}
 function render(now){const raw=(now-last)/1000,dt=Math.min(raw,.05);last=now;frame++;

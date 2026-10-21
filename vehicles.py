@@ -32,12 +32,12 @@ class VehicleMixin:
         c, s = math.cos(a), math.sin(a)
         return [(x + c * off, y + s * off, r), (x - c * off, y - s * off, r)]
 
-    def _car_blocked(self, spec, x, y, a):
+    def _car_blocked(self, spec, x, y, a, faction=None):
         for cx, cy, r in self._car_circles(spec, x, y, a):
-            if self.blocked(cx, cy, r):
+            if self.blocked(cx, cy, r, faction):
                 return True
             # Rivers and lakes stop cars; bridges are part of the road.
-            if self.terrain.water(cx, cy, 4) and not self.terrain.on_road(cx, cy, 70):
+            if self.terrain.water(cx, cy, 4) and not self.terrain.on_road(cx, cy, 70) and not self.terrain.on_street(cx, cy, 10):
                 return True
         return False
 
@@ -62,7 +62,7 @@ class VehicleMixin:
         if car.get('fuel', 0) <= .01:
             throttle = 0
         # Surface and weather decide top speed and grip.
-        road = self.terrain.on_road(x, y, 60) or self.terrain.in_town(x, y, 0)
+        road = self.terrain.on_road(x, y, 60) or self.terrain.on_street(x, y, 8) or self.terrain.in_core(x, y)
         town = min(self.towns.values(), key=lambda t: (t['x'] - x) ** 2 + (t['y'] - y) ** 2)
         snowy_ground = REGIONS[town['region']]['cold'] >= 2
         top = spec['max'] * (1 + .06 * garage) * (1 if road else spec['offroad'])
@@ -97,18 +97,19 @@ class VehicleMixin:
         lat *= math.exp(-grip * dt)
         vx = hx * fwd + nx * lat; vy = hy * fwd + ny * lat
         na = a + yaw * dt
-        if self._car_blocked(spec, x, y, na):
+        f = p['faction']
+        if self._car_blocked(spec, x, y, na, f):
             na = a
         level = garage
         if car.get('fuel', 0) > .01:
             car['fuel'] = max(0.0, car['fuel'] - dt * (.025 + .16 * abs(throttle) * (.5 + .5 * min(1, abs(fwd) / spec['max']))) * (1 - .1 * level))
         tx, ty = x + vx * dt, y + vy * dt
         speed = math.hypot(vx, vy)
-        if self._car_blocked(spec, tx, ty, na):
+        if self._car_blocked(spec, tx, ty, na, f):
             # Slide along the obstacle if one axis is free; otherwise stop with a jolt.
-            if not self._car_blocked(spec, tx, y, na):
+            if not self._car_blocked(spec, tx, y, na, f):
                 ty = y; vy *= -.2
-            elif not self._car_blocked(spec, x, ty, na):
+            elif not self._car_blocked(spec, x, ty, na, f):
                 tx = x; vx *= -.2
             else:
                 tx, ty = x, y; vx *= -.25; vy *= -.25

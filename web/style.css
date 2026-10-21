@@ -73,3 +73,6 @@
 @media (max-width:640px){.dialog .portrait{width:84px;height:112px}}
 .hero-pick{display:flex;gap:12px;align-items:center}.hero-pick canvas{flex:none;background:#1a241f;border:1px solid #ffffff14;border-radius:3px}
 .swatches{display:grid;grid-template-columns:repeat(9,1fr);gap:4px;flex:1}.swatch{aspect-ratio:1;min-width:20px;border-radius:2px;border:2px solid transparent;padding:0}.swatch.on{border-color:#f2ecdc}
+.stash-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}.stash-cols>div{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:4px;padding:10px}
+.stash-row{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px}.stash-row .quiet{padding:4px 10px;font-size:12px}
+.craft-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
