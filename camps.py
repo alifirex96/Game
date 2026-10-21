@@ -20,6 +20,11 @@ class CampError(Exception):
     pass
 
 
+# Dead people and animals lie where they fell for five minutes; the oldest go first past the cap.
+CORPSE_TIME = 300
+MAX_CORPSES = 90
+
+
 class CampMixin:
     # ---- backpack accounting: materials stack, food and medicine take a slot each ----
     @staticmethod
@@ -321,6 +326,18 @@ class CampMixin:
         self.bodies[bid] = {'id':bid, 'x':round(x, 1), 'y':round(y, 1), 'items':items, 'coins':coins, 'name':name, 'until':self.elapsed + BODY_TIME}
         return bid
 
+    def drop_corpse(self, npc):
+        """A dead person or animal stays where it fell; what it carried can be taken (E)."""
+        from world_data import NPC_TYPES
+        bid = 'n' + npc['id']
+        self.bodies[bid] = {'id':bid, 'x':round(npc['x'], 1), 'y':round(npc['y'], 1), 'items':dict(npc.get('loot') or {}), 'coins':0,
+                            'name':NPC_TYPES[npc['type']]['name'], 'until':self.elapsed + CORPSE_TIME,
+                            'npc':{'type':npc['type'], 'look':npc.get('look'), 'angle':round(npc.get('angle', 0.0), 2), 'faction':npc['faction']}}
+        corpses = sorted((b for b in self.bodies.values() if b.get('npc')), key=lambda b: b['until'])
+        for b in corpses[:max(0, len(corpses) - MAX_CORPSES)]:
+            del self.bodies[b['id']]
+        return bid
+
     def loot_body(self, p, bid):
         b = self.bodies.get(str(bid))
         if not b:
@@ -335,7 +352,7 @@ class CampMixin:
                 if not b['items'][k]:
                     del b['items'][k]
         coins = b['coins']; p['coins'] += coins; b['coins'] = 0
-        if not b['items']:
+        if not b['items'] and not b.get('npc'):
             del self.bodies[b['id']]
         text = self.items_text(taken) + ((' и ' + str(coins) + ' монет') if coins else '')
         return {'title':'Забрано: ' + b['name'], 'text':text + ('. Остальное не влезло.' if b.get('items') else '.'), 'success':bool(taken or coins)}

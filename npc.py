@@ -7,7 +7,7 @@ import secrets
 import time
 from world_data import AI_SIDES as AI_HOMES
 from world_data import (BUILDINGS, NPC_TYPES, POI_KINDS, ARMOR, WEAPONS, NPC_FACTION, WILDLIFE, REGIONS,
-                        RESOURCES, WORLD_SIZE, NPC_LOOKS, NPC_LOOKS_COLD, BIG_TOWNS, ITEMS)
+                        RESOURCES, WORLD_SIZE, NPC_LOOKS, NPC_LOOKS_COLD, BIG_TOWNS, ITEMS, LOOT_ITEMS)
 
 AI_PRIORITY = ['farm', 'house', 'sawmill', 'depot', 'quarry', 'workshop', 'warehouse',
                'garage', 'guard', 'radio']
@@ -221,15 +221,18 @@ class NpcMixin:
                     got = self.give_item(attacker, 'meat_raw', spec['meat'])
                     hide = self.give_item(attacker, 'hide', 2 if npc['type'] == 'bear' else 1) if npc['type'] != 'boar' else 0
                     self._notice('Добыча: ' + spec['name'], (('Сырое мясо ×' + str(got)) if got else 'Рюкзак полон — мясо осталось.') + (' Шкура ×' + str(hide) + '.' if hide else ''), player=attacker['id'])
-                else:
-                    # Armed people carry rounds for their guns.
-                    ammo = NPC_AMMO.get(npc['type'])
-                    # A few rounds at most: ammo has to stay scarce.
-                    if ammo and self.rng.random() < .3:
-                        self.give_item(attacker, ammo, self.rng.randint(2, 5))
-                    if self.rng.random() < (.4 if npc['faction'] == 'mutants' else .25):
-                        self._loot_items(attacker, 1)
             self._credit_kill(attacker, npc)
+        # What the dead carried stays on the body until somebody searches it (E).
+        loot = {}
+        if not NPC_TYPES[npc['type']].get('meat'):
+            ammo = NPC_AMMO.get(npc['type'])
+            # A few rounds at most: ammo has to stay scarce.
+            if ammo and self.rng.random() < .3:
+                loot[ammo] = self.rng.randint(2, 5)
+            if self.rng.random() < (.4 if npc['faction'] == 'mutants' else .25):
+                item = self.rng.choice(LOOT_ITEMS)
+                loot[item] = loot.get(item, 0) + 1
+        npc['loot'] = loot
 
     def _wreck_car(self, p):
         car = p['car']
@@ -299,6 +302,9 @@ class NpcMixin:
             if npc['hp'] <= 0:
                 npc['dead'] = npc.get('dead', 0) + dt
                 if npc['dead'] > 2.5:
+                    # The fall is over: the body stays on the ground for a while.
+                    if npc['type'] != 'convoy':
+                        self.drop_corpse(npc)
                     del self.npcs[npc['id']]
                 continue
             if recount:

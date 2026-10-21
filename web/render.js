@@ -668,6 +668,17 @@ function drawCampPart(c, kind, part, camp, v) {
   c.restore();
 }
 function drawBody(c, b, v) {
+  if (b.npc) {
+    // A dead person or animal lies as it fell and fades in its last seconds.
+    const n = b.npc, fade = Math.max(0, Math.min(1, (b.until - v.state.time) / 20));
+    if (fade <= 0) return;
+    c.save(); c.globalAlpha = fade; c.translate(b.x, b.y); c.rotate(n.angle || 0);
+    if (CREATURES[n.type]) S.creature(c, { type: n.type, phase: 0, moving: false, dead: 1 });
+    else S.figure(c, { look: n.look != null ? n.look : ({ marauder: 0, raider: 19, ranger: 7, militia: 6 })[n.type] || 0, weapon: NPC_WEAPON[n.type] || 0, size: 38, dead: 1, time: 0 });
+    c.restore();
+    if (Object.keys(b.items).length || b.coins) { c.fillStyle = '#5b4a33'; rr(c, b.x + 12, b.y + 6, 10, 8, 2); c.fill(); }
+    return;
+  }
   c.save(); c.translate(b.x, b.y); c.rotate(strSeed(b.id) * 6);
   S.figure(c, { player: true, size: 38, dead: 1, fall: strSeed(b.id) > .5 ? 'front' : 'back', time: 0 });
   c.restore();
@@ -709,7 +720,7 @@ function labels(c, state, v, vis) {
   state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y) || p.id === state.me.id) return; if (me && Math.hypot(me.x - r.x, me.y - r.y) > 700) return; pill(c, (p.tag ? '[' + p.tag + '] ' : '') + p.name + ' · ' + (p.level || 1), r.x, r.y - 34, col(p.faction)); });
   (cfg.givers || []).forEach(g => { if (me && Math.abs(me.x - g.x) < 260 && Math.abs(me.y - g.y) < 200) pill(c, g.role + ' · ' + g.name, g.x, g.y - 34, '#e2d3b0'); });
   (state.camps || []).forEach(cp => { if (!vis(cp.x, cp.y, 100) || !sides[cp.owner]) return; pill(c, 'ЛАГЕРЬ · ' + sides[cp.owner].name.toUpperCase(), cp.x, cp.y - (cp.house ? 60 : 124), col(cp.owner)); });
-  (state.bodies || []).forEach(b => { if (me && Math.hypot(me.x - b.x, me.y - b.y) < 260) pill(c, b.name, b.x, b.y - 30, '#c9a99a'); });
+  (state.bodies || []).forEach(b => { if (me && Math.hypot(me.x - b.x, me.y - b.y) < 260 && (!b.npc || Object.keys(b.items).length || b.coins)) pill(c, b.name, b.x, b.y - 30, '#c9a99a'); });
   (state.posts || []).forEach(p => { if (vis(p.x, p.y)) pill(c, p.name, p.x, p.y - 48, col(p.faction)); });
 }
 function pill(c, text, x, y, color, bg) { c.font = '11px Segoe UI, Arial'; const w = c.measureText(text).width + 14; c.fillStyle = bg || '#0e1311b8'; c.fillRect(x - w / 2, y - 9, w, 18); c.fillStyle = color || '#e3e3d4'; c.fillRect(x - w / 2, y - 9, 2, 18); c.fillStyle = '#d9d8cb'; c.textAlign = 'center'; c.fillText(text, x, y + 4); }

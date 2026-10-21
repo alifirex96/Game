@@ -109,3 +109,46 @@ class NewWorldTests(unittest.TestCase):
         again = World(str(path), rng=random.Random(4))
         self.assertEqual(again.players, {})
         self.assertEqual(len(os.listdir(d)), 2)
+
+
+class CorpseTests(unittest.TestCase):
+    def setUp(self):
+        self.w = World(None, rng=random.Random(11))
+        self.t = self.w.join('Охотник'); self.p = self.w.players[self.t]
+
+    def kill(self, kind, faction):
+        npc = self.w.spawn_npc(kind, faction, self.p['x'] + 40, self.p['y'])
+        npc['angle'] = 1.2
+        self.w.hurt(npc, 999, self.p)
+        for _ in range(40):
+            self.w.tick(.1)
+        return npc
+
+    def test_dead_people_and_animals_stay_on_the_ground(self):
+        for kind, faction in (('marauder', 'marauders'), ('wolf', 'wild')):
+            npc = self.kill(kind, faction)
+            self.assertNotIn(npc['id'], self.w.npcs)
+            body = self.w.bodies.get('n' + npc['id'])
+            self.assertIsNotNone(body, kind)
+            self.assertEqual(body['npc']['type'], kind)
+            self.assertEqual(body['npc']['angle'], 1.2)
+
+    def test_what_the_dead_carried_is_on_the_body(self):
+        self.w.rng = random.Random(0)
+        npc = self.w.spawn_npc('marauder', 'marauders', self.p['x'] + 40, self.p['y'])
+        self.w.hurt(npc, 999, self.p)
+        npc['loot'] = {'ammo9': 4}
+        before = self.p['items'].get('ammo9', 0)
+        for _ in range(30):
+            self.w.tick(.1)
+        bid = 'n' + npc['id']
+        self.assertEqual(self.w.bodies[bid]['items'], {'ammo9': 4})
+        self.w.loot_body(self.p, bid)
+        self.assertEqual(self.p['items'].get('ammo9', 0), before + 4)
+        self.assertIn(bid, self.w.bodies)                    # the body stays, just empty
+
+    def test_corpses_go_after_five_minutes(self):
+        npc = self.kill('marauder', 'marauders')
+        self.w.elapsed += 301
+        self.w.tick(.1)
+        self.assertNotIn('n' + npc['id'], self.w.bodies)
