@@ -87,3 +87,25 @@ class BleedingTests(unittest.TestCase):
         self.heal()
         self.assertFalse(self.p['bleeding'])
         self.assertEqual(self.p['items'].get('cloth'), 1)
+
+
+class NewWorldTests(unittest.TestCase):
+    def test_reset_starts_over_and_keeps_a_backup(self):
+        import tempfile, os
+        from pathlib import Path
+        d = tempfile.mkdtemp(); path = Path(d) / 'world.json'
+        w = World(str(path), rng=random.Random(3)); w.room_code = '654321'
+        tok = w.join('Старик'); w.players[tok]['coins'] = 999; w.elapsed = 5000; w.save()
+        lock = w.lock
+        backup = w.reset()
+        self.assertTrue(backup.exists())
+        self.assertEqual(w.players, {})
+        self.assertLess(w.elapsed, 1)
+        self.assertIs(w.lock, lock)
+        self.assertEqual(w.room_code, '654321')
+        with self.assertRaises(GameError) as e:
+            w.player(tok)
+        self.assertIn('новую игру', str(e.exception))
+        again = World(str(path), rng=random.Random(4))
+        self.assertEqual(again.players, {})
+        self.assertEqual(len(os.listdir(d)), 2)

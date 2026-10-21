@@ -17,14 +17,26 @@
       <div id="resources"></div>
       <div class="top-actions"><div id="clock"></div><button id="sound" class="icon-button" title="Звук" aria-label="Переключить звук"></button><button id="full" class="icon-button" title="Полный экран" aria-label="Полный экран"></button><button id="menu" class="icon-button" title="Меню · Esc" aria-label="Открыть меню"></button></div>
     </header>
-    <section id="location"><span class="eyebrow">ТЕКУЩЕЕ МЕСТО</span><h2 id="location-name"></h2><span id="location-desc"></span></section>
-    <aside id="mission"><div class="section-label"><span>ЖУРНАЛ ЭКСПЕДИЦИИ</span><span id="quest-index"></span></div><h3 id="quest-title"></h3><p id="quest-desc"></p><div id="quest-progress"></div></aside>
-    <button id="minimap-wrap" aria-label="Открыть карту России"><canvas id="minimap" width="250" height="160"></canvas><span><b>КАРТА ЭКСПЕДИЦИИ</b><kbd>M</kbd></span></button>
-    <aside id="town-info"></aside>
-    <div id="vitals"></div>
-    <div id="bottom-status"><div id="coins"></div><div id="level"></div><div id="mode"></div><div id="stamina"><i></i></div><span id="autosave">Прогресс сохраняется автоматически</span></div>
+    <aside id="nav">
+      <button id="minimap-wrap" aria-label="Открыть карту России · M"><canvas id="minimap" width="250" height="160"></canvas><kbd>M</kbd></button>
+      <div id="where"><b id="location-name"></b><span id="location-desc"></span></div>
+      <button id="journal-hint" title="Журнал · J"><kbd>J</kbd><span id="quest-line"></span></button>
+      <aside id="town-info"></aside>
+    </aside>
+    <section id="me-panel">
+      <canvas id="me-icon" width="128" height="128"></canvas>
+      <div class="me-main">
+        <div class="me-head"><b id="me-name"></b><span id="level"></span></div>
+        <div class="hbar hp" title="Здоровье"><i></i><span></span></div>
+        <div class="hbar st" title="Выносливость"><i></i></div>
+        <div id="vitals"></div>
+        <div id="coins"></div>
+      </div>
+    </section>
+    <section id="gear-panel"></section>
     <div id="interaction" class="hidden"></div>
     <div id="key-guide"><span><kbd>WASD</kbd> движение</span><span><kbd>E</kbd> действие</span><span><kbd>F</kbd> машина</span><span><kbd>Q</kbd> оружие</span><span><kbd>X</kbd> перезарядка</span><span><kbd>L</kbd> лагерь</span><span><kbd>C</kbd> крафт</span><span><kbd>I</kbd> рюкзак</span><span><kbd>J</kbd> журнал</span><span>ЛКМ огонь</span></div>
+    <span id="autosave"></span>
   </main>
   <div id="toast-stack" aria-live="polite"></div>
   <div id="screen"></div>

@@ -353,9 +353,23 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             out['story']={'chapter':c,'ready':self._story_ready(f),'progress':self._story_progress(f)}
         return out
 
+    def reset(self):
+        """A new game from scratch. The old save stays next to the new one as a dated backup."""
+        lock,rng,path,code,settings=self.lock,self.rng,self.save_path,self.room_code,dict(self.settings)
+        backup=None
+        if path and path.exists():
+            backup=path.with_name(path.stem+'-'+time.strftime('%Y%m%d-%H%M%S')+'.bak'+path.suffix)
+            path.replace(backup)
+        self.__init__(path,rng)
+        self.lock=lock;self.room_code=code;self.settings.update(settings);self.reset_at=time.monotonic()
+        if path:self.save()
+        return backup
+
     def player(self,token):
         p=self.players.get(token)
         if not p:
+            if time.monotonic()-getattr(self,'reset_at',-1e9)<600:
+                raise GameError('Ведущий начал новую игру. Войди снова.')
             raise GameError('Сессия завершилась. Войди в игру снова.')
         p['last_seen']=time.monotonic()
         return p
@@ -1756,6 +1770,9 @@ class Handler(BaseHTTPRequestHandler):
                     # Room settings are changed only on the host computer itself.
                     if not self._local():self._json(403,{'error':'Настройки меняет только ведущий.'});return
                     if 'ai' in data:self.server.world.settings['ai']=bool(data['ai'])
+                    if data.get('new_world'):
+                        backup=self.server.world.reset()
+                        self._json(200,{'settings':self.server.world.settings,'reset':True,'backup':backup.name if backup else None});return
                     self.server.world.save()
                     if data.get('shutdown'):
                         self._json(200,{'settings':self.server.world.settings,'stopping':True})
@@ -1764,7 +1781,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200,{'settings':self.server.world.settings});return
                 if path!='/api/action':self._json(404,{'error':'Команда не найдена.'});return
                 token=self.headers.get('X-Session','')
-                if token not in self.server.world.players:self._json(401,{'error':'Нужно войти в комнату.'});return
+                if token not in self.server.world.players:self._json(401,{'error':'Ведущий начал новую игру. Войди снова.' if time.monotonic()-getattr(self.server.world,'reset_at',-1e9)<600 else 'Нужно войти в комнату.'});return
                 result=self.server.world.command(token,data)
                 full=data.get('op')!='input' or bool(data.get('full'))
                 self._json(200,{'result':result,'state':self.server.world.snapshot(token,full)})
