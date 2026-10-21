@@ -1,10 +1,11 @@
 name: Release
 
-# Pushing a tag like v0.6.0 tests the game, builds the Astra Linux archive
-# and publishes a GitHub release with it; the notes come from CHANGELOG.md.
+# A push to main with a version that has no release yet (world_data.VERSION) tests the game,
+# builds the Astra Linux archive and publishes release vX.Y.Z with it; the notes come from CHANGELOG.md.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,24 +15,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Is this version released already?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 -c "import world_data; print(world_data.VERSION)")
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then echo "new=false" >> "$GITHUB_OUTPUT"; else echo "new=true" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-python@v5
+        if: steps.check.outputs.new == 'true'
         with:
           python-version: '3.9'
       - name: Python unit and HTTP tests
+        if: steps.check.outputs.new == 'true'
         run: python3 -m unittest discover -s tests
       - name: JavaScript syntax
+        if: steps.check.outputs.new == 'true'
         run: for f in web/*.js; do node --check "$f"; done
-      - name: Version matches the tag
-        run: |
-          version=$(python3 -c "import world_data; print(world_data.VERSION)")
-          test "v$version" = "$GITHUB_REF_NAME"
       - name: Build portable archive
+        if: steps.check.outputs.new == 'true'
         run: python3 tools/package.py
       - name: Release notes from the changelog
+        if: steps.check.outputs.new == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
         run: |
           python3 - <<'EOF'
           import os, re
-          version = os.environ['GITHUB_REF_NAME'][1:]
+          version = os.environ['TAG'][1:]
           text = open('CHANGELOG.md', encoding='utf-8').read()
           m = re.search(r'^## ' + re.escape(version) + r'\n(.*?)(?=^## |\Z)', text, re.S | re.M)
           notes = (m.group(1).strip() if m else 'См. CHANGELOG.md.')
@@ -39,6 +51,8 @@ jobs:
           open('notes.md', 'w', encoding='utf-8').write(notes)
           EOF
       - name: Publish release
+        if: steps.check.outputs.new == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/AfterSilence-Astra-*.tar.gz --title "После тишины ${GITHUB_REF_NAME#v}" --notes-file notes.md
+          TAG: ${{ steps.check.outputs.tag }}
+        run: gh release create "$TAG" dist/AfterSilence-Astra-*.tar.gz --target "$GITHUB_SHA" --title "После тишины ${TAG#v}" --notes-file notes.md
