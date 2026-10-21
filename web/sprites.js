@@ -499,81 +499,163 @@ function drawWeapon(c, tier, recoil) {
   c.restore();
 }
 
-/* ---------- characters from the drawn sheet (web/assets/characters.png, 5 x 4 cells, facing +y) ---------- */
+/* ---------- characters from drawn sprites, cut into parts and animated ----------
+   Sources face +y (down the image). Each figure is cut once into a body, two legs and two arms;
+   the parts are stretched about the hip and the shoulder (no gaps at the joints) to walk, aim, work. */
 const SHEET = new Image(); let sheetReady = false;
 SHEET.onload = () => { sheetReady = true; }; SHEET.src = 'assets/characters.png';
-const LOOK_PX = 52;            // cached size of one figure; drawn at about 38 world pixels
-function lookCanvas(look) {
-  return cached('look' + look, () => {
-    // Downscale in two steps for a clean small figure without shimmering.
-    const mid = canvas(64, 64), m = mid.getContext('2d'); m.imageSmoothingEnabled = true; if (m.imageSmoothingQuality) m.imageSmoothingQuality = 'high';
-    m.drawImage(SHEET, (look % 5) * 128, Math.floor(look / 5) * 128, 128, 128, 0, 0, 64, 64);
-    const im = canvas(LOOK_PX, LOOK_PX), c = im.getContext('2d'); c.imageSmoothingEnabled = true; if (c.imageSmoothingQuality) c.imageSmoothingQuality = 'high';
-    c.drawImage(mid, 0, 0, LOOK_PX, LOOK_PX); return im;
-  });
-}
 // People on the squares who give work: their own drawn figures (web/assets/givers.png, 7 cells in a row).
 const GIVERS = new Image(); let giversReady = false;
 GIVERS.onload = () => { giversReady = true; }; GIVERS.src = 'assets/givers.png';
-function giverCanvas(art) {
-  return cached('giver' + art, () => {
-    const mid = canvas(64, 64), m = mid.getContext('2d'); m.imageSmoothingEnabled = true; if (m.imageSmoothingQuality) m.imageSmoothingQuality = 'high';
-    m.drawImage(GIVERS, art * 128, 0, 128, 128, 0, 0, 64, 64);
-    const im = canvas(LOOK_PX, LOOK_PX), c = im.getContext('2d'); c.imageSmoothingEnabled = true; if (c.imageSmoothingQuality) c.imageSmoothingQuality = 'high';
-    c.drawImage(mid, 0, 0, LOOK_PX, LOOK_PX); return im;
-  });
-}
-// o: {art, look, phase}; facing +x like other characters. Falls back to the common sheet until the image loads.
-AS.sprites.giver = function (c, o) {
-  if (!giversReady) { AS.sprites.look(c, { look: o.look, phase: 0, moving: false }); return; }
-  const size = 40;
-  c.fillStyle = '#0a0f0b55'; c.beginPath(); c.ellipse(3, 4, size * .36, size * .3, 0, 0, 7); c.fill();
-  c.save(); c.rotate(-Math.PI / 2 + Math.sin(o.phase || 0) * .04); c.drawImage(giverCanvas(o.art), -size / 2, -size / 2, size, size); c.restore();
-};
-// Players all wear the hero's drawings; their clothes take the player's colour (hue) so friends and rivals differ.
-// Skin, hair-dark outlines and boots keep their own colours.
+const RIG = 64;                // working size of one figure
 function rgbToHsl(r, g, b) { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; if (mx === mn) return [0, 0, l]; const d = mx - mn, s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); let h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return [h / 6, s, l]; }
 function hslToRgb(h, s, l) { if (!s) return [l * 255, l * 255, l * 255]; const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q; const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < .5 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; }; return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255]; }
-function tintedCanvas(look, tint) {
-  return cached('tint' + look + tint, () => {
-    const base = lookCanvas(look), im = canvas(base.width, base.height), c = im.getContext('2d'); c.drawImage(base, 0, 0);
-    const [th, ts] = rgbToHsl(...hex(tint)), data = c.getImageData(0, 0, im.width, im.height), d = data.data;
-    const hx = im.width * .495, hy = im.height * .227, hr = im.width * .19;   // the head: hair and helmets keep their colour
-    for (let i = 0; i < d.length; i += 4) {
-      if (d[i + 3] < 20) continue;
-      const px = (i / 4) % im.width, py = Math.floor(i / 4 / im.width);
-      if ((px - hx) ** 2 + (py - hy) ** 2 < hr * hr) continue;
-      const [h, s, l] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
-      if (l < .16 || (h > .02 && h < .11 && s > .3 && l > .42)) continue;      // outlines, boots, skin
-      const [r, g, b] = hslToRgb(th, Math.min(.75, s * .45 + ts * .4), l);
-      d[i] = d[i] * .35 + r * .65; d[i + 1] = d[i + 1] * .35 + g * .65; d[i + 2] = d[i + 2] * .35 + b * .65;
+function smooth(c) { c.imageSmoothingEnabled = true; if (c.imageSmoothingQuality) c.imageSmoothingQuality = 'high'; }
+// One figure at RIG size with its bounding box; players' clothes take their colour (head, skin and boots keep theirs).
+function sourceFigure(src, index, tint) {
+  return cached('fig' + src + index + (tint || ''), () => {
+    const im = canvas(RIG, RIG), c = im.getContext('2d'); smooth(c);
+    if (src === 'giver') c.drawImage(GIVERS, index * 128, 0, 128, 128, 0, 0, RIG, RIG);
+    else c.drawImage(SHEET, (index % 5) * 128, Math.floor(index / 5) * 128, 128, 128, 0, 0, RIG, RIG);
+    const data = c.getImageData(0, 0, RIG, RIG), d = data.data;
+    let x0 = RIG, y0 = RIG, x1 = 0, y1 = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 60) { const x = (i / 4) % RIG, y = Math.floor(i / 4 / RIG); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    const box = { x0, y0, x1, y1, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0), cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
+    if (tint) {
+      const [th, ts] = rgbToHsl(...hex(tint)), hx = box.cx, hy = box.y0 + box.h * .2, hr = box.w * .21;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 20) continue;
+        const x = (i / 4) % RIG, y = Math.floor(i / 4 / RIG);
+        if ((x - hx) ** 2 + (y - hy) ** 2 < hr * hr) continue;
+        const [h, s, l] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+        if (l < .16 || (h > .02 && h < .11 && s > .3 && l > .42)) continue;
+        const [r, g, b] = hslToRgb(th, Math.min(.75, s * .45 + ts * .4), l);
+        d[i] = d[i] * .35 + r * .65; d[i + 1] = d[i + 1] * .35 + g * .65; d[i + 2] = d[i + 2] * .35 + b * .65;
+      }
+      c.putImageData(data, 0, 0);
     }
-    c.putImageData(data, 0, 0); return im;
+    return { im, box };
   });
 }
-AS.sprites.heroIcon = (look, tint) => sheetReady ? (tint ? tintedCanvas(look, tint) : lookCanvas(look)) : null;
+function rigOf(src, index, tint) {
+  return cached('rig' + src + index + (tint || ''), () => {
+    const { im, box: b } = sourceFigure(src, index, tint);
+    const legTop = b.y0 + b.h * .76, armTop = b.y0 + b.h * .27, armBottom = b.y0 + b.h * .86, side = b.w * .22;
+    const zone = {
+      legL: (x, y) => y >= legTop && x < b.cx && x > b.cx - b.w * .34,
+      legR: (x, y) => y >= legTop && x >= b.cx && x < b.cx + b.w * .34,
+      armL: (x, y) => y >= armTop && y <= armBottom && x < b.x0 + side,
+      armR: (x, y) => y >= armTop && y <= armBottom && x > b.x1 - side,
+    };
+    const src0 = im.getContext('2d').getImageData(0, 0, RIG, RIG).data, parts = {};
+    const body = canvas(RIG, RIG), bc = body.getContext('2d'), bodyData = bc.createImageData(RIG, RIG);
+    Object.keys(zone).forEach(k => { parts[k] = { im: canvas(RIG, RIG) }; parts[k].data = parts[k].im.getContext('2d').createImageData(RIG, RIG); });
+    for (let i = 0; i < src0.length; i += 4) {
+      const x = (i / 4) % RIG, y = Math.floor(i / 4 / RIG);
+      const k = Object.keys(zone).find(z => zone[z](x, y)), dst = k ? parts[k].data.data : bodyData.data;
+      dst[i] = src0[i]; dst[i + 1] = src0[i + 1]; dst[i + 2] = src0[i + 2]; dst[i + 3] = src0[i + 3];
+    }
+    bc.putImageData(bodyData, 0, 0);
+    Object.keys(zone).forEach(k => { parts[k].im.getContext('2d').putImageData(parts[k].data, 0, 0); delete parts[k].data; });
+    // Joints in figure coordinates (origin at the figure's centre).
+    const P = (x, y) => [x - b.cx, y - b.cy];
+    parts.legL.pivot = P(b.cx - b.w * .13, legTop); parts.legR.pivot = P(b.cx + b.w * .13, legTop);
+    parts.armL.pivot = P(b.x0 + side * .7, armTop); parts.armR.pivot = P(b.x1 - side * .7, armTop);
+    parts.armL.hand = P(b.x0 + side * .55, b.y0 + b.h * .74); parts.armR.hand = P(b.x1 - side * .55, b.y0 + b.h * .74);
+    return { body, parts, box: b, head: P(b.cx, b.y0 + b.h * .2), chest: P(b.cx, b.y0 + b.h * .45) };
+  });
+}
+function figureReady(src) { return src === 'giver' ? giversReady : sheetReady; }
+AS.sprites.heroIcon = (look, tint) => sheetReady ? sourceFigure('hero', look, tint).im : null;
 AS.sprites.lookReady = () => sheetReady;
-AS.sprites.lookIcon = look => sheetReady ? lookCanvas(look) : null;
-// o: {look, weapon, phase, moving, run, aim, shot, flash, busy, dead, size}. Forward is +x like the rest of the scene.
-AS.sprites.look = function (c, o) {
-  if (!sheetReady) { AS.sprites.person(c, o); return; }
-  const size = o.size || 38, run = o.run ? 1.6 : 1;
-  const bob = o.moving ? Math.sin(o.phase) : 0, sway = o.moving ? Math.sin(o.phase * .5) * .06 * run : 0;
-  if (o.dead) { c.fillStyle = '#4a1712aa'; c.beginPath(); c.ellipse(4, 3, 17, 11, .3, 0, 7); c.fill(); c.rotate(1.25); }
-  c.fillStyle = '#0a0f0b55'; c.beginPath(); c.ellipse(3, 4, size * .36, size * .3, 0, 0, 7); c.fill();
-  const aiming = !o.dead && (o.aim || o.shot);
-  if (aiming) {
-    // The rifle sits under the arms, pointing forward.
-    c.save(); c.translate(4, 4); drawWeapon(c, o.weapon || 0, o.shot ? -2.5 : 0); c.restore();
+const ease = t => t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t);
+// Draw a limb stretched along the facing axis about its joint, then turned by `turn` radians.
+function limb(c, rig, part, stretch, turn, shift) {
+  const p = rig.parts[part], [px, py] = p.pivot;
+  c.save(); c.translate(px, py + (shift || 0)); if (turn) c.rotate(turn); c.scale(1, stretch); c.drawImage(p.im, -px - rig.box.cx, -py - rig.box.cy); c.restore();
+}
+// Hand position of a posed arm, in figure coordinates.
+function handAt(rig, part, stretch, turn, shift) {
+  const p = rig.parts[part], dx = p.hand[0] - p.pivot[0], dy = (p.hand[1] - p.pivot[1]) * stretch;
+  return [p.pivot[0] + dx * Math.cos(turn) - dy * Math.sin(turn), p.pivot[1] + (shift || 0) + dx * Math.sin(turn) + dy * Math.cos(turn)];
+}
+// Tools and things held in the hand, drawn along +y (the facing direction in figure space).
+function heldThing(c, kind, x, y, swing) {
+  c.save(); c.translate(x, y); c.scale(1.35, 1.35);
+  if (kind === 'chop' || kind === 'mine') {
+    c.rotate(swing * .5); c.fillStyle = '#6b4a2c'; c.fillRect(-1.2, -2, 2.4, 20);
+    c.fillStyle = '#8d9192'; if (kind === 'chop') { c.beginPath(); c.moveTo(-1, 13); c.lineTo(-7, 11); c.lineTo(-7, 20); c.lineTo(-1, 18); c.fill(); }
+    else { c.beginPath(); c.moveTo(-9, 15); c.quadraticCurveTo(0, 11, 9, 15); c.lineTo(9, 17); c.quadraticCurveTo(0, 14, -9, 17); c.fill(); }
+  } else if (kind === 'hammer') { c.rotate(swing * .4); c.fillStyle = '#6b4a2c'; c.fillRect(-1, -1, 2, 13); c.fillStyle = '#5b5e60'; c.fillRect(-4, 10, 8, 4); }
+  else if (kind === 'eat') { c.fillStyle = '#9aa0a2'; c.fillRect(-3, -3, 6, 6); c.fillStyle = '#b5532f'; c.fillRect(-3, -1, 6, 2); }
+  else if (kind === 'drink') { c.fillStyle = '#9fc0c8cc'; c.fillRect(-2, -5, 4, 9); c.fillStyle = '#3d6a8a'; c.fillRect(-2, -6, 4, 2); }
+  else if (kind === 'bandage') { c.fillStyle = '#e9e4d6'; c.fillRect(-3, -2, 6, 4); }
+  else if (kind === 'mag') { c.fillStyle = '#2a2b28'; c.fillRect(-1.5, -3, 3, 6); }
+  c.restore();
+}
+/* o: {src:'hero'|'giver', look, tint, size, phase, speed (0 idle, 1 walk, 2 run), aim (0..1), kick (0..1),
+       weapon, flash, hit (0..1), dead (0..1), act:{kind, t}, time, gesture (0..1)}. Forward is +x in the caller's frame. */
+AS.sprites.figure = function (c, o) {
+  const src = o.src || 'hero', idx = src === 'giver' ? o.art : (o.look || 0);
+  if (!figureReady(src)) { AS.sprites.person(c, { phase: o.phase, moving: o.speed > 0, weapon: o.weapon, aim: o.aim > .5, shot: o.kick > .3, flash: o.flash, dead: o.dead > .5, seed: .3 }); return; }
+  const rig = rigOf(src, idx, o.tint), size = o.size || 38, s = size / (rig.box.h * 1.02);
+  const t = o.time || 0, dead = ease(o.dead || 0), act = o.act, at = act ? act.t : 99;
+  // Shadow stretches as the body goes down.
+  c.fillStyle = '#0a0f0b55'; c.beginPath(); c.ellipse(3 - dead * 6, 4, size * (.34 + dead * .18), size * .28, 0, 0, 7); c.fill();
+  c.save();
+  if (dead) { c.translate(-dead * 7, 0); c.rotate(dead * 1.35); }
+  if (o.hit) c.translate(-o.hit * 2.2, 0);
+  c.rotate(-Math.PI / 2); c.scale(s, s);
+  // Pose. All angles in figure space; stretch > 1 reaches forward.
+  const walk = dead ? 0 : o.speed || 0, ph = o.phase || 0, stride = walk === 2 ? .6 : walk ? .38 : 0, sn = Math.sin(ph);
+  // Feet reach forward and back past the hips; the opposite arm swings with them.
+  let legL = 1 + stride * sn, legR = 1 - stride * sn, stepL = stride * sn * 4, stepR = -stride * sn * 4;
+  let armL = { s: 1 - stride * .55 * sn, r: stride * .12 * sn, sh: 0 }, armR = { s: 1 + stride * .55 * sn, r: stride * .12 * sn, sh: 0 };
+  let lean = walk === 2 ? 1.6 : 0, bodyScale = 1 + (walk ? 0 : Math.sin(t * 2.1 + idx) * .012), held = null, heldSwing = 0, weaponPose = 'none';
+  const aim = dead ? 0 : ease(o.aim || 0), kick = (o.kick || 0) * (o.kickLen || 3);
+  if (o.weapon >= 1 || o.aim) weaponPose = aim > .05 ? 'aim' : 'slung';
+  if (aim) { armL = { s: armL.s * (1 - aim) + 1.32 * aim, r: armL.r * (1 - aim) - .74 * aim, sh: -kick }; armR = { s: armR.s * (1 - aim) + 1.02 * aim, r: armR.r * (1 - aim) + .62 * aim, sh: -kick }; }
+  if (!dead && act && at < (act.kind === 'reload' ? o.reloadTime || 1.5 : act.kind === 'swap' ? .5 : .9)) {
+    const k = act.kind, beat = Math.abs(Math.sin(at * Math.PI * 2.4));
+    if (k === 'chop' || k === 'mine') { const st = .72 + beat * .5; armL = { s: st, r: -.5, sh: 0 }; armR = { s: st, r: .5, sh: 0 }; held = k; heldSwing = beat - .5; weaponPose = 'slung'; lean = beat * 1.5; }
+    else if (k === 'hammer') { armR = { s: .8 + beat * .4, r: .35, sh: 0 }; armL = { s: 1.1, r: -.3, sh: 0 }; held = k; heldSwing = beat - .5; weaponPose = 'slung'; lean = 1; }
+    else if (k === 'gather' || k === 'search') { const a = Math.sin(at * 9); armL = { s: 1.3 + a * .25, r: -.55 - a * .1, sh: 0 }; armR = { s: 1.3 - a * .25, r: .55 - a * .1, sh: 0 }; weaponPose = 'slung'; lean = 3; }
+    else if (k === 'eat' || k === 'drink') { const up = ease(at / .25) * (1 - ease((at - .7) / .2)); armR = { s: 1 - up * .55, r: up * .95, sh: 0 }; held = k; weaponPose = 'slung'; }
+    else if (k === 'bandage') { const w = Math.sin(at * 14) * .08; armL = { s: .62 + w, r: -.7, sh: 0 }; armR = { s: .62 - w, r: .7, sh: 0 }; held = 'bandage'; weaponPose = 'slung'; }
+    else if (k === 'reload') { const p = at / (o.reloadTime || 1.5), dip = Math.sin(Math.min(1, p) * Math.PI); armL = { s: 1.05 - dip * .3, r: -.25 - dip * .25, sh: 0 }; armR = { s: 1.05, r: .35, sh: 0 }; weaponPose = 'reload'; if (p > .2 && p < .55) held = 'mag'; }
+    else if (k === 'swap') { weaponPose = 'swap'; }
   }
-  c.save(); c.rotate(-Math.PI / 2 + sway); const k = 1 + bob * .025;
-  if (o.dead) c.globalAlpha = .85;
-  c.drawImage(o.tint ? tintedCanvas(o.look || 0, o.tint) : lookCanvas(o.look || 0), -size / 2 * k, -size / 2 * k, size * k, size * k);
-  c.restore(); c.globalAlpha = 1;
-  if (o.dead) { c.fillStyle = '#20100c55'; c.beginPath(); c.ellipse(0, 0, size * .42, size * .32, 0, 0, 7); c.fill(); return; }
-  if (aiming && o.weapon >= 1) { c.save(); c.translate(4, 4); c.fillStyle = '#1d1e1b'; c.fillRect(14, -1.2, ([0, 18, 18, 10, 20, 22, 20][o.weapon] || 12), 2.4); c.restore(); }
-  if (!aiming && o.weapon >= 1) { c.save(); c.translate(-4, -9); c.rotate(.5); c.fillStyle = '#232420'; c.fillRect(-11, -1.4, 22, 2.8); c.restore(); }
-  if (o.shot && o.flash) { const fx = ([22, 33, 31, 25, 40, 41, 37][o.weapon] || 22) + 2; c.fillStyle = '#ffe7a0'; c.beginPath(); c.moveTo(fx, 4); c.lineTo(fx + 9, 0); c.lineTo(fx + 14, 4); c.lineTo(fx + 9, 8); c.closePath(); c.fill(); }
+  if (dead) {
+    // Sprawled on the ground: limbs thrown out, body flattened.
+    armL = { s: 1 + dead * .1, r: armL.r + .8 * dead, sh: 0 }; armR = { s: 1 + dead * .1, r: armR.r - .7 * dead, sh: 0 };
+    legL = 1 + .15 * dead; legR = 1 - .05 * dead; stepL = stepR = 0;
+    c.fillStyle = 'rgba(74,16,12,' + (dead * .55) + ')'; c.beginPath(); c.ellipse(-2, 4, rig.box.w * .42 * dead, rig.box.h * .32 * dead, .3, 0, 7); c.fill();
+    c.scale(1, 1 - dead * .12);
+  }
+  if (o.gesture) { const g = Math.sin(t * 5) * .5 + .5; armR = { s: 1 - g * .25 * o.gesture, r: (.25 + g * .5) * o.gesture, sh: 0 }; }
+  // Legs, then the body over the hips.
+  limb(c, rig, 'legL', legL, dead * .25, lean * .3 + stepL); limb(c, rig, 'legR', legR, -dead * .2, lean * .3 + stepR);
+  c.save(); c.translate(0, lean - (o.hit || 0) * 1.5); if (bodyScale !== 1) c.scale(bodyScale, bodyScale); c.drawImage(rig.body, -rig.box.cx, -rig.box.cy); c.restore();
+  if (weaponPose === 'slung' && o.weapon >= 1) { c.save(); c.translate(-rig.box.w * .05, -rig.box.h * .05 + lean); c.rotate(-2.3); c.scale(1 / s, 1 / s); c.translate(-18, 0); drawWeapon(c, o.weapon, 0); c.restore(); }
+  // The weapon sits between the hands, pointing forward.
+  if (weaponPose === 'aim' || weaponPose === 'reload' || weaponPose === 'swap') {
+    c.save(); const k = weaponPose === 'swap' ? Math.min(1, at / .5) : 1, low = weaponPose === 'swap' ? Math.sin(k * Math.PI) : 0;
+    c.translate(0, rig.chest[1] + lean - kick + low * -4); c.rotate(Math.PI / 2 + (weaponPose === 'reload' ? .5 : 0) + low * .9);
+    c.scale(1 / s, 1 / s); drawWeapon(c, o.weapon || 0, 0);
+    if (o.flash && weaponPose === 'aim') { const fx = ([22, 33, 31, 25, 40, 41, 37][o.weapon] || 22) + 1; c.fillStyle = '#ffe7a0'; c.beginPath(); c.moveTo(fx, 0); c.lineTo(fx + 8, -3.5); c.lineTo(fx + 13, 0); c.lineTo(fx + 8, 3.5); c.closePath(); c.fill(); c.fillStyle = '#fff6d8'; c.beginPath(); c.arc(fx + 2, 0, 2.2, 0, 7); c.fill(); }
+    c.restore();
+  }
+  limb(c, rig, 'armL', armL.s, armL.r, armL.sh + lean); limb(c, rig, 'armR', armR.s, armR.r, armR.sh + lean);
+  if (held) { const [hx, hy] = handAt(rig, held === 'chop' || held === 'mine' ? 'armL' : 'armR', held === 'chop' || held === 'mine' ? armL.s : armR.s, held === 'chop' || held === 'mine' ? armL.r : armR.r, lean);
+    const [qx] = handAt(rig, 'armR', armR.s, armR.r, lean); heldThing(c, held, held === 'chop' || held === 'mine' ? (hx + qx) / 2 : hx, hy, heldSwing); }
+  c.restore();
+};
+// Compatibility wrappers used by the renderer.
+AS.sprites.look = function (c, o) {
+  AS.sprites.figure(c, { look: o.look, tint: o.tint, size: o.size, phase: o.phase, speed: o.moving ? (o.run ? 2 : 1) : 0, aim: o.aim ? 1 : 0, kick: o.shot ? 1 : 0, weapon: o.weapon, flash: o.flash, dead: o.dead ? 1 : 0, time: o.phase });
+};
+AS.sprites.giver = function (c, o) {
+  AS.sprites.figure(c, { src: 'giver', art: o.art, look: o.look, size: 40, time: o.time || 0, gesture: o.gesture || 0, phase: 0, speed: 0 });
 };
 
 /* ---------- landmarks: one recognisable monument per settlement ---------- */
@@ -623,8 +705,9 @@ AS.sprites.landmark = function (tid, w, h) {
 /* ---------- wild animals and mutants, top-down, facing +x ---------- */
 AS.sprites.creature = function (c, o) {
   // o: {type, phase, moving, attack, dead, seed}
-  const t = o.type, sw = o.moving ? Math.sin(o.phase) : 0, lunge = o.attack ? 6 : 0;
-  if (o.dead) { c.fillStyle = '#5b1d1666'; c.beginPath(); c.ellipse(0, 3, 22, 12, 0, 0, 7); c.fill(); c.rotate(1.4); c.globalAlpha = .75; }
+  const t = o.type, sw = o.moving ? Math.sin(o.phase) : 0, lunge = o.lunge != null ? o.lunge : o.attack ? 6 : 0;
+  const dk = o.dead === true ? 1 : o.dead || 0;
+  if (dk) { c.fillStyle = '#5b1d16' + Math.round(dk * 102).toString(16).padStart(2, '0'); c.beginPath(); c.ellipse(0, 3, 22 * dk, 12 * dk, 0, 0, 7); c.fill(); c.rotate(1.4 * dk); c.globalAlpha = 1 - dk * .25; }
   c.translate(lunge, 0);
   const shadow = (rx, ry) => { c.fillStyle = '#0c120d55'; c.beginPath(); c.ellipse(4, 5, rx, ry, 0, 0, 7); c.fill(); };
   const legs = (xs, len, col, w) => { c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round'; xs.forEach((x, i) => { const k = (i % 2 ? 1 : -1) * sw * len * .5; [-1, 1].forEach(side => { c.beginPath(); c.moveTo(x, side * 4); c.lineTo(x + k * side, side * (4 + len)); c.stroke(); }); }); };

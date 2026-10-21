@@ -169,14 +169,16 @@ STORAGE_BASE = 320
 STORAGE_PER_WAREHOUSE = 250
 # Indices 0-2 are the 0.2 weapons and stay stable for old saves. 'price' is in coins (shop),
 # 'cost' in faction resources (workshop), 'level' is the character level needed to buy.
+# mag: rounds before an automatic reload; reload: seconds. Switching weapons takes SWAP_TIME.
+SWAP_TIME = .5
 WEAPONS = [
-    {'name':'Пистолет Макарова','dmg':16,'cd':.45,'range':420,'ammo':.12,'cost':{},'price':0,'level':1,'width':20},
-    {'name':'Охотничье ружьё','dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1,'price':180,'level':1,'width':28},
-    {'name':'Автомат Калашникова','dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':630,'level':6,'width':20,'spread':.05},
-    {'name':'Обрез','dmg':44,'cd':1.1,'range':300,'ammo':.3,'price':120,'level':2,'width':38},
-    {'name':'Карабин СКС','dmg':38,'cd':.7,'range':600,'ammo':.2,'price':360,'level':4,'width':20},
-    {'name':'Снайперская винтовка СВД','dmg':72,'cd':1.6,'range':780,'ammo':.4,'price':1020,'level':12,'width':16},
-    {'name':'Пулемёт ПКМ','dmg':15,'cd':.1,'range':520,'ammo':.1,'price':1425,'level':18,'width':22,'spread':.08},
+    {'name':'Пистолет Макарова','mag':8,'reload':1.4,'dmg':16,'cd':.45,'range':420,'ammo':.12,'cost':{},'price':0,'level':1,'width':20},
+    {'name':'Охотничье ружьё','mag':2,'reload':2.0,'dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1,'price':180,'level':1,'width':28},
+    {'name':'Автомат Калашникова','mag':30,'reload':2.3,'dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':630,'level':6,'width':20,'spread':.05},
+    {'name':'Обрез','mag':2,'reload':1.8,'dmg':44,'cd':1.1,'range':300,'ammo':.3,'price':120,'level':2,'width':38},
+    {'name':'Карабин СКС','mag':10,'reload':2.0,'dmg':38,'cd':.7,'range':600,'ammo':.2,'price':360,'level':4,'width':20},
+    {'name':'Снайперская винтовка СВД','mag':10,'reload':2.6,'dmg':72,'cd':1.6,'range':780,'ammo':.4,'price':1020,'level':12,'width':16},
+    {'name':'Пулемёт ПКМ','mag':100,'reload':4.5,'dmg':15,'cd':.1,'range':520,'ammo':.1,'price':1425,'level':18,'width':22,'spread':.08},
 ]
 ARMOR = [
     {'name':'Куртка','reduce':0,'cost':{},'price':0,'level':1},

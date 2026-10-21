@@ -8,7 +8,7 @@ let cfg=null, state=null, token='', connected=false, joining=false, busy=false, 
 let cw=innerWidth,ch=innerHeight,dpr=1,cam={x:7300,y:5200}, drawPlayers={}, drawNpcs={};
 let last=performance.now(), frame=0, netBusy=false, netFailures=0, latestStamp=0, lastMessage=0, lastHud=0, pollCount=0;
 let zoom=Number(readStorage('as-zoom'))||1.3,aim={x:0,y:1}, nearest=null, currentTown=null, waypoint=null, lastAimAt=0;
-let heroColor=readStorage('as-color'),dialogGiver=null;
+let heroColor=readStorage('as-color'),dialogGiver=null,camKick=0,hurtFlash=0,lastHp=null;
 let requestSerial=0,lastShot=0,holdMouse=false,showedWarning=false,mapState={zoom:1,fx:null,fy:null,selected:null},mapTr=null;
 const palette=AS.colors;
 const sideName=id=>id&&state&&state.sides[id]?state.sides[id].name:'Независимые';
@@ -130,6 +130,7 @@ addEventListener('keydown',e=>{
  if(e.code==='KeyQ'&&state){const own=state.me.weapons.slice().sort((a,b)=>a-b),i=own.indexOf(state.me.gear.weapon);equip(own[(i+1)%own.length]);}
  if(/^Digit[1-7]$/.test(e.code)&&state){const own=state.me.weapons.slice().sort((a,b)=>a-b),n=Number(e.code.slice(5))-1;if(own[n]!=null)equip(own[n]);}
  if(e.code==='KeyB')confirmPost();
+ if(e.code==='KeyX')action('reload');
  if(e.code==='Space')shoot();
 });
 addEventListener('keyup',e=>{keys[e.code]=false;});
@@ -147,7 +148,9 @@ function vitalsHtml(big){const me=state.me,bar=(ic,v,label,cls)=>'<div class="vi
  return '<div class="vitals'+(big?' big':'')+'">'+bar('bowl',me.food,'Сытость','food')+bar('drop',me.water,'Вода','water')+bar('thermo',me.warmth,'Тепло','warm')+(me.bleeding?'<span class="chip bad">Кровотечение · H</span>':'')+(me.sick>state.time?'<span class="chip bad">Отравление</span>':'')+'</div>';}
 function equip(idx){if(!state||idx===state.me.gear.weapon)return;action('equip',{weapon:idx}).then(r=>{if(r){notify(cfg.weapons[idx].name,'Оружие в руках.');beep('door');}});}
 function weaponCd(){return state?cfg.weapons[state.me.gear.weapon].cd*1000+20:490;}
-function shoot(){if(!state||panel||state.me.vehicle||state.me.hp<=0)return;const now=performance.now();lastAimAt=now;if(now-lastShot<weaponCd())return;lastShot=now;action('shoot');}
+function shoot(){if(!state||panel||state.me.vehicle||state.me.hp<=0)return;const now=performance.now();lastAimAt=now;if(now-lastShot<weaponCd()||state.me.reload>state.time)return;lastShot=now;
+ // A light camera kick, stronger for heavy guns.
+ camKick=[.6,1.6,.5,2,1.1,2.2,.6][state.me.gear.weapon]||.6;action('shoot');}
 function closePanel(){panel=null;selected=null;screen.className='';screen.innerHTML='';document.body.classList.remove('dialog-open');clearKeys();}
 function modal(type,head,body,width){panel=type;document.body.classList.add('dialog-open');screen.className='';screen.innerHTML='<section class="modal '+(width||'')+'"><div class="modal-head"><div>'+head+'</div><button class="close" id="close-panel" aria-label="Закрыть">'+icon('close')+'</button></div>'+body+'</section>';$('close-panel').onclick=closePanel;clearKeys();}
 function showTitle(){panel='title';document.body.classList.remove('dialog-open');$('hud').classList.add('hidden');screen.className='title-screen';
@@ -176,7 +179,7 @@ function showSettings(){modal('settings','<span class="eyebrow">ЭТОТ КОМ�
  $('settings-done').onclick=closePanel;
 }
 function showHelp(fromTitle){modal('help','<span class="eyebrow">ПОЛЕВОЕ РУКОВОДСТВО</span><h2>Твой первый день</h2>',
- '<div class="modal-body"><div class="controls-grid"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd></span><span>Движение пешком и на машине</span><span><kbd>Shift</kbd></span><span>Бег; выносливость восстанавливается</span><span><kbd>E</kbd></span><span>Поговорить, собрать, открыть здание, площадь, тайник, убежище</span><span><kbd>F</kbd></span><span>Сесть в свою машину / выйти рядом с ней</span><span><kbd>H</kbd></span><span>Бинт или аптечка, иначе перевязка за 5 припасов</span><span><kbd>I</kbd> / <kbd>G</kbd> / <kbd>V</kbd></span><span>Рюкзак / поесть / попить (у реки — из реки)</span><span><kbd>Q</kbd> / <kbd>1</kbd>–<kbd>7</kbd></span><span>Сменить оружие</span><span><kbd>R</kbd> / <kbd>T</kbd></span><span>Ремкомплект / канистра в бак своей машины</span><span><kbd>O</kbd></span><span>Обмен с игроками рядом и клан</span><span><kbd>B</kbd></span><span>Поставить пост на трассе</span><span><kbd>M</kbd> / <kbd>J</kbd></span><span>Карта (колесо — масштаб) / журнал заданий</span><span>Мышь + ЛКМ / <kbd>Space</kbd></span><span>Прицел и выстрел</span><span><kbd>Esc</kbd></span><span>Меню: дипломатия, кланы, настройки</span></div>'+
+ '<div class="modal-body"><div class="controls-grid"><span><kbd>W A S D</kbd> / <kbd>↑ ↓ ← →</kbd></span><span>Движение пешком и на машине</span><span><kbd>Shift</kbd></span><span>Бег; выносливость восстанавливается</span><span><kbd>E</kbd></span><span>Поговорить, собрать, открыть здание, площадь, тайник, убежище</span><span><kbd>F</kbd></span><span>Сесть в свою машину / выйти рядом с ней</span><span><kbd>H</kbd></span><span>Бинт или аптечка, иначе перевязка за 5 припасов</span><span><kbd>I</kbd> / <kbd>G</kbd> / <kbd>V</kbd></span><span>Рюкзак / поесть / попить (у реки — из реки)</span><span><kbd>Q</kbd> / <kbd>1</kbd>–<kbd>7</kbd></span><span>Сменить оружие</span><span><kbd>X</kbd></span><span>Перезарядка (сама начинается, когда магазин пуст)</span><span><kbd>R</kbd> / <kbd>T</kbd></span><span>Ремкомплект / канистра в бак своей машины</span><span><kbd>O</kbd></span><span>Обмен с игроками рядом и клан</span><span><kbd>B</kbd></span><span>Поставить пост на трассе</span><span><kbd>M</kbd> / <kbd>J</kbd></span><span>Карта (колесо — масштаб) / журнал заданий</span><span>Мышь + ЛКМ / <kbd>Space</kbd></span><span>Прицел и выстрел</span><span><kbd>Esc</kbd></span><span>Меню: дипломатия, кланы, настройки</span></div>'+
  '<p class="control-note">Каждый сам за себя. У тебя есть убежище: его нельзя захватить, там кормят, заправляют машину и лечат раны. Убежище стерегут бойцы: чужих они предупреждают у ограды, а за ограду пускают только пулей. Ресурсов мало — береги патроны, еду и топливо.</p>'+
  '<p class="control-note" style="margin-top:12px">Задания дают только люди на площадях поселений: староста, торговец, механик, командир, охотник и медик. Подойди, нажми E, выслушай и возьми работу. Сдают её тому же человеку в любом поселении. В крупных городах сидят радисты — им сдают главы сюжета.</p>'+
  '<p class="control-note" style="margin-top:12px">Свободные поселения держат мародёры, в крупных городах — вместе с головорезами. Перебей их, затем начни захват на площади и удерживай круг 30 секунд. Твоё поселение охраняют твои люди; они не выходят за его пределы. Сторожевая вышка добавляет охранников.</p>'+
@@ -400,7 +403,7 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
  $('coins').innerHTML=icon('coin')+'<b>'+p.coins+'</b><span title="Рюкзак: I">'+icon('bag')+Object.values(p.items).reduce((a,b)=>a+b,0)+' / '+cfg.backpacks[p.gear.backpack].slots+'</span>';
  $('vitals').innerHTML=vitalsHtml(false);
  $('level').innerHTML='<b>'+p.level+'</b><span>УР.</span><i><em style="width:'+(maxLv?100:Math.round(p.xp/need*100))+'%"></em></i><small>'+(maxLv?'максимум':p.xp+' / '+need+' опыта')+'</small>';
- $('mode').innerHTML=icon(p.vehicle?'car':'walk')+'<span>'+(p.vehicle?'За рулём · '+Math.round(p.car.hp)+'% · бак '+Math.floor(p.car.fuel)+' / '+cfg.car_tank:'Пешком')+'</span><span class="hp">'+icon('heart')+Math.ceil(p.hp)+' / '+p.max_hp+'</span><span class="gear">'+icon('gun')+esc(cfg.weapons[p.gear.weapon].name)+'</span><span class="gear">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</span>';
+ $('mode').innerHTML=icon(p.vehicle?'car':'walk')+'<span>'+(p.vehicle?'За рулём · '+Math.round(p.car.hp)+'% · бак '+Math.floor(p.car.fuel)+' / '+cfg.car_tank:'Пешком')+'</span><span class="hp">'+icon('heart')+Math.ceil(p.hp)+' / '+p.max_hp+'</span><span class="gear">'+icon('gun')+esc(cfg.weapons[p.gear.weapon].name)+' · '+(p.reload>state.time?'перезарядка':p.mag+' / '+cfg.weapons[p.gear.weapon].mag)+'</span><span class="gear">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</span>';
  $('stamina').firstElementChild.style.width=p.stamina+'%';$('autosave').textContent=netFailures?'Соединение с ведущим потеряно':'Мир сохраняется у ведущего · '+state.players.length+' / '+cfg.max_players+' игроков';
  const s=state.story;
  if(s.chapter&&(s.ready||frame%600<300)){$('quest-index').textContent='ГЛАВА '+(s.index+1);$('quest-title').textContent=s.chapter.title;$('quest-desc').textContent=s.chapter.text;$('quest-progress').innerHTML='<div class="task '+(s.ready?'done':'')+'"><i></i>'+s.progress[0]+' / '+s.progress[1]+(s.ready?' · Сдай главу радисту в крупном городе':'')+'</div>';}
@@ -431,11 +434,16 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
 
 /* Smoothly follow server positions; walking phase drives the animation. */
 function interpolate(list,store,dt){const seen={};list.forEach(p=>{seen[p.id]=1;let r=store[p.id];if(!r||distance(r,p)>500)r=store[p.id]={x:p.x,y:p.y,phase:Math.random()*6,ang:p.angle};
- const ox=r.x,oy=r.y;r.x+=(p.x-r.x)*Math.min(1,dt*14);r.y+=(p.y-r.y)*Math.min(1,dt*14);const sp=Math.hypot(r.x-ox,r.y-oy)/Math.max(dt,.001);r.moving=sp>12;r.phase+=dt*(sp>170?13:9)*(r.moving?1:0);
+ const ox=r.x,oy=r.y;r.x+=(p.x-r.x)*Math.min(1,dt*14);r.y+=(p.y-r.y)*Math.min(1,dt*14);const sp=Math.hypot(r.x-ox,r.y-oy)/Math.max(dt,.001);r.sp=(r.sp||0)+(sp-(r.sp||0))*Math.min(1,dt*8);r.moving=r.sp>12;
+ // Step rate follows the actual speed, so feet do not slide over the ground.
+ r.phase+=dt*Math.min(16,4+r.sp*.055)*(r.moving?1:0);
  let da=(p.angle-r.ang+Math.PI)%(Math.PI*2);if(da<0)da+=Math.PI*2;r.ang+=(da-Math.PI)*Math.min(1,dt*12);});Object.keys(store).forEach(k=>{if(!seen[k])delete store[k];});}
 let slowFrames=0,measured=0;
 // Cold frosts the screen edges; bleeding pulses red.
 function conditionOverlay(now){const me=state.me;
+ // A short red edge when hit.
+ if(lastHp!=null&&me.hp<lastHp-1)hurtFlash=1;lastHp=me.hp;
+ if(hurtFlash>0){ctx.strokeStyle='rgba(150,25,20,'+(hurtFlash*.45)+')';ctx.lineWidth=26;ctx.strokeRect(0,0,cw,ch);hurtFlash=Math.max(0,hurtFlash-.06);}
  // Foreign shelters: a warning at the outer ring, a red frame inside the fence.
  const danger=cfg.shelters.map(sh=>{const owner=Object.keys(state.sides).find(id=>state.sides[id].shelter===sh.id);return owner&&!friendly(owner)&&!(state.truce.pairs[owner]>state.time)?distance(sh,me):1e9;}).reduce((a,b)=>Math.min(a,b),1e9);
  if(danger<cfg.shelter_warn){const inside=danger<cfg.shelter_radius;ctx.fillStyle=inside?'rgba(150,20,15,.22)':'rgba(150,90,15,.12)';ctx.fillRect(0,0,cw,8);ctx.fillRect(0,ch-8,cw,8);R.pill(ctx,inside?'ЗОНА ОГНЯ · ОХРАНА УБЕЖИЩА СТРЕЛЯЕТ НА ПОРАЖЕНИЕ':'ТЕРРИТОРИЯ ЧУЖОГО УБЕЖИЩА · НЕ ПРИБЛИЖАЙСЯ',cw/2,ch/2+70,inside?'#e06a55':'#e0b155');}const cold=clamp((35-me.warmth)/35,0,1),blood=me.bleeding?.35+Math.sin(now/260)*.15:0,low=me.hp<me.max_hp*.3?.25:0;
@@ -446,7 +454,8 @@ function render(now){const raw=(now-last)/1000,dt=Math.min(raw,.05);last=now;fra
  if(state&&!panel&&measured<240&&!readStorage('as-quality')){measured++;if(raw>.042)slowFrames++;if(measured===240&&slowFrames>140&&R.quality!=='low'){R.quality='low';resize();notify('Экономная графика','Компьютер не успевает за полной графикой. Вернуть можно в Esc → Настройки.');}}
  if(state){interpolate(state.players,drawPlayers,dt);interpolate(state.npcs||[],drawNpcs,dt);const me=drawPlayers[state.me.id];if(me){const look=state.me.vehicle?120:0;const tx=me.x+(state.me.vehicle?Math.cos(state.me.angle)*look:0),ty=me.y+(state.me.vehicle?Math.sin(state.me.angle)*look:0);cam.x+=(tx-cam.x)*Math.min(1,dt*6);cam.y+=(ty-cam.y)*Math.min(1,dt*6);}updateAim();}
  ctx.setTransform(dpr,0,0,dpr,0,0);
- const view={cam,cw,ch,zoom,state,drawPlayers,drawNpcs,nearest,panel,aim,now:now/1000,dt,dpr,waypoint,holdAim:holdMouse||keys.Space||now-lastAimAt<900,dark:0};
+ if(camKick>0){cam.x-=aim.x*camKick;cam.y-=aim.y*camKick;camKick=Math.max(0,camKick-dt*14);}
+ const view={talkTo:panel==='dialog'&&dialogGiver?dialogGiver.id:null,cam,cw,ch,zoom,state,drawPlayers,drawNpcs,nearest,panel,aim,now:now/1000,dt,dpr,waypoint,holdAim:holdMouse||keys.Space||now-lastAimAt<900,dark:0};
  if(cfg)R.draw(ctx,view);
  if(state)conditionOverlay(now);
  if(state&&waypoint&&!panel){const dx=waypoint.x-cam.x,dy=waypoint.y-cam.y,len=Math.hypot(dx,dy);if(len*zoom>Math.min(cw,ch)*.3){const angle=Math.atan2(dy,dx),r=Math.min(cw*.31,ch*.31),x=cw/2+Math.cos(angle)*r,y=ch/2+Math.sin(angle)*r;ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.fillStyle='#e5b378';ctx.beginPath();ctx.moveTo(10,0);ctx.lineTo(-6,-6);ctx.lineTo(-3,0);ctx.lineTo(-6,6);ctx.fill();ctx.restore();R.pill(ctx,(waypoint.name||'Цель')+' · '+Math.round(len/100)/10+' км',x,y+23,'#ead6b4');}}

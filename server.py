@@ -20,7 +20,7 @@ from world_data import (VERSION, WORLD_SIZE, RESOURCES, TOWNS, REGIONS, MAX_PLAY
                         SIDE_COLORS, AI_SIDES, STORY_LINE, POST, SHELTER_RADIUS, SHELTER_WARN, SHELTER_GUARDS,
                         BIG_TOWNS, START_STOCK, NODE_RESPAWN, LOOKS, GIVERS, GIVER_PLAN, MAX_ACTIVE_QUESTS, BUILDINGS, EVENTS, QUESTS, WEAPONS, ARMOR, POI_KINDS,
                         POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
-                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, xp_to_next, max_hp, hero_look, config)
+                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, xp_to_next, max_hp, hero_look, SWAP_TIME, config)
 from terrain import Terrain, town_buildings, resource_nodes, landmark_rect
 from npc import NpcMixin
 
@@ -214,6 +214,8 @@ class World(NpcMixin):
     def _public_player(self, p):
         out={k:p[k] for k in ('id','name','faction','x','y','angle','hp','stamina','vehicle','dead_until','gear','level','xp')}
         out['look']=hero_look(p['level'])
+        # What the character is doing, for animation on every client.
+        out['act']=p.get('act');out['reload']=p.get('reload_until',0);out['mag']=self._mag(p)
         clan=self.clans.get(self.sides.get(p['faction'],{}).get('clan'))
         out['tag']=clan['tag'] if clan else ''
         out['max_hp']=max_hp(p['level'])
@@ -535,11 +537,32 @@ class World(NpcMixin):
         p['receipts'][request_id]=result
         while len(p['receipts'])>80: p['receipts'].popitem(last=False)
         self.dirty=True
-        if op not in ('shoot','vehicle','heal'):
+        kind=self._act_kind(p,op,data,result)
+        if kind:p['act']={'kind':kind,'at':round(self.elapsed,2)}
+        if op not in ('shoot','vehicle','heal','reload','equip'):
             p['busy']=self.elapsed
             # With 25 players a disk write per action is too much: the world is written within two seconds.
             self.save_clock=max(self.save_clock,8)
         return result
+
+    def _act_kind(self,p,op,data,result):
+        """Which animation an action plays: tools for work, hands for eating and dressing wounds."""
+        if isinstance(result,dict) and (result.get('quiet') or result.get('event') or result.get('dialog')) and op!='shoot':return None
+        if op=='harvest':
+            n=self.nodes.get(str(data.get('id')))
+            return {'wood':'chop','stone':'mine','metal':'mine'}.get(n['kind'],'gather') if n else None
+        if op in ('build','extinguish','repair','craft'):return 'hammer'
+        if op in ('loot','airdrop','post','cook'):return 'search'
+        if op in ('drink','canteen'):return 'drink' if op=='drink' else 'eat'
+        if op=='heal':return 'bandage'
+        if op=='use':
+            item=data.get('item')
+            return 'drink' if item in ('water','tea') else 'bandage' if item in ('bandage','medkit','antibiotics') else 'eat'
+        return None
+
+    def _mag(self,p):
+        w=p['gear']['weapon'];mags=p.setdefault('mags',{})
+        return mags.get(str(w),WEAPONS[w]['mag'])
 
     def _act(self,p,op,data):
         f=p['faction']
@@ -756,7 +779,13 @@ class World(NpcMixin):
         if op=='shoot':
             if p['vehicle']: raise GameError('Стрелять можно только пешком.')
             weapon=WEAPONS[p['gear']['weapon']]
+            if p.get('reload_until',0)>self.elapsed: raise GameError('Перезарядка.')
             self._cooldown(p,'shoot',weapon['cd']*.92)
+            left=self._mag(p)-1;p['mags'][str(p['gear']['weapon'])]=left
+            if left<=0:
+                # The last round in the magazine starts an automatic reload.
+                p['mags'][str(p['gear']['weapon'])]=weapon['mag'];p['reload_until']=self.elapsed+weapon['reload']
+                p['act']={'kind':'reload','at':round(self.elapsed,2)}
             self._pay(f,{'metal':weapon['ammo']*(.6 if self.has_perk(p,15) else 1)})
             ax,ay=p['aim'];length=math.hypot(ax,ay) or 1;ax/=length;ay/=length
             if weapon.get('spread'):
@@ -764,6 +793,12 @@ class World(NpcMixin):
             end=self.shoot_line(p,ax,ay,weapon['range'],weapon['dmg']*(1+.03*(p['level']-1)),weapon.get('width',20))
             p['shot']=self.elapsed
             self.effects.append({'id':secrets.token_hex(4),'kind':'shot','x':p['x'],'y':p['y'],'ex':end['x'],'ey':end['y'],'until':self.elapsed+.22,'faction':f,'weapon':p['gear']['weapon']})
+            return {'quiet':True}
+        if op=='reload':
+            weapon=WEAPONS[p['gear']['weapon']]
+            if p.get('reload_until',0)>self.elapsed or self._mag(p)>=weapon['mag']: return {'quiet':True}
+            p['mags'][str(p['gear']['weapon'])]=weapon['mag'];p['reload_until']=self.elapsed+weapon['reload']
+            p['act']={'kind':'reload','at':round(self.elapsed,2)}
             return {'quiet':True}
         if op=='use':
             item=data.get('item')
@@ -813,7 +848,9 @@ class World(NpcMixin):
         if op=='equip':
             idx=data.get('weapon')
             if not isinstance(idx,int) or idx not in p['weapons']: raise GameError('Этого оружия у тебя нет.')
-            p['gear']['weapon']=idx
+            if idx!=p['gear']['weapon']:
+                p['gear']['weapon']=idx;p['reload_until']=max(p.get('reload_until',0),self.elapsed+SWAP_TIME)
+                p['act']={'kind':'swap','at':round(self.elapsed,2)}
             return {'quiet':True}
         if op=='buy':
             return self._buy(p,data)
@@ -1410,6 +1447,8 @@ class World(NpcMixin):
                 p['weapons']=sorted({int(clamp(finite(i),0,len(WEAPONS)-1)) for i in p.get('weapons',[])}|{0,p['gear']['weapon']})
                 items=p.get('items') or {};p['items']={k:max(0,int(finite(v))) for k,v in items.items() if k in ITEMS and finite(v)>0}
                 for key,default in (('food',80.0),('water',80.0),('warmth',90.0)):p[key]=clamp(finite(p.get(key,default),default),0,100)
+                p['mags']={str(k):int(clamp(finite(v),0,999)) for k,v in (p.get('mags') or {}).items()} if isinstance(p.get('mags'),dict) else {}
+                p['reload_until']=finite(p.get('reload_until',0));p.pop('act',None)
                 p['bleeding']=bool(p.get('bleeding'));p['sick']=finite(p.get('sick',0));p['warned']=[]
                 players[token]=p
             towns=copy.deepcopy(self.towns)

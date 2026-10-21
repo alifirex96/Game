@@ -244,13 +244,15 @@ function lampsOf(t) { const out = []; if (!t.owner || t.levels.depot < 2) return
 /* ---------- particles ---------- */
 function puff(kind, x, y, vx, vy, life, size, color) { if (particles.length > (R.quality === 'low' ? 160 : 480)) particles.shift(); particles.push({ kind, x, y, vx, vy, life, max: life, size, color }); }
 function updateParticles(dt) {
-  for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.life -= dt; if (p.life <= 0) { particles.splice(i, 1); continue; } p.x += p.vx * dt; p.y += p.vy * dt; if (p.kind === 'smoke') { p.vx += 6 * dt; p.size += dt * 5; } if (p.kind === 'spark' || p.kind === 'debris') { p.vx *= .92; p.vy *= .92; } if (p.kind === 'flame') p.size *= .985; }
+  for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.life -= dt; if (p.life <= 0) { particles.splice(i, 1); continue; } p.x += p.vx * dt; p.y += p.vy * dt; if (p.kind === 'smoke') { p.vx += 6 * dt; p.size += dt * 5; } if (p.kind === 'spark' || p.kind === 'debris') { p.vx *= .92; p.vy *= .92; } if (p.kind === 'flame') p.size *= .985; if (p.kind === 'shell') { const k = Math.pow(.02, dt); p.vx *= k; p.vy *= k; p.spin = (p.spin || 0) + Math.hypot(p.vx, p.vy) * dt * .3; } }
 }
 function drawParticles(c, layer) {
   for (const p of particles) {
     const k = p.life / p.max;
-    if (layer === 'low' && p.kind !== 'dust' && p.kind !== 'debris' && p.kind !== 'blood') continue;
-    if (layer === 'high' && (p.kind === 'dust' || p.kind === 'debris' || p.kind === 'blood')) continue;
+    const low = p.kind === 'dust' || p.kind === 'debris' || p.kind === 'blood' || p.kind === 'shell';
+    if (layer === 'low' && !low) continue;
+    if (layer === 'high' && low) continue;
+    if (p.kind === 'shell') { c.save(); c.translate(p.x, p.y); c.rotate(p.spin || 0); c.fillStyle = '#c9a24a'; c.fillRect(-1.6, -.8, 3.2, 1.6); c.restore(); continue; }
     if (p.kind === 'smoke' || p.kind === 'dust') { c.fillStyle = (p.color || '#8a8a80') + Math.floor(Math.min(1, k * 1.3) * (p.kind === 'dust' ? 60 : 52)).toString(16).padStart(2, '0'); c.beginPath(); c.arc(p.x, p.y, p.size, 0, 7); c.fill(); }
     else if (p.kind === 'flame') { const g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size); g.addColorStop(0, '#fff2b0'); g.addColorStop(.4, '#f39a3a' + Math.floor(k * 255).toString(16).padStart(2, '0')); g.addColorStop(1, '#c5401c00'); c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, p.size, 0, 7); c.fill(); }
     else if (p.kind === 'spark') { c.fillStyle = '#ffd98a'; c.fillRect(p.x, p.y, 2, 2); }
@@ -311,14 +313,18 @@ R.draw = function (c, v) {
   for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) (nodeGrid.get(gx + ',' + gy) || []).forEach(n => { if (!vis(n.x, n.y, 60) || (state && state.harvested && state.harvested[n.id] > state.time)) return; items.push({ y: n.y, f: () => { const sp = S.node(n.kind, Math.floor(hash(n.x, n.y) * 3)); c.drawImage(sp.im, n.x - sp.ox, n.y - sp.oy); if (v.nearest && v.nearest.obj === n) { c.strokeStyle = '#e7ae6b'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(n.x, n.y + 8, 30, 15, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
   if (state) {
     (cfg.shelters || []).forEach(sh => { if (vis(sh.x, sh.y, 300)) items.push({ y: sh.y + 20, f: () => drawShelter(c, sh, v) }); });
-    (cfg.givers || []).forEach(g => { if (!vis(g.x, g.y)) return; items.push({ y: g.y, f: () => { c.save(); c.translate(g.x, g.y); c.rotate(Math.PI / 2 + Math.sin(now * .4 + g.x) * .4); S.giver(c, { art: g.art, look: g.look, phase: now * .7 + g.x }); c.restore(); if (v.nearest && v.nearest.obj === g) { c.strokeStyle = '#d9b27a'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(g.x, g.y + 6, 26, 14, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
+    (cfg.givers || []).forEach(g => { if (!vis(g.x, g.y)) return; items.push({ y: g.y, f: () => { const st = giverAnim(g, v); c.save(); c.translate(g.x, g.y); c.rotate(st.ang); S.giver(c, { art: g.art, look: g.look, time: now + g.x, gesture: st.gesture }); c.restore(); if (v.nearest && v.nearest.obj === g) { c.strokeStyle = '#d9b27a'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(g.x, g.y + 6, 26, 14, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
     (state.posts || []).forEach(p => { if (vis(p.x, p.y)) items.push({ y: p.y, f: () => drawPost(c, p, now) }); });
     (state.airdrops || []).forEach(d => { if (vis(d.x, d.y)) items.push({ y: d.y, f: () => drawDrop(c, d, now) }); });
     state.players.forEach(p => {
       const r = v.drawPlayers[p.id]; if (!r) return;
-      const car = p.vehicle ? { x: r.x, y: r.y, angle: p.car.angle } : p.car;
-      if (car && vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, AS.util.strSeed(p.id) < .5 ? 'pickup' : 'suv', p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, p.vehicle && p.moving, now) });
-      if (!p.vehicle && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
+      if (r.inCar !== p.vehicle) { if (r.inCar != null) r.carAt = now; r.inCar = p.vehicle; }
+      const climbing = p.vehicle && r.carAt && now - r.carAt < .3, door = r.carAt ? Math.max(0, 1 - Math.abs(now - r.carAt - .2) / .3) : 0;
+      const car = p.vehicle && !climbing ? { x: r.x, y: r.y, angle: r.ang != null ? r.ang : p.car.angle } : p.car;
+      if (car) { const prev = r.carAngPrev != null ? r.carAngPrev : car.angle; let da = car.angle - prev; da = Math.atan2(Math.sin(da), Math.cos(da)); r.carAngPrev = car.angle; r.lean = (r.lean || 0) + (Math.max(-1, Math.min(1, da / Math.max(dt, .001) * .35)) - (r.lean || 0)) * Math.min(1, dt * 6); }
+      if (car && vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, AS.util.strSeed(p.id) < .5 ? 'pickup' : 'suv', p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, p.vehicle && p.moving, now, { lean: p.vehicle ? r.lean : 0, engine: p.vehicle && p.hp > 0, door }) });
+      if (!r.bnT || now - r.bnT > .5) { r.bnT = now; r.buildNear = !p.vehicle && cfg.buildings_world.some(b => Math.abs(b.x - r.x) < 230 && Math.abs(b.y - r.y) < 230 && towns2 && towns2[b.town] && towns2[b.town].owner === p.faction && towns2[b.town].construct && towns2[b.town].construct[b.kind]); }
+      if ((!p.vehicle || climbing) && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
     });
     (state.npcs || []).forEach(n => { const r = v.drawNpcs[n.id] || n; if (!vis(r.x, r.y)) return; items.push({ y: r.y, f: () => drawNpc(c, n, r, v) }); });
     cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 500)) return; civilians(t0, towns2 && towns2[t0.id], now, v).forEach(cv => items.push({ y: cv.y, f: () => { c.save(); c.translate(cv.x, cv.y); c.rotate(cv.a); S.look(c, { look: SNOWY[biomeAt(t0.x, t0.y)] && cv.seed > .5 ? 15 : CIVIL_LOOKS[Math.floor(cv.seed * 5)], phase: now * 7 + cv.seed * 9, moving: cv.moving, weapon: 0, size: 34 }); c.restore(); } })); });
@@ -388,28 +394,76 @@ function drawDrop(c, d, now) {
   crateDraw(c); c.strokeStyle = '#ffd38a' + Math.floor(140 + Math.sin(now * 4) * 100).toString(16).padStart(2, '0'); c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, 30, 0, 7); c.stroke(); c.restore();
 }
 function crateDraw(c) { c.fillStyle = '#6b7d55'; c.fillRect(-12, -10, 24, 20); c.strokeStyle = '#2e3328'; c.strokeRect(-12, -10, 24, 20); c.beginPath(); c.moveTo(-12, -10); c.lineTo(12, 10); c.stroke(); }
-function drawCar(c, car, faction, damage, moving, now) {
+// People on the squares turn to whoever comes close and talk with their hands during a conversation.
+const giverState = new Map();
+function giverAnim(g, v) {
+  let st = giverState.get(g.id); if (!st) giverState.set(g.id, st = { ang: Math.PI / 2, gesture: 0 });
+  const me = v.state && v.drawPlayers[v.state.me.id];
+  const target = me && Math.hypot(me.x - g.x, me.y - g.y) < 260 ? Math.atan2(me.y - g.y, me.x - g.x) : Math.PI / 2 + Math.sin(v.now * .25 + g.x) * .5;
+  let da = target - st.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); st.ang += da * Math.min(1, v.dt * 3);
+  st.gesture += ((v.talkTo === g.id ? 1 : 0) - st.gesture) * Math.min(1, v.dt * 4);
+  return st;
+}
+function drawCar(c, car, faction, damage, moving, now, o) {
+  o = o || {};
   const sp = S.vehicle(faction === 'pickup' ? 'pickup' : 'suv', faction === 'pickup' ? '#6e3b2c' : '#7d8664', damage);
-  c.save(); c.translate(car.x, car.y); c.rotate(car.angle); c.drawImage(sp.im, -sp.ox, -sp.oy); c.restore();
+  // Body rolls out of turns; an idling engine shakes the body a little.
+  const lean = o.lean || 0, shake = o.engine && !moving && damage < 2 ? Math.sin(now * 55) * .35 : 0;
+  c.save(); c.translate(car.x, car.y); c.rotate(car.angle);
+  c.translate(shake * .5, -lean * 1.6 + shake); c.drawImage(sp.im, -sp.ox, -sp.oy);
+  if (o.door > 0) { c.save(); c.translate(4, -sp.oy * .62); c.rotate(-o.door * .9); c.fillStyle = '#00000044'; c.fillRect(-15, 1, 15, 3); c.fillStyle = shade(faction === 'pickup' ? '#6e3b2c' : '#7d8664', -.15); c.fillRect(-15, -1.5, 15, 3); c.restore(); }
+  c.restore();
+  if (o.engine && damage < 2 && Math.random() < (moving ? .5 : .18)) puff('smoke', car.x - Math.cos(car.angle) * 36, car.y - Math.sin(car.angle) * 36, -Math.cos(car.angle) * 12, -Math.sin(car.angle) * 12 - 4, 1.2, 3, '#7a7770');
   if (moving && Math.random() < .5) puff('dust', car.x - Math.cos(car.angle) * 34, car.y - Math.sin(car.angle) * 34, (Math.random() - .5) * 20, (Math.random() - .5) * 20, .8, 6, '#9d927a');
   if (damage === 2 && Math.random() < .3) puff('smoke', car.x, car.y, 4, -12, 2, 6, '#2f2c28');
 }
-function drawPlayer(c, p, r, v) {
-  const isMe = v.state && p.id === v.state.me.id, t = v.state.time;
-  const ang = isMe && !p.vehicle ? Math.atan2(v.aim.y, v.aim.x) : (t - p.shot < .6 ? p.angle : p.angle);
-  const dead = p.hp <= 0;
-  c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (isMe ? ang : (r.ang != null ? r.ang : p.angle)));
-  S.look(c, { look: p.look || 0, tint: col(p.faction), weapon: p.gear ? p.gear.weapon : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: (isMe && v.holdAim) || t - p.shot < 1.2, shot: t - p.shot < .25, flash: t - p.shot < .07, dead });
-  c.restore();
-  if (dead) return;
-  const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
+// Per-weapon recoil (figure pixels the arms travel back) and how far shells fly.
+const KICK = [2.5, 5, 2, 6, 3.5, 6, 2.2];
+// Animation state that only the client needs: kept on the interpolated record r.
+function animState(r, ent, now, dt, aimTarget) {
+  if (ent.hp < (r.hpSeen != null ? r.hpSeen : ent.hp) - .5) { r.hitAt = now; if (ent.hp > 0) for (let i = 0; i < 3; i++) puff('blood', r.x + (Math.random() - .5) * 12, r.y + (Math.random() - .5) * 12, 0, 0, 14, 1.2 + Math.random() * 1.8); }
+  if (ent.hp <= 0 && !(r.hpSeen <= 0)) r.deadAt = r.hpSeen == null ? now - 1 : now;
+  if (ent.hp > 0) r.deadAt = null;
+  r.hpSeen = ent.hp;
+  if (ent.shot !== r.shotSeen) { if (r.shotSeen != null && ent.shot > 0) { r.shotAt = now; r.shells = (r.shells || 0) + 1; } r.shotSeen = ent.shot; }
+  r.aimK = (r.aimK || 0) + (aimTarget - (r.aimK || 0)) * Math.min(1, dt * 11);
+  return { kick: r.shotAt ? Math.max(0, 1 - (now - r.shotAt) / .13) : 0, hit: r.hitAt ? Math.max(0, 1 - (now - r.hitAt) / .25) : 0,
+    dead: ent.hp <= 0 ? (r.deadAt != null ? Math.min(1, (now - r.deadAt) / .5) : 1) : 0 };
 }
+function ejectShell(r, ang, weapon) {
+  if (!r.shells) return; r.shells = 0; if (weapon === 1 || weapon === 3) return;      // break-action guns keep their shells
+  const side = ang + Math.PI / 2, sp = 70 + Math.random() * 40;
+  puff('shell', r.x + Math.cos(ang) * 10, r.y + Math.sin(ang) * 10, Math.cos(side) * sp + (Math.random() - .5) * 20, Math.sin(side) * sp + (Math.random() - .5) * 20, 3.5, 1);
+}
+function drawPlayer(c, p, r, v) {
+  const isMe = v.state && p.id === v.state.me.id, t = v.state.time, now = v.now;
+  const ang = isMe && !p.vehicle ? Math.atan2(v.aim.y, v.aim.x) : (r.ang != null ? r.ang : p.angle);
+  const a = animState(r, p, now, v.dt, (isMe && v.holdAim) || t - p.shot < 1.2 || p.reload > t ? 1 : 0);
+  if (p.act && p.act.at !== r.actAt) { r.actAt = p.act.at; r.actStart = now - Math.max(0, Math.min(.3, t - p.act.at)); r.actKind = p.act.kind; }
+  let act = r.actKind ? { kind: r.actKind, t: now - r.actStart } : null;
+  // Standing next to an own construction site, the hero keeps hammering.
+  if ((!act || act.t > 1) && !p.moving && p.hp > 0 && r.buildNear) act = { kind: 'hammer', t: now % .9 };
+  ejectShell(r, ang, p.gear ? p.gear.weapon : 0);
+  // Stepping out of the car fades in; climbing in fades out (drawn by the caller while gliding to the car).
+  const fade = r.carAt ? Math.min(1, (now - r.carAt) / .3) : 1;
+  const w = p.gear ? p.gear.weapon : 0;
+  c.save(); c.translate(r.x, r.y); c.rotate(a.dead ? (r.deadAng != null ? r.deadAng : (r.deadAng = ang)) : ang); if (a.dead === 0) r.deadAng = null;
+  if (fade < 1) c.globalAlpha = r.inCar ? 1 - fade : fade;
+  S.figure(c, { look: p.look || 0, tint: col(p.faction), size: 38, phase: r.phase || 0, speed: p.moving ? (p.sprint ? 2 : 1) : 0, aim: r.aimK, kick: a.kick, kickLen: KICK[w], weapon: w, flash: t - p.shot < .07, hit: a.hit, dead: a.dead, act, reloadTime: (cfgWeapons()[w] || {}).reload, time: now });
+  c.restore();
+  if (a.dead) return;
+  const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
+  if (isMe && p.reload > t) { const wd = cfgWeapons()[w], k = 1 - (p.reload - t) / ((r.actKind === 'swap' ? .5 : wd.reload) || 1); c.strokeStyle = '#d9cfae'; c.lineWidth = 2; c.beginPath(); c.arc(r.x, r.y, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, Math.min(1, k))); c.stroke(); }
+}
+function cfgWeapons() { return cfg.weapons || []; }
 const CREATURES = { wolf: 1, bear: 1, boar: 1, elk: 1, mutant: 1, spitter: 1, brute: 1 };
 function drawNpc(c, n, r, v) {
   if (CREATURES[n.type]) {
-    const t = v.state.time, dead = n.hp <= 0;
-    c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (r.ang != null ? r.ang : n.angle));
-    S.creature(c, { type: n.type, phase: (r.phase || 0) * (n.type === 'elk' || n.type === 'wolf' ? 1.4 : 1), moving: r.moving, attack: t - n.shot < .25, dead });
+    const t = v.state.time, a = animState(r, n, v.now, v.dt, 0), dead = n.hp <= 0;
+    // Predators lunge and pull back; the bite lands at the far point.
+    const lunge = r.shotAt ? Math.sin(Math.min(1, (v.now - r.shotAt) / .32) * Math.PI) * (n.type === 'wolf' ? 10 : n.type === 'bear' || n.type === 'brute' ? 7 : 6) : 0;
+    c.save(); c.translate(r.x, r.y); c.rotate(r.ang != null ? r.ang : n.angle); if (a.hit) c.translate(-a.hit * 3, 0);
+    S.creature(c, { type: n.type, phase: (r.phase || 0) * (n.type === 'elk' || n.type === 'wolf' ? 1.4 : 1), moving: r.moving, attack: t - n.shot < .25, lunge, dead: a.dead });
     c.restore();
     if (!dead && n.hp < n.max) bar(c, r.x, r.y + (n.type === 'bear' || n.type === 'brute' ? 34 : 24), n.hp / n.max, n.faction === 'mutants' ? '#a7c46a' : '#c9a36a');
     return;
@@ -420,12 +474,13 @@ function drawNpc(c, n, r, v) {
     if (Math.random() < .4) puff('dust', r.x - Math.cos(n.angle) * 50, r.y - Math.sin(n.angle) * 50, 0, 0, .9, 7, '#9d927a');
     bar(c, r.x, r.y + 30, n.hp / n.max, col(n.faction)); return;
   }
-  const dead = n.hp <= 0, t = v.state.time;
-  c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (r.ang != null ? r.ang : n.angle));
-  const look = n.look != null ? n.look : ({ marauder: 0, raider: 19, ranger: 7, militia: 6 })[n.type] || 0;
-  S.look(c, { look, weapon: NPC_WEAPON[n.type] || 0, phase: r.phase || 0, moving: r.moving, aim: n.mode === 'fight', shot: t - n.shot < .25, flash: t - n.shot < .07, dead, size: n.type === 'guardian' ? 42 : 38 });
+  const t = v.state.time, now = v.now, a = animState(r, n, now, v.dt, n.mode === 'fight' ? 1 : 0);
+  const look = n.look != null ? n.look : ({ marauder: 0, raider: 19, ranger: 7, militia: 6 })[n.type] || 0, w = NPC_WEAPON[n.type] || 0;
+  ejectShell(r, r.ang != null ? r.ang : n.angle, w);
+  c.save(); c.translate(r.x, r.y); c.rotate(r.ang != null ? r.ang : n.angle);
+  S.figure(c, { look, weapon: w, size: n.type === 'guardian' ? 42 : 38, phase: r.phase || 0, speed: r.moving ? (r.sp > 150 ? 2 : 1) : 0, aim: r.aimK, kick: a.kick, kickLen: KICK[w], flash: t - n.shot < .07, hit: a.hit, dead: a.dead, time: now });
   c.restore();
-  if (!dead && n.hp < n.max) bar(c, r.x, r.y + 24, n.hp / n.max, MONSTER[n.faction] ? '#b07a52' : col(n.faction));
+  if (!a.dead && n.hp < n.max) bar(c, r.x, r.y + 24, n.hp / n.max, MONSTER[n.faction] ? '#b07a52' : col(n.faction));
 }
 const CIVIL_LOOKS = [0, 18, 5, 0, 18];
 const NPC_WEAPON = { marauder: 0, occupier: 1, occupier_elite: 2, defender: 2, guardian: 6, bandit: 3, raider: 2, ranger: 4, militia: 1 };

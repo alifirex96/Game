@@ -142,3 +142,35 @@ class HeroLookTests(unittest.TestCase):
         self.assertNotEqual(w.sides[b['faction']]['color'], SIDE_COLORS[5])
         a['level'] = 16
         self.assertEqual(w._public_player(a)['look'], hero_look(16))
+
+
+class WeaponHandlingTests(unittest.TestCase):
+    def test_magazine_runs_out_and_reloads(self):
+        from world_data import WEAPONS
+        w = World(rng=random.Random(2))
+        token = w.join('Стрелок'); p = w.players[token]
+        w.stocks[p['faction']]['metal'] = 999
+        results = []
+        for i in range(WEAPONS[0]['mag'] + 3):          # one attempt every half second
+            w.elapsed += .5
+            try:
+                w.command(token, {'op':'shoot', 'request_id':'shot-%d' % i}); results.append(True)
+            except GameError:
+                results.append(False)
+        mag = WEAPONS[0]['mag']
+        self.assertEqual(results, [True] * mag + [False, False, True])    # 1.4 s reload after the last round
+        w.command(token, {'op':'equip', 'weapon':0, 'request_id':'eq-1'})
+        p['weapons'].append(1)
+        w.command(token, {'op':'equip', 'weapon':1, 'request_id':'eq-2'})
+        self.assertEqual(p['act']['kind'], 'swap')
+        with self.assertRaises(GameError):
+            w.command(token, {'op':'shoot', 'request_id':'shot-x'})   # still drawing the new weapon
+
+    def test_actions_report_their_animation(self):
+        w = World(rng=random.Random(2))
+        token = w.join('Работник'); p = w.players[token]
+        n = next(n for n in w.nodes.values() if n['kind'] == 'wood')
+        p['x'], p['y'] = n['x'], n['y'] + 20
+        w.command(token, {'op':'harvest', 'id':n['id'], 'request_id':'harvest-1'})
+        self.assertEqual(p['act']['kind'], 'chop')
+        self.assertEqual(w._public_player(p)['act']['kind'], 'chop')
