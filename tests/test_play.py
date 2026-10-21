@@ -152,3 +152,17 @@ class CorpseTests(unittest.TestCase):
         self.w.elapsed += 301
         self.w.tick(.1)
         self.assertNotIn('n' + npc['id'], self.w.bodies)
+
+
+class RespawnAmmoTests(unittest.TestCase):
+    def test_coming_back_with_a_full_magazine_and_spare_rounds(self):
+        w = World(None, rng=random.Random(12))
+        t = w.join('Невезучий'); p = w.players[t]
+        p['mags'] = {'0': 0}; p['items'] = {}
+        w._damage(p, 999)
+        self.assertEqual(p['items'], {})                   # everything stayed on the body
+        for _ in range(80):
+            w.tick(.1)
+        self.assertGreater(p['hp'], 0)
+        self.assertEqual(w._mag(p), 8)
+        self.assertEqual(p['items'].get('ammo9'), 16)

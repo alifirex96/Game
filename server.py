@@ -579,6 +579,13 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         p['reload_until']=self.elapsed+weapon['reload'];p['act']={'kind':'reload','at':round(self.elapsed,2)}
         return n
 
+    def _respawn_ammo(self,p):
+        """Coming back after a death: a full magazine and a couple more in the backpack for the gun in hand."""
+        w=p['gear']['weapon'];weapon=WEAPONS[w]
+        p.setdefault('mags',{})[str(w)]=weapon['mag'];p['reload_until']=0
+        spare=self.give_item(p,weapon['ammo_item'],int(clamp(weapon['mag']*2,6,30)))
+        self._notice('Патроны с собой',weapon['name']+': полный магазин'+(' и '+str(spare)+' в рюкзаке' if spare else '')+'.',player=p['id'])
+
     def _mag(self,p):
         w=p['gear']['weapon'];mags=p.setdefault('mags',{})
         return mags.get(str(w),WEAPONS[w]['mag'])
@@ -1357,6 +1364,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
                         p['x'],p['y']=bed['x'],bed['y']+14;p['vehicle']=False
                         self._notice('Ты очнулся в лагере','Спальник спас. Вещи остались на теле — сходи за ними.',player=p['id'])
                     else:self._place_randomly(p)
+                    self._respawn_ammo(p)
                 continue
             x,y,sprint=p['input'] if now-p['last_input']<.65 and not p['paused'] else (0,0,False)
             length=math.hypot(x,y)
