@@ -8,7 +8,7 @@ import time
 import unittest
 from pathlib import Path
 from server import GameError, GameServer, World, discovery_responder
-from world_data import BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE, TOWNS, WEAPONS
+from world_data import BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE, TOWNS, WEAPONS, WORLD_SCALE, NPC_TYPES
 
 def keep_alive(world):
     for p in world.players.values():
@@ -124,7 +124,9 @@ class FeatureTests(unittest.TestCase):
         run(self.world, .2)
         convoys = [n for n in self.world.npcs.values() if n['type'] == 'convoy']
         self.assertEqual(len(convoys), 1)
-        run(self.world, 70, step=.1)
+        path = [[convoys[0]['x'], convoys[0]['y']]] + convoys[0]['path']
+        length = sum(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** .5 for a, b in zip(path, path[1:]))
+        run(self.world, length / NPC_TYPES['convoy']['speed'] + 10, step=.1)
         self.assertEqual(self.world.fstats[self.f]['convoy'], 1)
         self.assertGreaterEqual(self.world.stocks[self.f]['wood'], wood + 19)
 
@@ -286,7 +288,7 @@ class SaveTests(unittest.TestCase):
             w = World(path)
             self.assertIsNone(w.load_warning)
             self.assertEqual(w.elapsed, 500)
-            self.assertEqual((w.players['tok']['x'], w.players['tok']['y']), (7300 * 3, 5270 * 3))
+            self.assertEqual((w.players['tok']['x'], w.players['tok']['y']), (7300 * WORLD_SCALE, 5270 * WORLD_SCALE))
             self.assertEqual(w.towns['shabrovsky']['levels']['depot'], 2)
             self.assertEqual(w.towns['shabrovsky']['levels']['warehouse'], 0)
             self.assertIn('magadan', w.towns)

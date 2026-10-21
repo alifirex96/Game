@@ -369,9 +369,9 @@ function showMap(id){if(!state)return;modal('map','<span class="eyebrow">СХЕ�
  mapState.selected=id||currentTown&&currentTown.id||shelterOf(state.me.faction).town;mapInfo(mapState.selected);
  const big=$('big-map');let drag=null;
  const toWorld=(e)=>{const box=big.getBoundingClientRect();if(!mapTr)return null;return{x:(e.clientX-box.left-mapTr.ox)/mapTr.scale,y:(e.clientY-box.top-mapTr.oy)/mapTr.scale};};
- const zoom=(k,at)=>{const z=clamp(mapState.zoom*k,1,8);if(at){mapState.fx=at.x;mapState.fy=at.y;}else if(mapState.fx==null){mapState.fx=state.me.x;mapState.fy=state.me.y;}mapState.zoom=z;if(z===1){mapState.fx=mapState.fy=null;}};
+ const zoom=(k,at)=>{const z=clamp(mapState.zoom*k,1,32);if(at){mapState.fx=at.x;mapState.fy=at.y;}else if(mapState.fx==null){mapState.fx=state.me.x;mapState.fy=state.me.y;}mapState.zoom=z;if(z===1){mapState.fx=mapState.fy=null;}};
  big.onwheel=e=>{e.preventDefault();zoom(e.deltaY<0?1.35:1/1.35,e.deltaY<0?toWorld(e):null);};
- $('zoom-in').onclick=()=>zoom(1.5);$('zoom-out').onclick=()=>zoom(1/1.5);$('zoom-me').onclick=()=>{mapState.zoom=Math.max(3,mapState.zoom);mapState.fx=state.me.x;mapState.fy=state.me.y;};
+ $('zoom-in').onclick=()=>zoom(1.5);$('zoom-out').onclick=()=>zoom(1/1.5);$('zoom-me').onclick=()=>{mapState.zoom=Math.max(10,mapState.zoom);mapState.fx=state.me.x;mapState.fy=state.me.y;};
  big.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,fx:mapState.fx!=null?mapState.fx:cfg.width/2,fy:mapState.fy!=null?mapState.fy:cfg.height/2,moved:false};};
  big.onmousemove=e=>{if(!drag||!mapTr)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true;if(drag.moved&&mapState.zoom>1){mapState.fx=drag.fx-dx/mapTr.scale;mapState.fy=drag.fy-dy/mapTr.scale;}};
  big.onmouseup=e=>{const moved=drag&&drag.moved;drag=null;if(moved)return;const p=toWorld(e);if(!p)return;

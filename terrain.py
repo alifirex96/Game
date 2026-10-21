@@ -1,7 +1,7 @@
 """World geometry shared by the simulation: water, roads, collisions and road routes."""
 import heapq
 import math
-from world_data import (WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS,
+from world_data import (WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS, ROADSIDE_EVERY, ROADSIDE_KINDS, ROADSIDE_NAMES,
                         RESOURCES, SLOTS, BUILDINGS, TOWN_GATE, LANDMARKS, LANDMARK_POS)
 
 CELL = 1000
@@ -69,6 +69,7 @@ class Terrain:
             parts = [{'x':x+dx,'y':y+dy,'w':w,'h':h,'sprite':s} for dx, dy, w, h, s in POI_LAYOUTS[kind]]
             self.pois[pid] = {'id':pid,'name':name,'kind':kind,'x':x,'y':y,'parts':parts,
                               'kind_name':POI_KINDS[kind]['name']}
+        self._roadside_stops()
         self.shelters = self._shelter_sites()
         self.rects = []
         self.grid = {}
@@ -91,6 +92,30 @@ class Terrain:
             a, b = towns[i], towns[i + 1]
             out += [list(self.gate(a, b)), list(self.gate(b, a)), [self.towns[b]['x'], self.towns[b]['y']]]
         return out
+
+    def _roadside_stops(self):
+        """Stops along long highways so the drive between towns has places to search and refuel."""
+        n = 0
+        for ax, ay, bx, by, a, b in self.road_segments:
+            length = math.hypot(bx - ax, by - ay)
+            count = int(length // ROADSIDE_EVERY)
+            nx = -(by - ay) / length; ny = (bx - ax) / length
+            for k in range(count):
+                u = (k + 1) / (count + 1.0); side = 1 if (n % 2) else -1
+                kind = ROADSIDE_KINDS[n % len(ROADSIDE_KINDS)]
+                off = 330 if kind == 'gas' else 620
+                x = ax + (bx - ax) * u + nx * off * side; y = ay + (by - ay) * u + ny * off * side
+                n += 1
+                if not (900 < x < WORLD_SIZE[0] - 900 and 900 < y < WORLD_SIZE[1] - 900):
+                    continue
+                if self.water(x, y, 320) or self.in_town(x, y, 2500) or any(math.hypot(x - p['x'], y - p['y']) < 3000 for p in self.pois.values()):
+                    continue
+                pid = 'rs' + str(n)
+                name = ROADSIDE_NAMES[(n * 7) % len(ROADSIDE_NAMES)] if kind in ('village', 'farm') else \
+                    ('Заправка на трассе' if kind == 'gas' else 'Блокпост на трассе')
+                parts = [{'x':x+dx,'y':y+dy,'w':w,'h':h,'sprite':s} for dx, dy, w, h, s in POI_LAYOUTS[kind]]
+                self.pois[pid] = {'id':pid,'name':name,'kind':kind,'x':round(x),'y':round(y),'parts':parts,
+                                  'kind_name':POI_KINDS[kind]['name']}
 
     def _shelter_sites(self):
         """Bunker sites off the highways, far from towns, ruins and each other."""
@@ -228,7 +253,7 @@ def resource_nodes(terrain):
     counter = 0
     for ax, ay, bx, by, a, b in terrain.road_segments:
         length = math.hypot(bx - ax, by - ay)
-        steps = int(length // 900)
+        steps = int(length // 1500)
         for s in range(1, steps + 1):
             u = s / (steps + 1.0)
             nx = -(by - ay) / length; ny = (bx - ax) / length

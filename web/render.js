@@ -4,7 +4,8 @@
 const AS = window.AS = window.AS || {};
 const { hash, rng, strSeed, rr, mix, shade, canvas } = AS.util;
 const S = AS.sprites, COL = AS.colors;
-const CHUNK = 512, TOWN_HALF = [480, 420], BM = 100;   // world pixels per biome-map pixel
+const CHUNK = 512, TOWN_HALF = [480, 420];
+let BM = 100;   // world pixels per biome-map pixel; grows with the map so the climate map stays small
 // Muted, washed-out ground: the world has been empty for years. Siberia lies under snow.
 const BIOME = { mixed: '#4a5537', steppe: '#68654a', ural: '#46503b', taiga: '#3b4733', tundra: '#8b918a', snowtaiga: '#aab2b1' };
 const TREES = {
@@ -47,6 +48,7 @@ R.init = function (config) {
   lakes = cfg.lakes.map(l => l[1]); pois = cfg.pois || [];
   nodeGrid.clear(); cfg.nodes.forEach(n => { const k = Math.floor(n.x / 1000) + ',' + Math.floor(n.y / 1000); if (!nodeGrid.has(k)) nodeGrid.set(k, []); nodeGrid.get(k).push(n); });
   buildingGrid.clear(); cfg.buildings_world.forEach(b => { const k = b.town; if (!buildingGrid.has(k)) buildingGrid.set(k, []); buildingGrid.get(k).push(b); });
+  BM = Math.round(100 * Math.max(1, (cfg.scale || 3) / 3));
   makeBiomeMap(); makeWorldMap(); chunks.clear(); townDecor.clear();
 };
 
@@ -681,7 +683,7 @@ R.drawMap = function (cv, big, v, mapState) {
   c.setTransform(dpr, 0, 0, dpr, 0, 0); c.fillStyle = '#14221b'; c.fillRect(0, 0, w, h);
   let scale, ox, oy;
   if (big) { scale = Math.min((w - 30) / cfg.width, (h - 30) / cfg.height) * (mapState.zoom || 1); const fx = mapState.fx != null ? mapState.fx : cfg.width / 2, fy = mapState.fy != null ? mapState.fy : cfg.height / 2; ox = w / 2 - fx * scale; oy = h / 2 - fy * scale; }
-  else { scale = .07; ox = w / 2 - state.me.x * scale; oy = h / 2 - state.me.y * scale; }
+  else { scale = .07 * 3 / Math.max(3, Math.min(6, cfg.scale || 3)); ox = w / 2 - state.me.x * scale; oy = h / 2 - state.me.y * scale; }
   c.imageSmoothingEnabled = true; c.drawImage(worldMap, ox, oy, cfg.width * scale, cfg.height * scale);
   const P = (x, y) => [ox + x * scale, oy + y * scale];
   // Points of interest.

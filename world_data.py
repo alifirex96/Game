@@ -1,8 +1,9 @@
 """Static game rules and the schematic map of Russia. Python 3.7+, standard library only."""
 VERSION = '0.5.0'
 # Map coordinates below are written at 1:1 and stretched by WORLD_SCALE, so settlements are far apart
-# while towns, roads and rivers keep their real size.
-WORLD_SCALE = 3
+# while towns, roads and rivers keep their real size. At 12 neighbouring towns are 12–39 thousand px apart:
+# about half a minute to a minute and a half by car, two to five minutes on foot.
+WORLD_SCALE = 12
 WORLD_SIZE = (20000 * WORLD_SCALE, 10000 * WORLD_SCALE)
 # Everyone plays for themselves. Each player is a side with a home settlement; computer clans are sides too.
 MAX_PLAYERS = 25
@@ -120,6 +121,12 @@ POIS = [
     ('samara','Самара','rail',3500,7000),('yeniseysk','Енисейск','rail',14300,3300),
 ]
 POIS = [(p[0], p[1], p[2], p[3] * _S, p[4] * _S) for p in POIS]
+# Long highways get roadside stops of their own: filling stations, villages, farms and checkpoints.
+ROADSIDE_EVERY = 13000
+ROADSIDE_KINDS = ['gas', 'village', 'gas', 'farm', 'village', 'military', 'gas', 'village']
+ROADSIDE_NAMES = ['Берёзовка', 'Сосновка', 'Ивановка', 'Каменка', 'Озёрное', 'Заречье', 'Липовка', 'Покровка',
+                  'Никольское', 'Ольховка', 'Дубки', 'Красный Яр', 'Михайловка', 'Вязовка', 'Горки', 'Луговое',
+                  'Борки', 'Новосёлки', 'Ключи', 'Таёжный', 'Ельники', 'Кедровка', 'Сухой Лог', 'Белый Ключ']
 BUILDINGS = {
     'depot': {'name':'Опорный пункт','cost':{'wood':24,'stone':14,'metal':8},
               'desc':'Центр поселения и штаб обороны. Его уровень открывает улучшения остальных зданий.','workers':0},
