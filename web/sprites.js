@@ -508,6 +508,44 @@ SHEET.onload = () => { sheetReady = true; }; SHEET.src = 'assets/characters.png'
 const GIVERS = new Image(); let giversReady = false;
 GIVERS.onload = () => { giversReady = true; }; GIVERS.src = 'assets/givers.png';
 const RIG = 64;                // working size of one figure
+// Player cars drawn from web/assets/cars.png: 8 cells of 128 x 224, front up.
+const CARS_IMG = new Image(); let carsReady = false;
+CARS_IMG.onload = () => { carsReady = true; }; CARS_IMG.src = 'assets/cars.png';
+AS.sprites.carsReady = () => carsReady;
+// A car body at its world size, facing +x; variants: 0 normal, 1 battered, 2 burnt-out wreck.
+function carCanvas(model, len, wid, damage) {
+  return cached('car' + model + ':' + len + ':' + damage, () => {
+    // The drawing keeps the cell's aspect; scale so the body is `len` long.
+    const cellLen = 216, k = len / cellLen, w = Math.ceil(224 * k) + 4, h = Math.ceil(128 * k) + 4;
+    const im = canvas(w, h), c = im.getContext('2d'); smooth(c);
+    c.translate(w / 2, h / 2); c.rotate(Math.PI / 2); c.drawImage(CARS_IMG, model * 128, 0, 128, 224, -64 * k, -112 * k, 128 * k, 224 * k);
+    if (damage) {
+      c.globalCompositeOperation = 'source-atop';
+      c.fillStyle = damage === 2 ? 'rgba(24,20,16,.72)' : 'rgba(40,30,20,.22)'; c.fillRect(-h, -w, h * 2, w * 2);
+      if (damage === 2) { const r = rng(model * .1 + .3); for (let i = 0; i < 26; i++) { c.fillStyle = r() < .5 ? 'rgba(120,58,30,.5)' : 'rgba(10,8,6,.6)'; c.beginPath(); c.arc((r() - .5) * h, (r() - .5) * w * .8, 2 + r() * 7, 0, 7); c.fill(); } }
+    }
+    return { im, ox: w / 2, oy: h / 2 };
+  });
+}
+/* o: {model, len, wid, damage, door (0..1 open), brake, reverse, color}. Facing +x, origin at the body centre. */
+AS.sprites.car = function (c, o) {
+  if (!carsReady) { const sp = AS.sprites.vehicle('suv', o.color || '#7d8664', o.damage || 0); c.drawImage(sp.im, -sp.ox, -sp.oy); return false; }
+  const sp = carCanvas(o.model, o.len, o.wid, o.damage || 0), L = o.len, W = o.wid;
+  c.fillStyle = '#0b0f0b66'; rr(c, -L / 2 + 5, -W / 2 + 6, L, W, 10); c.fill();
+  c.drawImage(sp.im, -sp.ox, -sp.oy);
+  if (o.brake || o.reverse) {
+    // Rear lights: red when braking, white when backing up.
+    c.fillStyle = o.reverse ? '#f4f1e0' : '#ff3a2a'; [-1, 1].forEach(s => { c.globalAlpha = .85; c.fillRect(-L / 2 + 1, s * W * .36 - 2.5, 3, 5); c.globalAlpha = .25; c.beginPath(); c.arc(-L / 2 - 2, s * W * .36, 7, 0, 7); c.fill(); }); c.globalAlpha = 1;
+  }
+  if (o.door > 0) {
+    // The driver's door (left side) swings open on its front hinge.
+    const dl = L * .27, hx = (o.doorAt || .12) * L + dl / 2, y = -W / 2 + 2;
+    c.fillStyle = '#121310'; c.fillRect(hx - dl, y - 1, dl, 4);
+    c.save(); c.translate(hx, y); c.rotate(o.door * 1.05); c.fillStyle = '#00000055'; c.fillRect(-dl, 1, dl, 3); c.fillStyle = o.color || '#777'; c.fillRect(-dl, -2, dl, 3.5); c.fillStyle = '#ffffff22'; c.fillRect(-dl, -2, dl, 1); c.restore();
+  }
+  return true;
+};
+AS.sprites.carIcon = model => carsReady ? carCanvas(model, 120, 66, 0).im : null;
 function rgbToHsl(r, g, b) { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; if (mx === mn) return [0, 0, l]; const d = mx - mn, s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); let h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return [h / 6, s, l]; }
 function hslToRgb(h, s, l) { if (!s) return [l * 255, l * 255, l * 255]; const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q; const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < .5 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; }; return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255]; }
 function smooth(c) { c.imageSmoothingEnabled = true; if (c.imageSmoothingQuality) c.imageSmoothingQuality = 'high'; }

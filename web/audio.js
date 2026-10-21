@@ -3,7 +3,7 @@
 'use strict';
 const AS = window.AS = window.AS || {};
 let ctx = null, master, sfx, music, amb, noise, delay, wind, windFilter, rain, engine, engineGain, engineFilter, drone, droneGain;
-let nextHowl = 0, nextChord = 0, nextNote = 0, chordIndex = 0, nextBird = 0, nextCricket = 0, nextStep = 0, tension = 0;
+let nextHowl = 0, nextChord = 0, nextNote = 0, chordIndex = 0, nextBird = 0, nextCricket = 0, nextStep = 0, nextSkid = 0, tension = 0;
 const A = AS.audio = { enabled: true, music: .55, sfx: .8 };
 const CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62], [50, 53, 57], [57, 60, 64], [52, 56, 59], [57, 60, 64]];
 const PENTA = [57, 60, 62, 64, 67, 69, 72, 74, 76];
@@ -57,6 +57,8 @@ A.play = function (kind, distance) {
   else if (kind === 'harvest') { [0, 120, 260].forEach(d => setTimeout(() => ctx && burst(.08, 'bandpass', 900 + Math.random() * 400, .25, sfx, 2), d)); }
   else if (kind === 'build') { [0, 220, 440].forEach(d => setTimeout(() => ctx && (tone(1800 + Math.random() * 300, .12, 'triangle', .14), burst(.05, 'highpass', 3000, .12)), d)); }
   else if (kind === 'door') { tone(180, .2, 'square', .06, sfx, 90); burst(.15, 'lowpass', 500, .2); }
+  else if (kind === 'skid') { burst(.25, 'bandpass', 1900, .05, sfx, 4, 2400); }
+  else if (kind === 'crash') { burst(.35, 'lowpass', 500, .4 * k, sfx, 1, 120); burst(.25, 'highpass', 2500, .15 * k, sfx, 1, 4000); }
   else if (kind === 'error') { tone(220, .18, 'triangle', .12, sfx, 160); }
   else if (kind === 'bite') { burst(.18, 'bandpass', 600, .35 * k, sfx, 2, 200); tone(90, .25, 'sawtooth', .12 * k, sfx, 60); }
   else if (kind === 'acid') { burst(.35, 'highpass', 900, .25 * k, sfx, 1, 3000); }
@@ -76,8 +78,11 @@ A.update = function (v) {
   windFilter.frequency.setTargetAtTime(320 + Math.sin(t * .3) * 160 + (kind === 'storm' ? 300 : 0), t, .8);
   rain.gain.setTargetAtTime(v.weatherMode === 'rain' ? (kind === 'storm' ? .22 : .13) : 0, t, 1.2);
   const driving = me.vehicle, moving = me.moving;
-  engineGain.gain.setTargetAtTime(driving ? (moving ? .11 : .05) : 0, t, .2);
-  engine.frequency.setTargetAtTime(driving && moving ? 62 + Math.random() * 3 : 34, t, .4); engineFilter.frequency.setTargetAtTime(driving && moving ? 520 : 240, t, .4);
+  // Engine revs climb through four gears and drop at every shift; tyres squeal when the car slides.
+  const speed = driving ? Math.hypot(me.car.vx || 0, me.car.vy || 0) : 0, gear = Math.min(3, Math.floor(speed / 115)), rev = Math.min(1.4, (speed - gear * 115) / 115);
+  engineGain.gain.setTargetAtTime(driving ? .05 + Math.min(.07, speed / 4500) : 0, t, .15);
+  engine.frequency.setTargetAtTime(driving ? 34 + rev * 34 + gear * 7 : 34, t, .12); engineFilter.frequency.setTargetAtTime(driving ? 240 + speed * .9 : 240, t, .2);
+  if (driving && me.car.slip && speed > 90 && t > nextSkid) { nextSkid = t + .22; A.play('skid'); }
   if (!driving && moving && me.hp > 0 && t > nextStep) { nextStep = t + (me.sprint ? .28 : .42); A.play('step'); }
   if (!night && kind !== 'storm' && kind !== 'rain' && t > nextBird) { nextBird = t + 2 + Math.random() * 6; const f = 2200 + Math.random() * 1800; for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++) setTimeout(() => ctx && tone(f * (1 + Math.random() * .2), .09, 'sine', .025, amb, f * 1.3), i * 120); }
   if (night && t > nextHowl) { nextHowl = t + 25 + Math.random() * 50; if (v.weatherMode === 'snow' || Math.random() < .5) A.play('howl', 400 + Math.random() * 600); }

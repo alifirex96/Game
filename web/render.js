@@ -172,7 +172,7 @@ function buildChunk(cx, cy) {
       if (Math.floor(d / 40) % 6 === 0) { const qx = px + nx * 58, qy = py + ny * 58; if (!water(qx, qy)) { c.fillStyle = '#00000040'; c.fillRect(qx + 3, qy + 2, 10, 3); c.fillStyle = '#5a4a38'; c.beginPath(); c.arc(qx, qy, 3.5, 0, 7); c.fill(); c.fillStyle = '#6e6a5e'; c.fillRect(qx - nx * 8 - 1, qy - ny * 8 - 1, nx * 16 + 2, ny * 16 + 2); } }
       if (Math.floor(d / 40) % 6 === 0) { c.strokeStyle = '#26262288'; c.lineWidth = .8; c.beginPath(); const qx = px + nx * 58, qy = py + ny * 58; c.moveTo(qx, qy); c.quadraticCurveTo(qx + ux * 120 + nx * 6, qy + uy * 120 + ny * 6, qx + ux * 240, qy + uy * 240); c.stroke(); }
       // Abandoned cars, stopped where the silence caught them.
-      if (h1 > .94 && !water(px, py, 40)) { const v = S.vehicle(h2 < .2 ? 'bus' : 'wreck', ['#7c3b2f', '#56646d', '#8b7d55', '#3e4d40', '#b8b2a0', '#2d3a4f'][Math.floor(h2 * 6)], 2); c.save(); c.translate(px + nx * (h2 - .5) * 40, py + ny * (h2 - .5) * 40); c.rotate(Math.atan2(uy, ux) + (h1 - .98) * 30); c.drawImage(v.im, -v.ox, -v.oy); c.restore(); }
+      if (h1 > .94 && !water(px, py, 40)) { c.save(); c.translate(px + nx * (h2 - .5) * 40, py + ny * (h2 - .5) * 40); c.rotate(Math.atan2(uy, ux) + (h1 - .98) * 30); wreck(c, h2, h2 < .2); c.restore(); }
     }
   });
   // Trees: positions chosen here, painted later over characters (canopies are above people).
@@ -218,6 +218,11 @@ function buildChunk(cx, cy) {
   pois.forEach(p => { if (Math.abs(p.x - x0 - 256) > 600 || Math.abs(p.y - y0 - 256) > 600) return; const pr = rng(strSeed(p.id)); c.fillStyle = '#5e5b4d'; rr(c, p.x - 230, p.y - 170, 460, 340, 30); c.fill(); for (let i = 0; i < 60; i++) { c.fillStyle = pr() < .5 ? '#00000018' : '#4f603a88'; c.beginPath(); c.ellipse(p.x - 230 + pr() * 460, p.y - 170 + pr() * 340, 6 + pr() * 22, 4 + pr() * 12, 0, 0, 7); c.fill(); } c.strokeStyle = '#6d6252'; c.lineWidth = 2; c.setLineDash([6, 4]); c.strokeRect(p.x - 236, p.y - 176, 472, 352); c.setLineDash([]); });
   return { im, trees, waterPts };
 }
+// Abandoned cars: the same models as the players', burnt out and rusting.
+function wreck(c, h, bus) {
+  if (bus || !S.carsReady()) { const v = S.vehicle(bus ? 'bus' : 'wreck', ['#7c3b2f', '#56646d', '#8b7d55', '#3e4d40', '#b8b2a0', '#2d3a4f'][Math.floor(h * 6)], 2); c.drawImage(v.im, -v.ox, -v.oy); return; }
+  const m = Math.floor(h * 97) % cfg.cars.length, spec = cfg.cars[m]; S.car(c, { model: m, len: spec.len, wid: spec.wid, damage: h > .5 ? 2 : 1 });
+}
 function line(c, rd) { c.beginPath(); c.moveTo(rd.ax, rd.ay); c.lineTo(rd.bx, rd.by); c.stroke(); }
 
 /* ---------- settlement dressing that follows development ---------- */
@@ -232,7 +237,7 @@ function decor(t) {
   // Debris shrinks as the town is rebuilt; lamps, benches and gardens appear.
   spots([26, 16, 8, 3][dev]).forEach(p => { for (let i = 0; i < 6; i++) { const s = 3 + r() * 6; c.fillStyle = ['#7a7466', '#8d8676', '#5f5a50', '#6d5444'][i % 4]; c.beginPath(); c.ellipse(p[0] + (r() - .5) * 30, p[1] + (r() - .5) * 20, s, s * .7, r(), 0, 7); c.fill(); } });
   spots([10, 6, 2, 0][dev]).forEach(p => { c.fillStyle = '#2d2b26'; c.beginPath(); c.ellipse(p[0], p[1], 9, 6, 0, 0, 7); c.fill(); c.fillStyle = '#5e5a4c'; c.fillRect(p[0] - 6, p[1] - 3, 4, 3); c.fillStyle = '#a69e8a'; c.fillRect(p[0] + 2, p[1] - 1, 3, 2); });
-  spots([4, 3, 1, 0][dev]).forEach(p => { const v = S.vehicle('wreck', ['#7c3b2f', '#56646d', '#8b7d55', '#3e4d40'][Math.floor(r() * 4)], 2); c.save(); c.translate(p[0], p[1]); c.rotate(r() * 6); c.drawImage(v.im, -v.ox, -v.oy); c.restore(); });
+  spots([4, 3, 1, 0][dev]).forEach(p => { c.save(); c.translate(p[0], p[1]); c.rotate(r() * 6); wreck(c, r(), false); c.restore(); });
   if (dev >= 1) spots(dev * 3).forEach(p => { c.fillStyle = '#5f4a35'; c.fillRect(p[0] - 10, p[1] - 2, 20, 4); c.fillStyle = '#3f3a33'; c.fillRect(p[0] - 9, p[1] + 2, 2, 3); c.fillRect(p[0] + 7, p[1] + 2, 2, 3); });
   if (dev >= 2) spots(dev * 2).forEach(p => { c.fillStyle = '#4a3a29'; rr(c, p[0] - 12, p[1] - 6, 24, 12, 3); c.fill(); for (let i = 0; i < 8; i++) { c.fillStyle = ['#c86e5a', '#e2c86f', '#d79cb7', '#6f9a54'][i % 4]; c.beginPath(); c.arc(p[0] - 9 + r() * 18, p[1] - 4 + r() * 8, 1.6, 0, 7); c.fill(); } });
   if (dev >= 1) { c.strokeStyle = '#7b6242'; c.lineWidth = 2; c.setLineDash([10, 4]); c.strokeRect(-470, -410, 940, 820); c.setLineDash([]); }
@@ -268,6 +273,7 @@ function effectsFrom(state, v) {
     else if (e.kind === 'levelup') { for (let i = 0; i < 36; i++) { const a = i / 36 * 6.28; puff('spark', e.x, e.y, Math.cos(a) * 140, Math.sin(a) * 140, .8, 1); puff('flame', e.x + Math.cos(a) * 20, e.y + Math.sin(a) * 20, Math.cos(a) * 30, Math.sin(a) * 30 - 20, .7, 5, null); } if (R.onSound && v.state && e.player === v.state.me.id) R.onSound('levelup', 0); }
     else if (e.kind === 'fall') { for (let i = 0; i < 8; i++) puff('blood', e.x + (Math.random() - .5) * 10, e.y + (Math.random() - .5) * 10, 0, 0, 30, 2 + Math.random() * 3); }
     else if (e.kind === 'bite') { for (let i = 0; i < 6; i++) puff('blood', e.ex + (Math.random() - .5) * 16, e.ey + (Math.random() - .5) * 16, 0, 0, 12, 1.5 + Math.random() * 2); if (R.onSound) R.onSound('bite', near); }
+    else if (e.kind === 'crash') { const k = e.power || .3; for (let i = 0; i < 6 + k * 14; i++) { const a = Math.random() * 6.28, s = 60 + Math.random() * 140; puff('spark', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, .35, 1); puff('debris', e.x, e.y, Math.cos(a) * s * .6, Math.sin(a) * s * .6, .8, 2, i % 2 ? '#3d3a35' : '#8a9496'); } puff('dust', e.x, e.y, 0, 0, 1, 14, '#8d8673'); if (R.onSound) R.onSound('crash', near); }
     else if (e.kind === 'acid') { for (let i = 0; i < 8; i++) puff('smoke', e.ex, e.ey, (Math.random() - .5) * 40, (Math.random() - .5) * 40, .8, 5, '#9cc23e'); if (R.onSound) R.onSound('acid', near); }
     else { puff('smoke', e.x, e.y, (Math.random() - .5) * 10, -8, .6, 3, '#a8a69a'); for (let i = 0; i < 4; i++) puff('spark', e.ex, e.ey, (Math.random() - .5) * 120, (Math.random() - .5) * 120, .25, 1); puff('dust', e.ex, e.ey, 0, 0, .5, 5, '#8d8673'); if (R.onSound) R.onSound(e.kind === 'tower' ? 'tower' : 'shot' + (e.weapon || 0), near); }
   }
@@ -316,19 +322,39 @@ R.draw = function (c, v) {
     (cfg.givers || []).forEach(g => { if (!vis(g.x, g.y)) return; items.push({ y: g.y, f: () => { const st = giverAnim(g, v); c.save(); c.translate(g.x, g.y); c.rotate(st.ang); S.giver(c, { art: g.art, look: g.look, time: now + g.x, gesture: st.gesture }); c.restore(); if (v.nearest && v.nearest.obj === g) { c.strokeStyle = '#d9b27a'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(g.x, g.y + 6, 26, 14, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
     (state.posts || []).forEach(p => { if (vis(p.x, p.y)) items.push({ y: p.y, f: () => drawPost(c, p, now) }); });
     (state.airdrops || []).forEach(d => { if (vis(d.x, d.y)) items.push({ y: d.y, f: () => drawDrop(c, d, now) }); });
+    drawSkids(c, now, vis);
     state.players.forEach(p => {
       const r = v.drawPlayers[p.id]; if (!r) return;
-      if (r.inCar !== p.vehicle) { if (r.inCar != null) r.carAt = now; r.inCar = p.vehicle; }
-      const climbing = p.vehicle && r.carAt && now - r.carAt < .3, door = r.carAt ? Math.max(0, 1 - Math.abs(now - r.carAt - .2) / .3) : 0;
-      const car = p.vehicle && !climbing ? { x: r.x, y: r.y, angle: r.ang != null ? r.ang : p.car.angle } : p.car;
-      if (car) { const prev = r.carAngPrev != null ? r.carAngPrev : car.angle; let da = car.angle - prev; da = Math.atan2(Math.sin(da), Math.cos(da)); r.carAngPrev = car.angle; r.lean = (r.lean || 0) + (Math.max(-1, Math.min(1, da / Math.max(dt, .001) * .35)) - (r.lean || 0)) * Math.min(1, dt * 6); }
-      if (car && vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, AS.util.strSeed(p.id) < .5 ? 'pickup' : 'suv', p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, p.vehicle && p.moving, now, { lean: p.vehicle ? r.lean : 0, engine: p.vehicle && p.hp > 0, door }) });
+      if (r.inCar !== p.vehicle) {
+        if (r.inCar != null) { r.carAt = now; r.carFrom = { x: r.footX != null ? r.footX : r.x, y: r.footY != null ? r.footY : r.y }; }
+        r.inCar = p.vehicle;
+      }
+      if (!p.vehicle) { r.footX = r.x; r.footY = r.y; }
+      const since = r.carAt ? now - r.carAt : 99, spec = carSpec(p.car);
+      const entering = p.vehicle && since < ENTER_TIME, leaving = !p.vehicle && since < EXIT_TIME;
+      // While someone gets in, the car stays put where it was parked.
+      const car = Object.assign({}, p.car, p.vehicle && !entering ? { x: r.x, y: r.y, angle: r.ang != null ? r.ang : p.car.angle } : {});
+      const door = entering ? Math.sin(Math.min(1, Math.max(0, (since - .12) / (ENTER_TIME - .12))) * Math.PI) : leaving ? Math.sin(Math.min(1, since / EXIT_TIME) * Math.PI) : 0;
+      const road = R.onRoad(car.x, car.y, 60) || R.inTown(car.x, car.y), snow = R.coldAt(car.x, car.y) >= 2;
+      if (vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, r, now, dt, { damage: p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, engine: p.vehicle && !entering && p.hp > 0, door, road, snow }) });
       if (!r.bnT || now - r.bnT > .5) { r.bnT = now; r.buildNear = !p.vehicle && cfg.buildings_world.some(b => Math.abs(b.x - r.x) < 230 && Math.abs(b.y - r.y) < 230 && towns2 && towns2[b.town] && towns2[b.town].owner === p.faction && towns2[b.town].construct && towns2[b.town].construct[b.kind]); }
-      if ((!p.vehicle || climbing) && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
+      if (entering || leaving) {
+        const out = doorSpot(car, spec, false), seat = doorSpot(car, spec, true);
+        let pos, alpha = 1, face = car.angle, walk = false;
+        if (entering) {
+          const k1 = Math.min(1, since / .25), k2 = Math.max(0, (since - .25) / (ENTER_TIME - .25)), from = r.carFrom || out;
+          pos = k2 > 0 ? { x: out.x + (seat.x - out.x) * k2, y: out.y + (seat.y - out.y) * k2 } : { x: from.x + (out.x - from.x) * k1, y: from.y + (out.y - from.y) * k1 };
+          alpha = 1 - k2; walk = k2 === 0; face = k2 > 0 ? car.angle : Math.atan2(out.y - from.y, out.x - from.x);
+        } else {
+          const k = Math.max(0, Math.min(1, (since - .12) / (EXIT_TIME - .2)));
+          pos = { x: seat.x + (out.x - seat.x) * k, y: seat.y + (out.y - seat.y) * k }; alpha = since < .12 ? 0 : Math.min(1, k * 1.6); face = car.angle - Math.PI / 2 * (1 - k) - .3 * k;
+        }
+        if (alpha > .02) items.push({ y: car.y + 1, f: () => { c.save(); c.globalAlpha = alpha; c.translate(pos.x, pos.y); c.rotate(face); S.figure(c, { look: p.look || 0, tint: col(p.faction), size: 38, phase: walk ? now * 12 : 0, speed: walk ? 1 : 0, weapon: p.gear ? p.gear.weapon : 0, time: now }); c.restore(); } });
+      } else if (!p.vehicle && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
     });
     (state.npcs || []).forEach(n => { const r = v.drawNpcs[n.id] || n; if (!vis(r.x, r.y)) return; items.push({ y: r.y, f: () => drawNpc(c, n, r, v) }); });
     cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 500)) return; civilians(t0, towns2 && towns2[t0.id], now, v).forEach(cv => items.push({ y: cv.y, f: () => { c.save(); c.translate(cv.x, cv.y); c.rotate(cv.a); S.look(c, { look: SNOWY[biomeAt(t0.x, t0.y)] && cv.seed > .5 ? 15 : CIVIL_LOOKS[Math.floor(cv.seed * 5)], phase: now * 7 + cv.seed * 9, moving: cv.moving, weapon: 0, size: 34 }); c.restore(); } })); });
-  } else { items.push({ y: 5225, f: () => drawCar(c, { x: 7390, y: 5225, angle: -.4 }, 'suv', 0, false, now) }); }
+  } else { items.push({ y: 5225, f: () => drawCar(c, { x: 7390, y: 5225, angle: -.4, model: 3 }, null, now, dt, {}) }); }
   items.sort((a, b) => a.y - b.y).forEach(i => i.f());
   // Tracers.
   if (state) state.effects.forEach(e => { if (e.kind !== 'shot' && e.kind !== 'tower' && e.kind !== 'acid') return; const k = Math.max(0, (e.until - state.time) / .22); if (e.kind === 'acid') { c.strokeStyle = '#b9e04a' + Math.floor(Math.min(1, k) * 200).toString(16).padStart(2, '0'); c.lineWidth = 4; c.setLineDash([4, 6]); c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); c.setLineDash([]); return; } c.strokeStyle = (e.kind === 'tower' ? '#ffcf7a' : '#f8e3a8') + Math.floor(k * 220).toString(16).padStart(2, '0'); c.lineWidth = 1.6; c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); });
@@ -404,19 +430,47 @@ function giverAnim(g, v) {
   st.gesture += ((v.talkTo === g.id ? 1 : 0) - st.gesture) * Math.min(1, v.dt * 4);
   return st;
 }
-function drawCar(c, car, faction, damage, moving, now, o) {
-  o = o || {};
-  const sp = S.vehicle(faction === 'pickup' ? 'pickup' : 'suv', faction === 'pickup' ? '#6e3b2c' : '#7d8664', damage);
-  // Body rolls out of turns; an idling engine shakes the body a little.
-  const lean = o.lean || 0, shake = o.engine && !moving && damage < 2 ? Math.sin(now * 55) * .35 : 0;
-  c.save(); c.translate(car.x, car.y); c.rotate(car.angle);
-  c.translate(shake * .5, -lean * 1.6 + shake); c.drawImage(sp.im, -sp.ox, -sp.oy);
-  if (o.door > 0) { c.save(); c.translate(4, -sp.oy * .62); c.rotate(-o.door * .9); c.fillStyle = '#00000044'; c.fillRect(-15, 1, 15, 3); c.fillStyle = shade(faction === 'pickup' ? '#6e3b2c' : '#7d8664', -.15); c.fillRect(-15, -1.5, 15, 3); c.restore(); }
-  c.restore();
-  if (o.engine && damage < 2 && Math.random() < (moving ? .5 : .18)) puff('smoke', car.x - Math.cos(car.angle) * 36, car.y - Math.sin(car.angle) * 36, -Math.cos(car.angle) * 12, -Math.sin(car.angle) * 12 - 4, 1.2, 3, '#7a7770');
-  if (moving && Math.random() < .5) puff('dust', car.x - Math.cos(car.angle) * 34, car.y - Math.sin(car.angle) * 34, (Math.random() - .5) * 20, (Math.random() - .5) * 20, .8, 6, '#9d927a');
-  if (damage === 2 && Math.random() < .3) puff('smoke', car.x, car.y, 4, -12, 2, 6, '#2f2c28');
+// Tyre marks left by skids and hard braking; they fade over half a minute.
+const skids = [];
+function carSpec(car) { return (cfg.cars || [])[car.model != null ? car.model : 2] || { len: 92, wid: 50, door: .12, color: '#777', max: 400 }; }
+function carFwd(car) { return (car.vx || 0) * Math.cos(car.angle) + (car.vy || 0) * Math.sin(car.angle); }
+function drawSkids(c, now, vis) {
+  while (skids.length && now - skids[0][4] > 30) skids.shift();
+  c.lineCap = 'round'; c.lineWidth = 4;
+  for (const s of skids) { if (!vis(s[0], s[1], 60)) continue; c.strokeStyle = 'rgba(22,20,18,' + (.32 * (1 - (now - s[4]) / 30)) + ')'; c.beginPath(); c.moveTo(s[0], s[1]); c.lineTo(s[2], s[3]); c.stroke(); }
 }
+// A player's car: the body pitches under braking and acceleration, rolls in turns and shakes at idle.
+function drawCar(c, car, r, now, dt, o) {
+  o = o || {};
+  const spec = carSpec(car), damage = o.damage || 0, fwd = carFwd(car), speed = Math.hypot(car.vx || 0, car.vy || 0);
+  const st = r ? (r.carState = r.carState || { pitch: 0, roll: 0, prevFwd: fwd, wheels: null }) : { pitch: 0, roll: 0, prevFwd: fwd };
+  const acc = (fwd - st.prevFwd) / Math.max(dt, .001); st.prevFwd = fwd;
+  st.pitch += (Math.max(-1, Math.min(1, -acc / 500)) - st.pitch) * Math.min(1, dt * 8);
+  st.roll += (Math.max(-1, Math.min(1, (car.steer || 0) * fwd / 160)) - st.roll) * Math.min(1, dt * 6);
+  const idle = o.engine && speed < 15 && damage < 2, shake = idle ? Math.sin(now * 60) * .35 : speed > 40 && o.engine ? Math.sin(now * 37) * Math.min(.6, speed / 900) * (o.road ? .3 : 1) : 0;
+  c.save(); c.translate(car.x, car.y); c.rotate(car.angle);
+  c.translate(st.pitch * 1.6 + shake * .4, st.roll * 2.2 + shake);
+  S.car(c, { model: car.model != null ? car.model : 2, len: spec.len, wid: spec.wid, damage, door: o.door || 0, doorAt: spec.door, color: spec.color, brake: o.engine && car.brake && fwd > 5, reverse: o.engine && fwd < -5 });
+  c.restore();
+  if (!o.engine || damage === 2) { if (damage === 2 && Math.random() < .3) puff('smoke', car.x, car.y, 4, -12, 2, 6, '#2f2c28'); return; }
+  const hx = Math.cos(car.angle), hy = Math.sin(car.angle), rear = spec.len / 2 - 6;
+  // Rear wheels: skid marks when sliding or braking hard.
+  const wheels = [-1, 1].map(sd => [car.x - hx * (rear - 10) - hy * sd * spec.wid * .36, car.y - hy * (rear - 10) + hx * sd * spec.wid * .36]);
+  if (st.wheels && (car.slip || (car.brake && speed > 140)) && (o.road || Math.random() < .5)) wheels.forEach((w, i) => { skids.push([st.wheels[i][0], st.wheels[i][1], w[0], w[1], now]); if (skids.length > 900) skids.shift(); });
+  st.wheels = wheels;
+  if (Math.random() < (speed > 30 ? .55 : .2)) puff('smoke', car.x - hx * (rear + 4), car.y - hy * (rear + 4), -hx * 14, -hy * 14 - 4, 1.1 + Math.random() * .5, 2.5 + Math.min(4, Math.abs(st.pitch) * 6), '#77746c');
+  if (speed > 60) {
+    const k = Math.min(1, speed / 350), kind = o.snow ? '#e6ebec' : o.road ? '#8c887a' : '#9d927a';
+    if (Math.random() < (o.road ? .25 : .8) * k) wheels.forEach(w => puff('dust', w[0], w[1], -hx * 30 + (Math.random() - .5) * 30, -hy * 30 + (Math.random() - .5) * 30, .7 + k * .6, 4 + k * 6, kind));
+  }
+  if (damage === 1 && Math.random() < .25) puff('smoke', car.x + hx * spec.len * .35, car.y + hy * spec.len * .35, 4, -14, 1.6, 5, '#4a4640');
+}
+// Getting in and out: walk to the driver's door, it opens, the hero slides into the seat (and back out).
+function doorSpot(car, spec, inside) {
+  const hx = Math.cos(car.angle), hy = Math.sin(car.angle), lx = hy, ly = -hx, side = inside ? spec.wid * .16 : spec.wid / 2 + 14, f = spec.door * spec.len * (inside ? .6 : 1);
+  return { x: car.x + lx * side + hx * f, y: car.y + ly * side + hy * f };
+}
+const ENTER_TIME = .55, EXIT_TIME = .5;
 // Per-weapon recoil (figure pixels the arms travel back) and how far shells fly.
 const KICK = [2.5, 5, 2, 6, 3.5, 6, 2.2];
 // Animation state that only the client needs: kept on the interpolated record r.
@@ -567,7 +621,11 @@ function lights(c, v, vis) {
     const r = v.drawPlayers[p.id]; if (!r || p.hp <= 0) return;
     hole(r.x, r.y, 70, .5);
     const ang = p.id === state.me.id && !p.vehicle ? Math.atan2(v.aim.y, v.aim.x) : p.angle;
-    if (p.vehicle) { cone(l, sx(r.x + Math.cos(ang) * 30), sy(r.y + Math.sin(ang) * 30), ang, .38, 460 * zs, .95); }
+    if (p.vehicle) {
+      const sp = carSpec(p.car), hl = sp.len / 2;
+      [-1, 1].forEach(s => cone(l, sx(r.x + Math.cos(ang) * hl - Math.sin(ang) * s * sp.wid * .3), sy(r.y + Math.sin(ang) * hl + Math.cos(ang) * s * sp.wid * .3), ang, .3, 470 * zs, .9));
+      if (p.car.brake || carFwd(p.car) < -5) hole(r.x - Math.cos(ang) * hl, r.y - Math.sin(ang) * hl, 46, .7, carFwd(p.car) < -5 ? '#f4f1e0' : '#ff3020');
+    }
     else cone(l, sx(r.x), sy(r.y), ang, .42, 330 * zs, .85);
     if (state.time - p.shot < .07) hole(r.x, r.y, 160, 1, '#ffe2a0');
   });

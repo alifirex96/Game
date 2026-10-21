@@ -594,7 +594,7 @@ class WildlifeAndFuelTests(unittest.TestCase):
         stock = self.world.stocks[self.f]['fuel']
         car = self.p['car']; car['fuel'] = 5.0
         self.p['vehicle'] = True; self.p['x'], self.p['y'] = car['x'], car['y']
-        self.p['input'] = [1, 0, False]
+        self.p['input'] = [0, -1, False]
         run(self.world, 40, step=.1)
         self.assertEqual(self.p['car']['fuel'], 0)
         self.assertEqual(self.world.stocks[self.f]['fuel'], stock)
@@ -614,5 +614,5 @@ class WildlifeAndFuelTests(unittest.TestCase):
         revda['owner'] = self.f
         stock = self.world.stocks[self.f]['fuel']
         self.act('refuel', town='revda')
-        self.assertEqual(self.p['car']['fuel'], min(45, 2 + stock))
+        self.assertEqual(self.p['car']['fuel'], min(self.world.car_tank(self.p), 2 + stock))
         self.assertLess(self.world.stocks[self.f]['fuel'], stock)

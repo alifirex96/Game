@@ -20,9 +20,10 @@ from world_data import (VERSION, WORLD_SIZE, RESOURCES, TOWNS, REGIONS, MAX_PLAY
                         SIDE_COLORS, AI_SIDES, STORY_LINE, POST, SHELTER_RADIUS, SHELTER_WARN, SHELTER_GUARDS,
                         BIG_TOWNS, START_STOCK, NODE_RESPAWN, LOOKS, GIVERS, GIVER_PLAN, MAX_ACTIVE_QUESTS, BUILDINGS, EVENTS, QUESTS, WEAPONS, ARMOR, POI_KINDS,
                         POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
-                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, xp_to_next, max_hp, hero_look, SWAP_TIME, config)
+                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, CARS, xp_to_next, max_hp, hero_look, SWAP_TIME, config)
 from terrain import Terrain, town_buildings, resource_nodes, landmark_rect
 from npc import NpcMixin
+from vehicles import VehicleMixin
 
 ROOT = Path(__file__).resolve().parent
 SAVE_VERSION = 2
@@ -48,7 +49,7 @@ def finite(v, default=0):
 class GameError(Exception):
     pass
 
-class World(NpcMixin):
+class World(NpcMixin, VehicleMixin):
     def __init__(self, save_path=None, rng=None):
         self.lock = threading.RLock()
         self.rng = rng or random.SystemRandom()
@@ -219,7 +220,10 @@ class World(NpcMixin):
         clan=self.clans.get(self.sides.get(p['faction'],{}).get('clan'))
         out['tag']=clan['tag'] if clan else ''
         out['max_hp']=max_hp(p['level'])
-        out['car']={k:p['car'].get(k,0) for k in ('x','y','angle','hp','wrecked_until','fuel')}
+        car=p['car']
+        out['car']={k:car.get(k,0) for k in ('x','y','angle','hp','wrecked_until','fuel')}
+        out['car'].update(model=car.get('model',2),vx=round(car.get('vx',0),1),vy=round(car.get('vy',0),1),steer=round(car.get('steer',0),3),
+                          brake=bool(car.get('brake')),slip=bool(car.get('slip')))
         out['shot']=p.get('shot',-10);out['busy']=p.get('busy',-10);out['moving']=bool(p['input'][0] or p['input'][1])
         out['sprint']=bool(p['input'][2])
         return out
@@ -256,7 +260,7 @@ class World(NpcMixin):
         p={'id':pid,'name':name,'faction':sid,
            'x':site['x'],'y':site['y']+80,'angle':0.0,
            'hp':100.0,'stamina':100.0,'vehicle':False,
-           'car':{'x':site['x']+90,'y':site['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0,'fuel':20.0},
+           'car':self.new_car(site['x']+90,site['y']+25,0.0,20.0),
            'dead_until':0.0,'last_seen':now,'last_input':now,'input':[0,0,False],
            'aim':[0,1],'paused':False,'last_action':{},'receipts':OrderedDict(),
            'stats':{k:0 for k in STAT_KEYS},'gear':{'weapon':0,'armor':0,'clothes':0,'backpack':0},'level':1,'xp':0,
@@ -296,7 +300,8 @@ class World(NpcMixin):
         p['x']=x;p['y']=y;p['vehicle']=False
         # The tank is the player's own: it is not refilled for free, only kept from running completely dry.
         fuel=max(10.0,p['car'].get('fuel',30.0)) if isinstance(p.get('car'),dict) else 30.0
-        p['car']={'x':cx,'y':cy,'angle':self.rng.uniform(-math.pi,math.pi),'hp':100.0,'wrecked_until':0.0,'fuel':fuel}
+        model=p['car'].get('model') if isinstance(p.get('car'),dict) else None
+        p['car']=self.new_car(cx,cy,self.rng.uniform(-math.pi,math.pi),fuel,model)
         near=min(self.towns.values(),key=lambda t:dist(t,p))
         self._notice('Ты очнулся у дороги','Рядом: '+near['name']+'. '+self.home(p['faction'])['name']+' — метка на карте M.',player=p['id'])
 
@@ -599,17 +604,17 @@ class World(NpcMixin):
             return {'title':BUILDINGS[k]['name']+': работы начаты','text':'Уровень '+str(level+1)+' через '+str(BUILD_TIME[level])+' сек. Союзники рядом ускоряют стройку.','success':True}
         if op=='vehicle':
             self._cooldown(p,'vehicle',.4)
+            car=p['car']
             if p['vehicle']:
-                for angle in (0,math.pi/2,math.pi,3*math.pi/2):
-                    x=p['x']+math.cos(angle)*44; y=p['y']+math.sin(angle)*44
-                    if not self.blocked(x,y,11):
-                        p['x']=x;p['y']=y;p['vehicle']=False
-                        return {'title':'Ты вышел из машины'}
-                raise GameError('Рядом нет места для выхода. Отъедь немного.')
-            if p['car'].get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита. Её скоро отбуксируют в убежище.')
-            self._near(p,p['car'],85)
-            p['vehicle']=True;p['x']=p['car']['x'];p['y']=p['car']['y']
-            return {'title':'За рулём','text':'WASD — ехать, F — выйти. Топливо общее для фракции.'}
+                if math.hypot(car.get('vx',0),car.get('vy',0))>80: raise GameError('Сначала останови машину: S — тормоз, Shift — ручник.')
+                spot=self.car_exit_spot(p)
+                if not spot: raise GameError('Двери не открыть: рядом стена. Отъедь немного.')
+                p['x'],p['y']=spot;p['vehicle']=False;car.update(vx=0.0,vy=0.0,steer=0.0,brake=False,slip=False)
+                return {'title':'Ты вышел из машины','quiet':True}
+            if car.get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита. Её скоро отбуксируют в убежище.')
+            self._near(p,car,self.car_spec(p)['len']*.6+30)
+            p['vehicle']=True;p['x']=car['x'];p['y']=car['y'];p['angle']=car['angle']
+            return {'title':self.car_spec(p)['name'],'text':'W — газ, S — тормоз и задний ход, A/D — руль, Shift — ручник, F — выйти.','quiet':True}
         if op=='repair' and data.get('kit'):
             if p['items'].get('repairkit',0)<1: raise GameError('Нет ремкомплекта. Его продают в магазине на площади.')
             if p['vehicle'] or dist(p['car'],p)>110: raise GameError('Подойди к своей машине пешком.')
@@ -821,7 +826,7 @@ class World(NpcMixin):
             p['food']=min(100,p['food']+50);p['water']=min(100,p['water']+70);p['warmth']=min(100,p['warmth']+20)
             return {'title':'Столовая и колодец','text':'Сытость +50, жажда +70. −3 припаса фракции.','success':True}
         if op=='refuel':
-            car=p['car'];tank=CAR_TANK
+            car=p['car'];tank=self.car_tank(p)
             if car.get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита.')
             if car.get('fuel',0)>=tank-.5: raise GameError('Бак полон.')
             if data.get('canister'):
@@ -1092,6 +1097,19 @@ class World(NpcMixin):
         f=p['faction'];t=self._town_action(p,str(data.get('town')))
         if t['owner'] not in (None,f) and not self.truce_between(f,t['owner']): raise GameError('Торговцы чужого поселения тебе не продают.')
         kind=data.get('kind');idx=data.get('index')
+        if kind=='car':
+            if not isinstance(idx,int) or not 0<=idx<len(CARS) or not CARS[idx]['price']: raise GameError('Такой машины нет.')
+            spec=CARS[idx]
+            if p['level']<spec['level']: raise GameError('Нужен уровень '+str(spec['level'])+'.')
+            if p['car'].get('model')==idx: raise GameError('Это и есть твоя машина.')
+            if p['vehicle']: raise GameError('Выйди из машины.')
+            if p['coins']<spec['price']: raise GameError('Не хватает монет: нужно '+str(spec['price'])+'.')
+            spot=next(((t['x']+dx,t['y']+dy) for dx,dy in ((0,90),(90,0),(-90,0),(0,-90),(140,140)) if not self._car_blocked(spec,t['x']+dx,t['y']+dy,0)),None)
+            if not spot: raise GameError('На площади негде поставить машину.')
+            p['coins']-=spec['price']
+            fuel=min(spec['tank'],p['car'].get('fuel',0)) if not p['car'].get('wrecked_until') else 10.0
+            p['car']=self.new_car(spot[0],spot[1],0.0,fuel,idx)
+            return {'title':'Твоя машина: '+spec['name'],'text':'Старую забрали в счёт оплаты; бензин перелит. Машина стоит на площади.','success':True}
         if kind in ('weapon','armor','clothes','backpack'):
             table={'weapon':WEAPONS,'armor':ARMOR,'clothes':CLOTHES,'backpack':BACKPACKS}[kind]
             if not isinstance(idx,int) or not 1<=idx<len(table): raise GameError('Такого товара нет.')
@@ -1208,7 +1226,7 @@ class World(NpcMixin):
             car=p['car']
             if car.get('wrecked_until',0) and self.elapsed>=car['wrecked_until']:
                 t=self.home(p['faction'])
-                p['car']={'x':t['x']+90,'y':t['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0,'fuel':max(10.0,car.get('fuel',0))}
+                p['car']=self.new_car(t['x']+90,t['y']+25,0.0,max(10.0,car.get('fuel',0)),car.get('model'))
             if p['hp']<=0:
                 if self.elapsed>=p['dead_until']:
                     # Each respawn is a new random roadside spot; the car comes along so nobody is stranded.
@@ -1222,21 +1240,19 @@ class World(NpcMixin):
             moving=bool(x or y)
             speed=140
             if p['vehicle']:
-                level=garage[p['faction']]
-                speed=390*(1+.08*level) if p['car'].get('fuel',0)>.01 else 0
-                if self.weather['kind'] in ('storm','snow'):speed*=.85
-                if moving and speed: p['car']['fuel']=max(0,p['car'].get('fuel',0)-dt*.18*(1-.1*level))
+                # W/S are throttle and brake, A/D steer, Shift is the handbrake.
+                self.drive(p,dt,clamp(p['input'][0] if now-p['last_input']<.65 and not p['paused'] else 0,-1,1),
+                           clamp(-(p['input'][1] if now-p['last_input']<.65 and not p['paused'] else 0),-1,1),bool(sprint),garage[p['faction']])
             elif sprint and p['stamina']>1 and moving:
                 speed=220;p['stamina']=max(0,p['stamina']-dt*22)
             else: p['stamina']=min(100,p['stamina']+dt*14*(.4 if min(p['food'],p['water'])<20 or p['warmth']<25 else 1))
             self._survive(p,dt,sprint and moving and not p['vehicle'])
-            r=22 if p['vehicle'] else 10
-            if not p['vehicle'] and self.terrain.water(p['x'],p['y']):speed*=.45
-            nx=p['x']+x*speed*dt;ny=p['y']+y*speed*dt
-            if not self._blocked_for(p,nx,p['y'],r):p['x']=nx
-            if not self._blocked_for(p,p['x'],ny,r):p['y']=ny
-            if moving:p['angle']=math.atan2(y,x)
-            if p['vehicle']:p['car'].update(x=p['x'],y=p['y'],angle=p['angle'])
+            if not p['vehicle']:
+                if self.terrain.water(p['x'],p['y']):speed*=.45
+                nx=p['x']+x*speed*dt;ny=p['y']+y*speed*dt
+                if not self._blocked_for(p,nx,p['y'],10):p['x']=nx
+                if not self._blocked_for(p,p['x'],ny,10):p['y']=ny
+                if moving:p['angle']=math.atan2(y,x)
             for t in self.towns.values():
                 if dist(p,t)<650 and t['id'] not in p['visited']:
                     p['visited'].append(t['id']);p['stats']['explore']+=1;self.gain_xp(p,'explore')
@@ -1440,7 +1456,10 @@ class World(NpcMixin):
                 gear=p.get('gear') or {}
                 p['gear']={'weapon':int(clamp(finite(gear.get('weapon',0)),0,len(WEAPONS)-1)),'armor':int(clamp(finite(gear.get('armor',0)),0,len(ARMOR)-1)),
                            'clothes':int(clamp(finite(gear.get('clothes',0)),0,len(CLOTHES)-1)),'backpack':int(clamp(finite(gear.get('backpack',0)),0,len(BACKPACKS)-1))}
-                p['car'].setdefault('hp',100.0);p['car'].setdefault('wrecked_until',0.0);p['car']['fuel']=clamp(finite(p['car'].get('fuel',30.0),30.0),0,CAR_TANK)
+                p['car'].setdefault('hp',100.0);p['car'].setdefault('wrecked_until',0.0);p['car'].setdefault('model',2)
+                if not isinstance(p['car']['model'],int) or not 0<=p['car']['model']<len(CARS):p['car']['model']=2
+                p['car']['fuel']=clamp(finite(p['car'].get('fuel',30.0),30.0),0,CARS[p['car']['model']]['tank'])
+                for k in ('vx','vy','steer'):p['car'][k]=0.0
                 for k in STAT_KEYS:p['stats'].setdefault(k,0)
                 p['level']=int(clamp(finite(p.get('level',1),1),1,MAX_LEVEL));p['xp']=max(0,int(finite(p.get('xp',0))))
                 p['coins']=max(0,int(finite(p.get('coins',0))))
@@ -1551,7 +1570,7 @@ class GameServer(ThreadingHTTPServer):
 STATIC={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/game.js':'game.js',
         '/sprites.js':'sprites.js','/render.js':'render.js','/audio.js':'audio.js','/icon.svg':'icon.svg',
         '/assets/characters.png':'assets/characters.png','/assets/givers.png':'assets/givers.png',
-        '/assets/portraits.jpg':'assets/portraits.jpg'}
+        '/assets/portraits.jpg':'assets/portraits.jpg','/assets/cars.png':'assets/cars.png'}
 TYPES={'html':'text/html; charset=utf-8','css':'text/css; charset=utf-8','js':'application/javascript; charset=utf-8','svg':'image/svg+xml','png':'image/png','jpg':'image/jpeg'}
 
 class Handler(BaseHTTPRequestHandler):

@@ -122,7 +122,7 @@ class NpcMixin:
             amount *= 1 - ARMOR[target['gear']['armor']]['reduce'] - (.1 if target['level'] >= 20 else 0)
             if target['vehicle']:
                 car = target['car']
-                car['hp'] = max(0, car.get('hp', 100) - amount)
+                car['hp'] = max(0, car.get('hp', 100) - amount / self.car_spec(target)['armor'])
                 amount *= .3
                 if car['hp'] <= 0:
                     self._wreck_car(target)
