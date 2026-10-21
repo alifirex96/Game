@@ -236,7 +236,7 @@ class NpcMixin:
         self.effects.append({'id':secrets.token_hex(4),'kind':'boom','x':p['x'],'y':p['y'],'ex':p['x'],'ey':p['y'],
                              'until':self.elapsed+1.4,'faction':None})
         p['vehicle'] = False
-        self._notice('Машина подбита', 'Её отбуксируют в убежище через 25 секунд.', player=p['id'], tone='error')
+        self._notice('Машина подбита', 'Её отбуксируют к лагерю через 25 секунд.', player=p['id'], tone='error')
 
     def shoot_line(self, shooter, ax, ay, rng_, dmg, width=20):
         """Hitscan from shooter along (ax, ay). Returns the end point."""

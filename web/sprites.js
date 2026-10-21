@@ -604,7 +604,10 @@ function rigOf(src, index, tint) {
   });
 }
 function figureReady(src) { return src === 'giver' ? giversReady : sheetReady; }
-AS.sprites.heroIcon = (look, tint) => sheetReady ? sourceFigure('hero', look, tint).im : null;
+AS.sprites.heroIcon = (look, tint) => {
+  if (!heroReady) return null;
+  return cached('heroIcon' + (tint || ''), () => { const im = canvas(120, 120), c = im.getContext('2d'); smooth(c); c.translate(60, 52); c.scale(1.1, 1.1); heroFrame(c, 0, tint); return im; });
+};
 AS.sprites.lookReady = () => sheetReady;
 const ease = t => t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t);
 // Draw a limb stretched along the facing axis about its joint, then turned by `turn` radians.
@@ -631,10 +634,86 @@ function heldThing(c, kind, x, y, swing) {
   else if (kind === 'mag') { c.fillStyle = '#2a2b28'; c.fillRect(-1.5, -3, 3, 6); }
   c.restore();
 }
-/* o: {src:'hero'|'giver', look, tint, size, phase, speed (0 idle, 1 walk, 2 run), aim (0..1), kick (0..1),
+/* ---------- the hero: hand-drawn frames (web/assets/hero.png, cells of 160, 12 per row) ----------
+   Walk 0-11 (unarmed), then 6 frames per weapon from 12, kneeling over a body 54-59, falling back 60-65 and
+   forward 66-71. Frames face +y; the anchor (80, 34) is the top of the head, the body centre is 38 lower;
+   the hero stands 100 cell pixels tall. The grey hoodie takes the player's colour. */
+const HERO = new Image(); let heroReady = false, heroMask = null;
+HERO.onload = () => { heroReady = true; }; HERO.src = 'assets/hero.png';
+const HC = 160, HCOLS = 12, HAX = 80, HAY = 72;
+const HSET = { walk: [0, 12], loot: [54, 6], die_back: [60, 6], die_front: [66, 6] };
+for (let w = 0; w < 7; w++) HSET['w' + w] = [12 + w * 6, 6];
+// Per weapon: muzzle (cell pixels from the body centre) and how far the barrel points off the facing line.
+const HGUN = [[2, 5, 0], [39, 19, 1.04], [34, 14, .91], [28, 5, 1.1], [38, 18, .99], [51, 34, .99], [57, 20, 1.07]];
+const hscratch = canvas(HC, HC), hsc = hscratch.getContext('2d');
+function heroMaskOf() {
+  if (heroMask) return heroMask;
+  heroMask = canvas(HERO.width, HERO.height); const c = heroMask.getContext('2d'); c.drawImage(HERO, 0, 0);
+  const data = c.getImageData(0, 0, HERO.width, HERO.height), d = data.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]);
+    if (d[i + 3] < 10 || (mx - mn) / (mx + 1) > .14 || (mx + mn) / 510 < .33) d[i + 3] = 0;
+  }
+  c.putImageData(data, 0, 0); return heroMask;
+}
+function heroFrame(c, n, tint) {
+  const sx = (n % HCOLS) * HC, sy = Math.floor(n / HCOLS) * HC;
+  c.drawImage(HERO, sx, sy, HC, HC, -HAX, -HAY, HC, HC);
+  if (!tint) return;
+  const m = heroMaskOf();
+  hsc.globalCompositeOperation = 'copy'; hsc.drawImage(m, sx, sy, HC, HC, 0, 0, HC, HC);
+  hsc.globalCompositeOperation = 'multiply'; hsc.fillStyle = mix(tint, '#ffffff', .3); hsc.fillRect(0, 0, HC, HC);
+  hsc.globalCompositeOperation = 'destination-in'; hsc.drawImage(m, sx, sy, HC, HC, 0, 0, HC, HC);
+  hsc.globalCompositeOperation = 'source-over';
+  const a = c.globalAlpha; c.globalAlpha = a * .82; c.drawImage(hscratch, -HAX, -HAY); c.globalAlpha = a;
+}
+const HERO_RIG_ACTS = { chop: 1, mine: 1, eat: 1, drink: 1, bandage: 1 };
+// Returns false when the frames cannot show this pose (the cut-out rig draws it instead).
+function drawHero(c, o) {
+  const act = o.act, at = act ? act.t : 99, live = act && at < (act.kind === 'reload' ? o.reloadTime || 1.5 : act.kind === 'swap' ? .5 : .9);
+  const dead = o.dead || 0;
+  if (!dead && live && HERO_RIG_ACTS[act.kind]) return false;
+  const k = (o.size || 38) / 102, w = Math.max(0, Math.min(6, o.weapon | 0)), aim = dead ? 0 : ease(o.aim || 0);
+  let set = w >= 1 || aim > .05 ? 'w' + w : 'walk', frame = 0, turn = 0, dip = 0;
+  const [first, count] = HSET[set];
+  if (o.speed > 0 && !dead) frame = Math.floor(((o.phase || 0) / (Math.PI * 2) % 1 + 1) % 1 * count);
+  let n = first + frame;
+  if (dead) {
+    const row = o.fall === 'front' ? HSET.die_front : HSET.die_back;
+    n = row[0] + Math.min(5, Math.floor(dead * 6));
+  } else if (live && (act.kind === 'search' || act.kind === 'gather' || act.kind === 'hammer')) {
+    // Down on one knee: reach out, then into the bag (hammering keeps reaching).
+    const seq = act.kind === 'hammer' ? [1, 2, 1, 2, 1, 2] : [1, 2, 2, 4, 4, 1];
+    n = HSET.loot[0] + seq[Math.min(5, Math.floor(at / .15) % 6)];
+  } else if (live && act.kind === 'reload') {
+    const p = Math.min(1, at / (o.reloadTime || 1.5)); dip = Math.sin(p * Math.PI); turn = -dip * .35;
+  } else if (live && act.kind === 'swap') {
+    const p = Math.min(1, at / .5); if (p < .5) n = HSET.walk[0]; dip = Math.sin(p * Math.PI) * .6;
+  }
+  // Raising the weapon turns the body so the barrel points at the target.
+  if (!dead && set !== 'walk') turn += HGUN[w][2] * .85 * aim;
+  if (!dead) { c.fillStyle = '#0a0f0b55'; c.beginPath(); c.ellipse(3, 4, (o.size || 38) * .34, (o.size || 38) * .28, 0, 0, 7); c.fill(); }
+  c.save();
+  if (o.hit) c.translate(-o.hit * 2.2, 0);
+  c.rotate(-Math.PI / 2); c.scale(k, k);
+  if (!dead && o.speed === 0 && !live) { const b = 1 + Math.sin((o.time || 0) * 2.1) * .01; c.scale(b, b); }
+  c.rotate(turn); c.translate(0, -(o.kick || 0) * (o.kickLen || 3) * 1.6 - dip * 6);
+  heroFrame(c, n, o.tint);
+  if (o.flash && aim > .5 && !dead) {
+    const [mx, my, ga] = HGUN[w]; c.translate(mx, my); c.rotate(Math.PI / 2 - ga); c.scale(2.4, 2.4);
+    c.fillStyle = '#ffe7a0'; c.beginPath(); c.moveTo(0, 0); c.lineTo(8, -3.5); c.lineTo(13, 0); c.lineTo(8, 3.5); c.closePath(); c.fill();
+    c.fillStyle = '#fff6d8'; c.beginPath(); c.arc(2, 0, 2.2, 0, 7); c.fill();
+  }
+  c.restore();
+  return true;
+}
+AS.sprites.heroReady = () => heroReady;
+/* o: {src:'hero'|'giver', player (the drawn hero frames), look, tint, size, phase, speed (0 idle, 1 walk, 2 run), aim (0..1), kick (0..1),
        weapon, flash, hit (0..1), dead (0..1), act:{kind, t}, time, gesture (0..1)}. Forward is +x in the caller's frame. */
 AS.sprites.figure = function (c, o) {
-  const src = o.src || 'hero', idx = src === 'giver' ? o.art : (o.look || 0);
+  if (o.player && heroReady && drawHero(c, o)) return;
+  if (o.player && heroReady) o = Object.assign({}, o, { size: (o.size || 38) * .88 });
+  const src = o.src || 'hero', idx = src === 'giver' ? o.art : o.player ? 0 : (o.look || 0);
   if (!figureReady(src)) { AS.sprites.person(c, { phase: o.phase, moving: o.speed > 0, weapon: o.weapon, aim: o.aim > .5, shot: o.kick > .3, flash: o.flash, dead: o.dead > .5, seed: .3 }); return; }
   const rig = rigOf(src, idx, o.tint), size = o.size || 38, s = size / (rig.box.h * 1.02);
   const t = o.time || 0, dead = ease(o.dead || 0), act = o.act, at = act ? act.t : 99;

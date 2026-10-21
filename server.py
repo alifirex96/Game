@@ -309,8 +309,6 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             p['xp']-=xp_to_next(p['level']);p['level']+=1
             p['hp']=self.max_hp(p)
             perk=next((k for k in PERKS if k['level']==p['level']),None)
-            if hero_look(p['level'])!=hero_look(p['level']-1):
-                self._notice('Новый облик: '+LOOKS[hero_look(p['level'])],'Опыт виден по снаряжению.',player=p['id'])
             self.effects.append({'id':secrets.token_hex(4),'kind':'levelup','x':p['x'],'y':p['y'],'ex':p['x'],'ey':p['y'],'until':self.elapsed+1.5,'faction':p['faction'],'player':p['id']})
             self._notice('Новый уровень: '+str(p['level']),'Здоровье '+str(int(self.max_hp(p)))+', урон +'+str(3*(p['level']-1))+'%.'+(' Навык: '+perk['name']+' — '+perk['desc'] if perk else ''),player=p['id'])
             self._notice(p['name']+' достиг уровня '+str(p['level']),'',faction=p['faction'],skip=p['id'])
@@ -528,7 +526,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         if request_id in p['receipts']:
             return p['receipts'][request_id]
         if p['hp']<=0:
-            raise GameError('Ты возвращаешься в убежище. Подожди несколько секунд.')
+            raise GameError('Ты приходишь в себя. Подожди несколько секунд.')
         # Per-action results are recorded before replying. A network retry cannot spend twice.
         result=self._act(p,op,data)
         p['receipts'][request_id]=result
@@ -549,7 +547,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             n=self.nodes.get(str(data.get('id')))
             return {'wood':'chop','stone':'mine','metal':'mine'}.get(n['kind'],'gather') if n else None
         if op in ('build','extinguish','repair','craft'):return 'hammer'
-        if op in ('loot','airdrop','post','cook'):return 'search'
+        if op in ('loot','airdrop','post','cook','search_house','loot_body','stash_put','stash_take'):return 'search'
         if op in ('drink','canteen'):return 'drink' if op=='drink' else 'eat'
         if op=='heal':return 'bandage'
         if op=='use':
@@ -614,14 +612,14 @@ class World(NpcMixin, VehicleMixin, CampMixin):
                 if not spot: raise GameError('Двери не открыть: рядом стена. Отъедь немного.')
                 p['x'],p['y']=spot;p['vehicle']=False;car.update(vx=0.0,vy=0.0,steer=0.0,brake=False,slip=False)
                 return {'title':'Ты вышел из машины','quiet':True}
-            if car.get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита. Её скоро отбуксируют в убежище.')
+            if car.get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита. Её скоро отбуксируют к лагерю.')
             self._near(p,car,self.car_spec(p)['len']*.6+30)
             p['vehicle']=True;p['x']=car['x'];p['y']=car['y'];p['angle']=car['angle']
             return {'title':self.car_spec(p)['name'],'text':'W — газ, S — тормоз и задний ход, A/D — руль, Shift — ручник, F — выйти.','quiet':True}
         if op=='repair' and data.get('kit'):
             if p['items'].get('repairkit',0)<1: raise GameError('Нет ремкомплекта. Его продают в магазине на площади.')
             if p['vehicle'] or dist(p['car'],p)>110: raise GameError('Подойди к своей машине пешком.')
-            if p['car'].get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита, её отбуксируют в убежище.')
+            if p['car'].get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита, её отбуксируют к лагерю.')
             if p['car'].get('hp',100)>=100: raise GameError('Машина исправна.')
             p['items']['repairkit']-=1;p['car']['hp']=100.0;left=p['items']['repairkit']
             if not left:del p['items']['repairkit']
@@ -1664,7 +1662,7 @@ class GameServer(ThreadingHTTPServer):
 STATIC={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/game.js':'game.js',
         '/sprites.js':'sprites.js','/render.js':'render.js','/audio.js':'audio.js','/icon.svg':'icon.svg',
         '/assets/characters.png':'assets/characters.png','/assets/givers.png':'assets/givers.png',
-        '/assets/portraits.jpg':'assets/portraits.jpg','/assets/cars.png':'assets/cars.png'}
+        '/assets/portraits.jpg':'assets/portraits.jpg','/assets/cars.png':'assets/cars.png','/assets/hero.png':'assets/hero.png'}
 TYPES={'html':'text/html; charset=utf-8','css':'text/css; charset=utf-8','js':'application/javascript; charset=utf-8','svg':'image/svg+xml','png':'image/png','jpg':'image/jpeg'}
 
 class Handler(BaseHTTPRequestHandler):

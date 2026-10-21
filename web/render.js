@@ -371,7 +371,7 @@ R.draw = function (c, v) {
           const k = Math.max(0, Math.min(1, (since - .12) / (EXIT_TIME - .2)));
           pos = { x: seat.x + (out.x - seat.x) * k, y: seat.y + (out.y - seat.y) * k }; alpha = since < .12 ? 0 : Math.min(1, k * 1.6); face = car.angle - Math.PI / 2 * (1 - k) - .3 * k;
         }
-        if (alpha > .02) items.push({ y: car.y + 1, f: () => { c.save(); c.globalAlpha = alpha; c.translate(pos.x, pos.y); c.rotate(face); S.figure(c, { look: p.look || 0, tint: col(p.faction), size: 38, phase: walk ? now * 12 : 0, speed: walk ? 1 : 0, weapon: p.gear ? p.gear.weapon : 0, time: now }); c.restore(); } });
+        if (alpha > .02) items.push({ y: car.y + 1, f: () => { c.save(); c.globalAlpha = alpha; c.translate(pos.x, pos.y); c.rotate(face); S.figure(c, { player: true, tint: col(p.faction), size: 38, phase: walk ? now * 12 : 0, speed: walk ? 1 : 0, weapon: p.gear ? p.gear.weapon : 0, time: now }); c.restore(); } });
       } else if (!p.vehicle && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
     });
     (state.npcs || []).forEach(n => { const r = v.drawNpcs[n.id] || n; if (!vis(r.x, r.y)) return; items.push({ y: r.y, f: () => drawNpc(c, n, r, v) }); });
@@ -506,7 +506,7 @@ function animState(r, ent, now, dt, aimTarget) {
   if (ent.shot !== r.shotSeen) { if (r.shotSeen != null && ent.shot > 0) { r.shotAt = now; r.shells = (r.shells || 0) + 1; } r.shotSeen = ent.shot; }
   r.aimK = (r.aimK || 0) + (aimTarget - (r.aimK || 0)) * Math.min(1, dt * 11);
   return { kick: r.shotAt ? Math.max(0, 1 - (now - r.shotAt) / .13) : 0, hit: r.hitAt ? Math.max(0, 1 - (now - r.hitAt) / .25) : 0,
-    dead: ent.hp <= 0 ? (r.deadAt != null ? Math.min(1, (now - r.deadAt) / .5) : 1) : 0 };
+    dead: ent.hp <= 0 ? (r.deadAt != null ? Math.min(1, (now - r.deadAt) / .9) : 1) : 0 };
 }
 function ejectShell(r, ang, weapon) {
   if (!r.shells) return; r.shells = 0; if (weapon === 1 || weapon === 3) return;      // break-action guns keep their shells
@@ -527,7 +527,7 @@ function drawPlayer(c, p, r, v) {
   const w = p.gear ? p.gear.weapon : 0;
   c.save(); c.translate(r.x, r.y); c.rotate(a.dead ? (r.deadAng != null ? r.deadAng : (r.deadAng = ang)) : ang); if (a.dead === 0) r.deadAng = null;
   if (fade < 1) c.globalAlpha = r.inCar ? 1 - fade : fade;
-  S.figure(c, { look: p.look || 0, tint: col(p.faction), size: 38, phase: r.phase || 0, speed: p.moving ? (p.sprint ? 2 : 1) : 0, aim: r.aimK, kick: a.kick, kickLen: KICK[w], weapon: w, flash: t - p.shot < .07, hit: a.hit, dead: a.dead, act, reloadTime: (cfgWeapons()[w] || {}).reload, time: now });
+  S.figure(c, { player: true, tint: col(p.faction), size: 38, phase: r.phase || 0, speed: p.moving ? (p.sprint ? 2 : 1) : 0, aim: r.aimK, kick: a.kick, kickLen: KICK[w], weapon: w, flash: t - p.shot < .07, hit: a.hit, dead: a.dead, fall: strSeed(p.id) > .5 ? 'front' : 'back', act, reloadTime: (cfgWeapons()[w] || {}).reload, time: now });
   c.restore();
   if (a.dead) return;
   const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
@@ -652,7 +652,7 @@ function drawCampPart(c, kind, part, camp, v) {
 }
 function drawBody(c, b, v) {
   c.save(); c.translate(b.x, b.y); c.rotate(strSeed(b.id) * 6);
-  S.figure(c, { look: 0, tint: '#6b6a62', size: 36, dead: 1, time: 0 });
+  S.figure(c, { player: true, size: 38, dead: 1, fall: strSeed(b.id) > .5 ? 'front' : 'back', time: 0 });
   c.restore();
   c.fillStyle = '#5b4a33'; rr(c, b.x + 10, b.y + 4, 12, 9, 2); c.fill();
 }
