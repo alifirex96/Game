@@ -643,7 +643,7 @@ HERO.onload = () => { heroReady = true; }; HERO.src = 'assets/hero.png';
 const HC = 160, HCOLS = 12, HAX = 80, HAY = 72;
 const HSET = { walk: [0, 12], loot: [54, 6], die_back: [60, 6], die_front: [66, 6], chop: [72, 6] };
 // Chop: ready, over the shoulder, overhead (held), down, impact (held), back; seconds per frame.
-const CHOP_TIME = [.1, .12, .16, .08, .22, .14];
+const CHOP_TIME = [.14, .16, .22, .1, .28, .2];
 for (let w = 0; w < 7; w++) HSET['w' + w] = [12 + w * 6, 6];
 // Per weapon: muzzle (cell pixels from the body centre) and how far the barrel points off the facing line.
 const HGUN = [[2, 5, 0], [39, 19, 1.04], [34, 14, .91], [28, 5, 1.1], [38, 18, .99], [51, 34, .99], [57, 20, 1.07]];
@@ -672,7 +672,7 @@ function heroFrame(c, n, tint) {
 const HERO_RIG_ACTS = { mine: 1, eat: 1, drink: 1, bandage: 1 };
 // Returns false when the frames cannot show this pose (the cut-out rig draws it instead).
 function drawHero(c, o) {
-  const act = o.act, at = act ? act.t : 99, live = act && at < (act.kind === 'reload' ? o.reloadTime || 1.5 : act.kind === 'swap' ? .5 : .9);
+  const act = o.act, at = act ? act.t : 99, live = act && at < (act.kind === 'reload' ? o.reloadTime || 1.5 : act.kind === 'swap' ? .5 : act.kind === 'chop' ? 1.1 : 1.2);
   const dead = o.dead || 0;
   if (!dead && live && HERO_RIG_ACTS[act.kind]) return false;
   const k = (o.size || 38) / 102, w = Math.max(0, Math.min(6, o.weapon | 0)), aim = dead ? 0 : ease(o.aim || 0);
@@ -686,7 +686,7 @@ function drawHero(c, o) {
   } else if (live && (act.kind === 'search' || act.kind === 'gather' || act.kind === 'hammer')) {
     // Down on one knee: reach out, then into the bag (hammering keeps reaching).
     const seq = act.kind === 'hammer' ? [1, 2, 1, 2, 1, 2] : [1, 2, 2, 4, 4, 1];
-    n = HSET.loot[0] + seq[Math.min(5, Math.floor(at / .15) % 6)];
+    n = HSET.loot[0] + seq[Math.min(5, Math.floor(at / .2) % 6)];
   } else if (live && act.kind === 'chop') {
     let f = 0, left = at; while (f < 5 && left >= CHOP_TIME[f]) left -= CHOP_TIME[f++];
     n = HSET.chop[0] + f;

@@ -135,11 +135,12 @@ class NpcMixin:
                 return False
             amount *= 1 - ARMOR[target['gear']['armor']]['reduce'] - (.1 if target['level'] >= 20 else 0)
             if target['vehicle']:
-                car = target['car']
-                car['hp'] = max(0, car.get('hp', 100) - amount / self.car_spec(target)['armor'])
+                owner = self.driver_of(target) or target
+                car = owner['car']
+                car['hp'] = max(0, car.get('hp', 100) - amount / self.car_spec(owner)['armor'])
                 amount *= .3
                 if car['hp'] <= 0:
-                    self._wreck_car(target)
+                    self._wreck_car(owner)
                     amount += 15
             self._damage(target, amount)
             # Gunshots open wounds; armor makes it less likely.

@@ -327,14 +327,14 @@ CAR_TANK = 45          # tank of old saves' cars; each model has its own
 # max — top speed on asphalt, accel — px/s², offroad — share of top speed off the road, grip — how fast sideways
 # sliding dies out, steer — steering lock (rad), armor — divides damage, len/wid — body size in world px.
 CARS = [
-    {'id':'uaz','name':'УАЗ-469','max':360,'accel':240,'offroad':.86,'grip':7.0,'steer':.62,'armor':1.5,'tank':60,'len':93,'wid':54,'price':520,'level':6,'door':.18,'color':'#59603f'},
-    {'id':'bukhanka','name':'УАЗ «Буханка»','max':330,'accel':205,'offroad':.8,'grip':6.0,'steer':.55,'armor':1.7,'tank':70,'len':100,'wid':56,'price':600,'level':8,'door':.12,'color':'#7d8b93'},
-    {'id':'vaz2101','name':'ВАЗ-2101','max':400,'accel':270,'offroad':.52,'grip':7.4,'steer':.66,'armor':1.0,'tank':39,'len':92,'wid':50,'price':0,'level':1,'door':.12,'color':'#d9cfb2'},
-    {'id':'vaz2107','name':'ВАЗ-2107','max':420,'accel':290,'offroad':.52,'grip':7.6,'steer':.66,'armor':1.05,'tank':39,'len':93,'wid':52,'price':150,'level':2,'door':.12,'color':'#3f5f8c'},
-    {'id':'vaz2109','name':'ВАЗ-2109','max':445,'accel':330,'offroad':.5,'grip':8.2,'steer':.7,'armor':.95,'tank':43,'len':86,'wid':53,'price':260,'level':4,'door':.12,'color':'#9c3e34'},
-    {'id':'niva','name':'«Нива»','max':380,'accel':290,'offroad':.92,'grip':8.0,'steer':.7,'armor':1.25,'tank':42,'len':81,'wid':56,'price':380,'level':5,'door':.16,'color':'#3e5a3a'},
-    {'id':'moskvich','name':'«Москвич»','max':385,'accel':250,'offroad':.55,'grip':7.0,'steer':.64,'armor':1.0,'tank':46,'len':89,'wid':52,'price':0,'level':1,'door':.12,'color':'#c79a52'},
-    {'id':'volga','name':'ГАЗ-24 «Волга»','max':455,'accel':270,'offroad':.48,'grip':6.6,'steer':.6,'armor':1.3,'tank':55,'len':96,'wid':54,'price':450,'level':7,'door':.12,'color':'#2a2826'},
+    {'id':'uaz','name':'УАЗ-469','max':360,'accel':240,'offroad':.86,'grip':7.0,'steer':.62,'armor':1.5,'tank':60,'len':93,'wid':54,'price':520,'level':6,'door':.18,'seats':4,'color':'#59603f'},
+    {'id':'bukhanka','name':'УАЗ «Буханка»','max':330,'accel':205,'offroad':.8,'grip':6.0,'steer':.55,'armor':1.7,'tank':70,'len':100,'wid':56,'price':600,'level':8,'door':.12,'seats':8,'color':'#7d8b93'},
+    {'id':'vaz2101','name':'ВАЗ-2101','max':400,'accel':270,'offroad':.52,'grip':7.4,'steer':.66,'armor':1.0,'tank':39,'len':92,'wid':50,'price':0,'level':1,'door':.12,'seats':4,'color':'#d9cfb2'},
+    {'id':'vaz2107','name':'ВАЗ-2107','max':420,'accel':290,'offroad':.52,'grip':7.6,'steer':.66,'armor':1.05,'tank':39,'len':93,'wid':52,'price':150,'level':2,'door':.12,'seats':4,'color':'#3f5f8c'},
+    {'id':'vaz2109','name':'ВАЗ-2109','max':445,'accel':330,'offroad':.5,'grip':8.2,'steer':.7,'armor':.95,'tank':43,'len':86,'wid':53,'price':260,'level':4,'door':.12,'seats':4,'color':'#9c3e34'},
+    {'id':'niva','name':'«Нива»','max':380,'accel':290,'offroad':.92,'grip':8.0,'steer':.7,'armor':1.25,'tank':42,'len':81,'wid':56,'price':380,'level':5,'door':.16,'seats':4,'color':'#3e5a3a'},
+    {'id':'moskvich','name':'«Москвич»','max':385,'accel':250,'offroad':.55,'grip':7.0,'steer':.64,'armor':1.0,'tank':46,'len':89,'wid':52,'price':0,'level':1,'door':.12,'seats':4,'color':'#c79a52'},
+    {'id':'volga','name':'ГАЗ-24 «Волга»','max':455,'accel':270,'offroad':.48,'grip':6.6,'steer':.6,'armor':1.3,'tank':55,'len':96,'wid':54,'price':450,'level':7,'door':.12,'seats':4,'color':'#2a2826'},
 ]
 STARTER_CARS = [2, 6]   # a worn «копейка» or «Москвич» to start with
 POST = {'name':'Пост на трассе','desc':'Лечит тебя рядом, стреляет по врагам, собирает пошлину с дороги и забирает четверть груза чужих колонн.'}

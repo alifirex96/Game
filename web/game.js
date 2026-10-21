@@ -156,6 +156,10 @@ const CAMP_R=110;
 function carSpec(){return cfg.cars[state&&state.me.car.model!=null?state.me.car.model:2]||cfg.cars[2];}
 function carTank(){return carSpec().tank;}
 // About 90 km/h at 400 px/s: speeds feel right for the shortened map.
+// Another player's stopped car with a free seat, close enough to get in as a passenger.
+function rideNear(p){if(p.vehicle||p.hp<=0)return null;let best=null;state.players.forEach(q=>{if(q.id===p.id||q.ride||!q.car)return;const spec=cfg.cars[q.car.model]||cfg.cars[2],d=distance(q.car,p);if(d>spec.len*.6+30||(best&&best.d<d))return;
+ const taken=state.players.filter(o=>o.ride===q.id&&o.vehicle).length;best={d,q,spec,free:(spec.seats||4)-1-taken};});return best;}
+function rideOf(p){return p.ride?state.players.find(q=>q.id===p.ride):null;}
 function kmh(car){return Math.round(Math.hypot(car.vx||0,car.vy||0)*.225);}
 function closePanel(){panel=null;selected=null;screen.className='';screen.innerHTML='';document.body.classList.remove('dialog-open');clearKeys();}
 function modal(type,head,body,width){panel=type;document.body.classList.add('dialog-open');screen.className='';screen.innerHTML='<section class="modal '+(width||'')+'"><div class="modal-head"><div>'+head+'</div><button class="close" id="close-panel" aria-label="Закрыть">'+icon('close')+'</button></div>'+body+'</section>';$('close-panel').onclick=closePanel;clearKeys();}
@@ -424,7 +428,7 @@ function mapInfo(id){const t=state.towns[id];if(!t)return;$('map-info').innerHTM
 function poiInfo(p){const looted=state.loot[p.id];$('map-info').innerHTML='<span class="eyebrow">ЗАБРОШЕННОЕ МЕСТО</span><h3>'+esc(p.name)+'</h3><p>'+esc(p.kind_name)+'</p><p>Тайник: '+(looted?'обыскан, восстановится через '+Math.ceil(looted-state.time)+' сек.':'не тронут')+'<br>Возможная добыча: '+costText(cfg.poi_kinds[p.kind].loot)+'</p><p class="small muted">Мародёры собираются у таких мест. Подходи подготовленным.</p><button class="primary" id="set-waypoint">Поставить маршрут '+icon('arrow')+'</button>';
  $('set-waypoint').onclick=()=>{waypoint={x:p.x,y:p.y,name:p.name};closePanel();notify('Цель: '+p.name,'Следуй указателю.');};}
 
-function interact(){if(!state||state.me.hp<=0)return;if(state.me.vehicle){notify('Ты за рулём','Нажми F, чтобы выйти и взаимодействовать.');return;}
+function interact(){if(!state||state.me.hp<=0)return;if(state.me.vehicle){notify(state.me.ride?'Ты пассажир':'Ты за рулём','Нажми F, чтобы выйти и взаимодействовать.');return;}
  if(!nearest){notify('Рядом нет цели','Подойди к человеку, ресурсу, зданию, тайнику или флагу на площади.');return;}
  const n=nearest;
  if(n.type==='giver')action('talk',{giver:n.obj.id}).then(r=>{if(r&&r.dialog)showDialog(r.dialog);});
@@ -451,7 +455,7 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
  $('coins').innerHTML=icon('coin')+'<b>'+p.coins+'</b><span title="Рюкзак: I">'+icon('bag')+slotsUsed(p.items)+' / '+cfg.backpacks[p.gear.backpack].slots+'</span>';
  $('vitals').innerHTML=vitalsHtml(false);
  $('level').innerHTML='<b>'+p.level+'</b><span>УР.</span><i><em style="width:'+(maxLv?100:Math.round(p.xp/need*100))+'%"></em></i><small>'+(maxLv?'максимум':p.xp+' / '+need+' опыта')+'</small>';
- $('mode').innerHTML=icon(p.vehicle?'car':'walk')+'<span>'+(p.vehicle?esc(carSpec().name)+' · '+kmh(p.car)+' км/ч · '+Math.round(p.car.hp)+'% · бак '+Math.floor(p.car.fuel)+' / '+carTank():'Пешком')+'</span><span class="hp">'+icon('heart')+Math.ceil(p.hp)+' / '+p.max_hp+'</span><span class="gear">'+icon('gun')+esc(cfg.weapons[p.gear.weapon].name)+' · '+(p.reload>state.time?'перезарядка':p.mag+' · запас '+(p.items[cfg.weapons[p.gear.weapon].ammo_item]||0))+'</span><span class="gear">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</span>';
+ const ride=rideOf(p);$('mode').innerHTML=icon(p.vehicle?'car':'walk')+'<span>'+(ride?'Пассажир · '+esc((cfg.cars[ride.car.model]||cfg.cars[2]).name)+' · '+kmh(ride.car)+' км/ч':p.vehicle?esc(carSpec().name)+' · '+kmh(p.car)+' км/ч · '+Math.round(p.car.hp)+'% · бак '+Math.floor(p.car.fuel)+' / '+carTank():'Пешком')+'</span><span class="hp">'+icon('heart')+Math.ceil(p.hp)+' / '+p.max_hp+'</span><span class="gear">'+icon('gun')+esc(cfg.weapons[p.gear.weapon].name)+' · '+(p.reload>state.time?'перезарядка':p.mag+' · запас '+(p.items[cfg.weapons[p.gear.weapon].ammo_item]||0))+'</span><span class="gear">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</span>';
  $('stamina').firstElementChild.style.width=p.stamina+'%';$('autosave').textContent=netFailures?'Соединение с ведущим потеряно':'Мир сохраняется у ведущего · '+state.players.length+' / '+cfg.max_players+' игроков';
  const s=state.story;
  if(s.chapter&&(s.ready||frame%600<300)){$('quest-index').textContent='ГЛАВА '+(s.index+1);$('quest-title').textContent=s.chapter.title;$('quest-desc').textContent=s.chapter.text;$('quest-progress').innerHTML='<div class="task '+(s.ready?'done':'')+'"><i></i>'+s.progress[0]+' / '+s.progress[1]+(s.ready?' · Сдай главу радисту в крупном городе':'')+'</div>';}
@@ -476,11 +480,13 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
  cfg.pois.forEach(o=>{const d=distance(o,p);if(d<170&&!state.loot[o.id])candidates.push({type:'poi',obj:o,d:d-20});});
  (state.airdrops||[]).forEach(o=>{const d=distance(o,p);if(d<80)candidates.push({type:'drop',obj:o,d:d-40});});
  all.forEach(t=>{const d=distance(t,p);if(d<165)candidates.push({type:'town',obj:t,d:d+15});});candidates.sort((a,b)=>a.d-b.d);nearest=candidates[0]||null;}
- const hint=$('interaction');const carNear=p.car&&!p.vehicle&&distance(p,p.car)<=carSpec().len*.6+30&&!(p.car.wrecked_until>state.time);hint.classList.toggle('hidden',!nearest&&!p.vehicle&&!carNear);
- if(p.vehicle)hint.innerHTML='<kbd>F</kbd> '+(kmh(p.car)>18?'Останови машину, чтобы выйти':'Выйти из машины')+'<small>'+(p.car.fuel<1?'Бак пуст. Канистра — T, заправка — в своём поселении.':'W газ · S тормоз и назад · A/D руль · Shift ручник · бак '+Math.floor(p.car.fuel)+' / '+carTank())+'</small>';
+ const hint=$('interaction');const carNear=p.car&&!p.vehicle&&distance(p,p.car)<=carSpec().len*.6+30&&!(p.car.wrecked_until>state.time),seat=!carNear&&rideNear(p),rider=rideOf(p);hint.classList.toggle('hidden',!nearest&&!p.vehicle&&!carNear&&!seat);
+ if(rider)hint.innerHTML='<kbd>F</kbd> '+(kmh(rider.car)>18?'Машина едет — выйти можно на остановке':'Выйти из машины')+'<small>Ты пассажир. Ведёт '+esc(rider.name)+'</small>';
+ else if(p.vehicle)hint.innerHTML='<kbd>F</kbd> '+(kmh(p.car)>18?'Останови машину, чтобы выйти':'Выйти из машины')+'<small>'+(p.car.fuel<1?'Бак пуст. Канистра — T, заправка — в своём поселении.':'W газ · S тормоз и назад · A/D руль · Shift ручник · бак '+Math.floor(p.car.fuel)+' / '+carTank())+'</small>';
  else if(nearest){const o=nearest.obj,t=nearest.type==='building'&&state.towns[o.town];let name=nearest.type==='giver'?'Поговорить: '+o.role.toLowerCase()+' '+o.name:nearest.type==='camp'?(campCanUse(o)?'Лагерь':'Чужой лагерь: ящик'):nearest.type==='fence'?'Ломать: '+(o.piece.kind==='gate'?'ворота':'стену'):nearest.type==='house'?'Обыскать дом':nearest.type==='body'?'Забрать: '+o.name:nearest.type==='building'?(t.fires&&t.fires[o.kind]?'Потушить: ':'')+cfg.buildings[o.kind].name:nearest.type==='town'?'Площадь · '+o.name:nearest.type==='poi'?'Обыскать тайник · '+o.name:nearest.type==='drop'?'Забрать сброшенный груз':'Собрать: '+cfg.resources[o.kind].toLowerCase();
   hint.innerHTML='<kbd>E</kbd>'+esc(name)+'<small>'+(nearest.type==='giver'?'Работа, слухи, награда за сделанное':nearest.type==='camp'?'Постройки, ящик · C — крафт':nearest.type==='fence'?'Прочность '+o.piece.hp+' / '+o.piece.max+'. Можно и стрелять':nearest.type==='house'?'Ткань, гвозди, доски, патроны… · L — поселиться здесь':nearest.type==='body'?(Object.keys(o.items).length+' видов вещей'+(o.coins?' и '+o.coins+' монет':'')):nearest.type==='building'?(o.kind==='workshop'&&t.owner===p.faction?'Стройка и снаряжение':o.kind==='garage'&&t.owner===p.faction?'Стройка и ремонт машины':'Восстановить или улучшить'):nearest.type==='town'?'События · торговля · управление · захват':nearest.type==='poi'?costText(cfg.poi_kinds[o.kind].loot).replace(/<[^>]+>/g,'')+' · охраняют мародёры':nearest.type==='drop'?'Металл, топливо, припасы':'+'+o.amount+' в запас фракции')+'</small>';}
  else if(!p.vehicle&&R.water(p.x,p.y,70))hint.innerHTML='<kbd>V</kbd> Попить из реки<small>Сырая вода может вызвать отравление</small>';
+ else if(seat)hint.innerHTML='<kbd>F</kbd> '+(seat.free>0?'Сесть пассажиром':'Мест нет')+'<small>'+esc(seat.spec.name)+' · '+esc(seat.q.name)+' · свободно мест: '+Math.max(0,seat.free)+'</small>';
  else if(carNear)hint.innerHTML='<kbd>F</kbd> Сесть в машину<small>'+esc(carSpec().name)+' · '+Math.round(p.car.hp)+'% · бак '+Math.floor(p.car.fuel)+' / '+carTank()+(p.items.canister&&p.car.fuel<carTank()-1?' · T — залить канистру':'')+'</small>';
  if(p.hp<=0)hint.classList.remove('hidden'),hint.innerHTML='Ты без сознания<small>Очнёшься '+(myCamp()&&myCamp().parts.bed&&myCamp().parts.bed.hp>0?'в лагере':'у дороги')+' через '+Math.ceil(Math.max(0,p.dead_until-state.time))+' секунд</small>';
 }
@@ -489,7 +495,7 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
 function interpolate(list,store,dt){const seen={};list.forEach(p=>{seen[p.id]=1;let r=store[p.id];if(!r||distance(r,p)>500)r=store[p.id]={x:p.x,y:p.y,phase:Math.random()*6,ang:p.angle};
  const ox=r.x,oy=r.y;r.x+=(p.x-r.x)*Math.min(1,dt*14);r.y+=(p.y-r.y)*Math.min(1,dt*14);const sp=Math.hypot(r.x-ox,r.y-oy)/Math.max(dt,.001);r.sp=(r.sp||0)+(sp-(r.sp||0))*Math.min(1,dt*8);r.moving=r.sp>12;
  // Step rate follows the actual speed, so feet do not slide over the ground.
- r.phase+=dt*Math.min(16,4+r.sp*.055)*(r.moving?1:0);
+ r.phase+=dt*Math.min(10,2.4+r.sp*.034)*(r.moving?1:0);
  let da=(p.angle-r.ang+Math.PI)%(Math.PI*2);if(da<0)da+=Math.PI*2;r.ang+=(da-Math.PI)*Math.min(1,dt*12);});Object.keys(store).forEach(k=>{if(!seen[k])delete store[k];});}
 let slowFrames=0,measured=0;
 // Cold frosts the screen edges; bleeding pulses red.

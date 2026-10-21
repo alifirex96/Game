@@ -349,29 +349,37 @@ R.draw = function (c, v) {
       const r = v.drawPlayers[p.id]; if (!r) return;
       if (r.inCar !== p.vehicle) {
         if (r.inCar != null) { r.carAt = now; r.carFrom = { x: r.footX != null ? r.footX : r.x, y: r.footY != null ? r.footY : r.y }; }
+        if (p.vehicle) r.rideId = p.ride || null; else r.leftRide = r.rideId;
         r.inCar = p.vehicle;
       }
       if (!p.vehicle) { r.footX = r.x; r.footY = r.y; }
-      const since = r.carAt ? now - r.carAt : 99, spec = carSpec(p.car);
+      const since = r.carAt ? now - r.carAt : 99, spec = carSpec(p.car), own = p.vehicle && !p.ride;
       const entering = p.vehicle && since < ENTER_TIME, leaving = !p.vehicle && since < EXIT_TIME;
+      // Riding along: the animation plays at the driver's car, the own car stays parked.
+      const rideId = p.vehicle ? r.rideId : r.leftRide;
       // While someone gets in, the car stays put where it was parked.
-      const car = Object.assign({}, p.car, p.vehicle && !entering ? { x: r.x, y: r.y, angle: r.ang != null ? r.ang : p.car.angle } : {});
-      const door = entering ? Math.sin(Math.min(1, Math.max(0, (since - .12) / (ENTER_TIME - .12))) * Math.PI) : leaving ? Math.sin(Math.min(1, since / EXIT_TIME) * Math.PI) : 0;
+      const car = Object.assign({}, p.car, own && !entering ? { x: r.x, y: r.y, angle: r.ang != null ? r.ang : p.car.angle } : {});
+      const door = rideId ? 0 : entering ? Math.sin(Math.min(1, Math.max(0, (since - .12) / (ENTER_TIME - .12))) * Math.PI) : leaving ? Math.sin(Math.min(1, since / EXIT_TIME) * Math.PI) : 0;
       const road = R.onRoad(car.x, car.y, 60) || R.inTown(car.x, car.y), snow = R.coldAt(car.x, car.y) >= 2;
-      if (vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, r, now, dt, { damage: p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, engine: p.vehicle && !entering && p.hp > 0, door, road, snow }) });
+      if (vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, r, now, dt, { damage: p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, engine: own && !entering && p.hp > 0, door, road, snow }) });
       if (!r.bnT || now - r.bnT > .5) { r.bnT = now; r.buildNear = !p.vehicle && cfg.buildings_world.some(b => Math.abs(b.x - r.x) < 230 && Math.abs(b.y - r.y) < 230 && towns2 && towns2[b.town] && towns2[b.town].owner === p.faction && towns2[b.town].construct && towns2[b.town].construct[b.kind]); }
       if (entering || leaving) {
-        const out = doorSpot(car, spec, false), seat = doorSpot(car, spec, true);
-        let pos, alpha = 1, face = car.angle, walk = false;
+        let acar = car, aspec = spec, sideSign = 1;
+        if (rideId) {
+          const d = state.players.find(q => q.id === rideId), dr = d && v.drawPlayers[d.id];
+          if (d) { acar = d.vehicle && !d.ride && dr ? Object.assign({}, d.car, { x: dr.x, y: dr.y, angle: dr.ang != null ? dr.ang : d.car.angle }) : d.car; aspec = carSpec(d.car); sideSign = -1; }
+        }
+        const out = doorSpot(acar, aspec, false, sideSign), seat = doorSpot(acar, aspec, true, sideSign);
+        let pos, alpha = 1, face = acar.angle, walk = false;
         if (entering) {
           const k1 = Math.min(1, since / .25), k2 = Math.max(0, (since - .25) / (ENTER_TIME - .25)), from = r.carFrom || out;
           pos = k2 > 0 ? { x: out.x + (seat.x - out.x) * k2, y: out.y + (seat.y - out.y) * k2 } : { x: from.x + (out.x - from.x) * k1, y: from.y + (out.y - from.y) * k1 };
-          alpha = 1 - k2; walk = k2 === 0; face = k2 > 0 ? car.angle : Math.atan2(out.y - from.y, out.x - from.x);
+          alpha = 1 - k2; walk = k2 === 0; face = k2 > 0 ? acar.angle : Math.atan2(out.y - from.y, out.x - from.x);
         } else {
           const k = Math.max(0, Math.min(1, (since - .12) / (EXIT_TIME - .2)));
-          pos = { x: seat.x + (out.x - seat.x) * k, y: seat.y + (out.y - seat.y) * k }; alpha = since < .12 ? 0 : Math.min(1, k * 1.6); face = car.angle - Math.PI / 2 * (1 - k) - .3 * k;
+          pos = { x: seat.x + (out.x - seat.x) * k, y: seat.y + (out.y - seat.y) * k }; alpha = since < .12 ? 0 : Math.min(1, k * 1.6); face = acar.angle - sideSign * (Math.PI / 2 * (1 - k) + .3 * k);
         }
-        if (alpha > .02) items.push({ y: car.y + 1, f: () => { c.save(); c.globalAlpha = alpha; c.translate(pos.x, pos.y); c.rotate(face); S.figure(c, { player: true, tint: col(p.faction), size: 38, phase: walk ? now * 12 : 0, speed: walk ? 1 : 0, weapon: p.gear ? p.gear.weapon : 0, time: now }); c.restore(); } });
+        if (alpha > .02) items.push({ y: acar.y + 1, f: () => { c.save(); c.globalAlpha = alpha; c.translate(pos.x, pos.y); c.rotate(face); S.figure(c, { player: true, tint: col(p.faction), size: 38, phase: walk ? now * 7 : 0, speed: walk ? 1 : 0, weapon: p.gear ? p.gear.weapon : 0, time: now }); c.restore(); } });
       } else if (!p.vehicle && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
     });
     (state.npcs || []).forEach(n => { const r = v.drawNpcs[n.id] || n; if (!vis(r.x, r.y)) return; items.push({ y: r.y, f: () => drawNpc(c, n, r, v) }); });
@@ -490,8 +498,9 @@ function drawCar(c, car, r, now, dt, o) {
   if (damage === 1 && Math.random() < .25) puff('smoke', car.x + hx * spec.len * .35, car.y + hy * spec.len * .35, 4, -14, 1.6, 5, '#4a4640');
 }
 // Getting in and out: walk to the driver's door, it opens, the hero slides into the seat (and back out).
-function doorSpot(car, spec, inside) {
-  const hx = Math.cos(car.angle), hy = Math.sin(car.angle), lx = hy, ly = -hx, side = inside ? spec.wid * .16 : spec.wid / 2 + 14, f = spec.door * spec.len * (inside ? .6 : 1);
+// Passengers (sideSign -1) use the right-hand rear door.
+function doorSpot(car, spec, inside, sideSign) {
+  const s = sideSign || 1, hx = Math.cos(car.angle), hy = Math.sin(car.angle), lx = hy * s, ly = -hx * s, side = inside ? spec.wid * .16 : spec.wid / 2 + 14, f = s < 0 ? -spec.len * .12 : spec.door * spec.len * (inside ? .6 : 1);
   return { x: car.x + lx * side + hx * f, y: car.y + ly * side + hy * f };
 }
 const ENTER_TIME = .55, EXIT_TIME = .5;
@@ -520,10 +529,10 @@ function drawPlayer(c, p, r, v) {
   if (p.act && p.act.at !== r.actAt) { r.actAt = p.act.at; r.actStart = now - Math.max(0, Math.min(.3, t - p.act.at)); r.actKind = p.act.kind; }
   let act = r.actKind ? { kind: r.actKind, t: now - r.actStart } : null;
   // Standing next to an own construction site, the hero keeps hammering.
-  if ((!act || act.t > 1) && !p.moving && p.hp > 0 && r.buildNear) act = { kind: 'hammer', t: now % .9 };
+  if ((!act || act.t > 1) && !p.moving && p.hp > 0 && r.buildNear) act = { kind: 'hammer', t: now % 1.2 };
   ejectShell(r, ang, p.gear ? p.gear.weapon : 0);
   // The axe bites in: chips fly from in front of the feet.
-  if (act && act.kind === 'chop' && act.t > .46 && act.t < .9 && r.chipAt !== r.actAt) {
+  if (act && act.kind === 'chop' && act.t > .62 && act.t < 1.1 && r.chipAt !== r.actAt) {
     r.chipAt = r.actAt; const fx = r.x + Math.cos(ang) * 17, fy = r.y + Math.sin(ang) * 17;
     for (let i = 0; i < 7; i++) { const a = ang + (Math.random() - .5) * 3.6, sp = 40 + Math.random() * 70; puff('debris', fx, fy, Math.cos(a) * sp, Math.sin(a) * sp, .5 + Math.random() * .3, 1.5 + Math.random() * 1.5, i % 3 ? '#c9a46a' : '#7a5a36'); }
   }
@@ -751,7 +760,7 @@ function cone(l, x, y, ang, spread, len, k) {
 }
 
 /* Screen-space weather. */
-const drops = []; let fogT = 0;
+const drops = [];
 function weather(c, v, dt, now) {
   const { cw, ch, state, cam } = v; const kind = state.weather ? state.weather.kind : 'clear';
   const cold = R.coldAt(cam.x, cam.y);
@@ -770,10 +779,11 @@ function weather(c, v, dt, now) {
     drops.forEach(d => { d.y += 60 * d.s * dt; d.x += Math.sin(now + d.p) * 20 * dt - 15 * dt; if (d.y > ch) { d.y = -5; d.x = Math.random() * cw; } if (d.x < -5) d.x = cw; c.fillRect(d.x, d.y, 2 * d.s + .5, 2 * d.s + .5); });
     c.fillStyle = '#dfe8ee14'; c.fillRect(0, 0, cw, ch);
   }
-  if (mode === 'fog' || kind === 'storm') {
-    fogT += dt * 12; const g = c.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * .18, cw / 2, ch / 2, Math.max(cw, ch) * .7);
-    g.addColorStop(0, '#c7ccc600'); g.addColorStop(1, mode === 'fog' ? '#b8beb8d0' : '#9aa3a660'); c.fillStyle = g; c.fillRect(0, 0, cw, ch);
-    c.fillStyle = '#c3c8c218'; for (let i = 0; i < 6; i++) { const x = ((i * 397 + fogT) % (cw + 600)) - 300, y = (i * 211) % ch; c.beginPath(); c.ellipse(x, y, 320, 120, 0, 0, 7); c.fill(); }
+  // Fog is an even white veil over the whole screen; a storm darkens the edges a little.
+  if (mode === 'fog') { c.fillStyle = 'rgba(206,211,205,.5)'; c.fillRect(0, 0, cw, ch); }
+  else if (kind === 'storm') {
+    const g = c.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * .18, cw / 2, ch / 2, Math.max(cw, ch) * .7);
+    g.addColorStop(0, '#9aa3a600'); g.addColorStop(1, '#9aa3a660'); c.fillStyle = g; c.fillRect(0, 0, cw, ch);
   }
   if (kind === 'storm') { if (Math.random() < dt * .08) { lightning = 1; if (R.onSound) setTimeout(() => R.onSound('thunder', 0), 400 + Math.random() * 1200); } }
   if (lightning > 0) { c.fillStyle = 'rgba(230,236,255,' + lightning * .55 + ')'; c.fillRect(0, 0, cw, ch); lightning -= dt * 3; }

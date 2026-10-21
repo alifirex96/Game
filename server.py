@@ -213,6 +213,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         out['act']=p.get('act');out['reload']=p.get('reload_until',0);out['mag']=self._mag(p)
         clan=self.clans.get(self.sides.get(p['faction'],{}).get('clan'))
         out['tag']=clan['tag'] if clan else ''
+        out['ride']=p.get('ride')
         out['max_hp']=max_hp(p['level'])
         car=p['car']
         out['car']={k:car.get(k,0) for k in ('x','y','angle','hp','wrecked_until','fuel')}
@@ -606,12 +607,18 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         if op=='vehicle':
             self._cooldown(p,'vehicle',.4)
             car=p['car']
+            if p.get('ride'):
+                self.unboard(p)
+                return {'title':'Ты вышел из машины','quiet':True}
             if p['vehicle']:
                 if math.hypot(car.get('vx',0),car.get('vy',0))>80: raise GameError('Сначала останови машину: S — тормоз, Shift — ручник.')
                 spot=self.car_exit_spot(p)
                 if not spot: raise GameError('Двери не открыть: рядом стена. Отъедь немного.')
                 p['x'],p['y']=spot;p['vehicle']=False;car.update(vx=0.0,vy=0.0,steer=0.0,brake=False,slip=False)
                 return {'title':'Ты вышел из машины','quiet':True}
+            if dist(p,car)>self.car_spec(p)['len']*.6+30:
+                q=self.board(p)
+                if q: return {'title':'Ты пассажир · '+self.car_spec(q)['name'],'text':'Ведёт '+q['name']+'. F — выйти, когда машина остановится.','quiet':True}
             if car.get('wrecked_until',0)>self.elapsed: raise GameError('Машина разбита. Её скоро отбуксируют к лагерю.')
             self._near(p,car,self.car_spec(p)['len']*.6+30)
             p['vehicle']=True;p['x']=car['x'];p['y']=car['y'];p['angle']=car['angle']
@@ -632,13 +639,18 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             self._pay(f,{'metal':4});p['car']['hp']=100.0
             return {'title':'Машина отремонтирована','text':'−4 металла','success':True}
         if op=='heal':
-            if p['hp']>=self.max_hp(p): raise GameError('Ты не ранен.')
+            if p['hp']>=self.max_hp(p) and not p['bleeding']: raise GameError('Ты не ранен.')
             for item in (('bandage','medkit') if p['bleeding'] else ('medkit',)):
                 if p['items'].get(item,0)>0:
                     self._cooldown(p,'heal',3);return self._use(p,item)
+            # No bandage: tear up whatever is at hand. It still stops the bleeding.
             medic=self.has_perk(p,10);cost=3 if medic else 5;amount=45 if medic else 35
+            if p['bleeding'] and not self._can_pay(f,{'food':cost}) and p['items'].get('cloth',0)>0:
+                self._cooldown(p,'heal',3);self.take_items(p,{'cloth':1});p['bleeding']=False
+                return {'title':'Перевязка тряпкой','text':'Кровь остановлена, −1 ткань.','success':True}
             self._cooldown(p,'heal',6);self._pay(f,{'food':cost});p['hp']=min(self.max_hp(p),p['hp']+amount)
-            return {'title':'Перевязка','text':'Здоровье +'+str(amount)+', −'+str(cost)+' припасов','success':True}
+            stopped=p['bleeding'];p['bleeding']=False
+            return {'title':'Перевязка','text':'Здоровье +'+str(amount)+', −'+str(cost)+' припасов'+(' · кровь остановлена' if stopped else ''),'success':True}
         if op=='craft':
             item=data.get('item');tier=data.get('tier')
             table={'weapon':WEAPONS,'armor':ARMOR}.get(item)
@@ -1335,7 +1347,10 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             if length>1: x/=length;y/=length
             moving=bool(x or y)
             speed=140
-            if p['vehicle']:
+            if p.get('ride') and not p['vehicle']:p['ride']=None
+            if p.get('ride'):
+                self.tick_ride(p)
+            elif p['vehicle']:
                 # W/S are throttle and brake, A/D steer, Shift is the handbrake.
                 self.drive(p,dt,clamp(p['input'][0] if now-p['last_input']<.65 and not p['paused'] else 0,-1,1),
                            clamp(-(p['input'][1] if now-p['last_input']<.65 and not p['paused'] else 0),-1,1),bool(sprint),garage[p['faction']])

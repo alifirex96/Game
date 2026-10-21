@@ -41,11 +41,74 @@ class VehicleMixin:
                 return True
         return False
 
-    def car_exit_spot(self, p):
+    def seats(self, p):
+        return self.car_spec(p).get('seats', 4)
+
+    def driver_of(self, p):
+        """Whose car this player sits in: their own, or the owner's when riding along."""
+        rid = p.get('ride')
+        if not rid:
+            return p
+        return next((q for q in self.players.values() if q['id'] == rid), None)
+
+    def riders(self, owner):
+        return [q for q in self.players.values() if q.get('ride') == owner['id'] and q['vehicle']]
+
+    def board(self, p):
+        """Get into someone else's stopped car as a passenger, if a seat is free."""
+        best = None
+        for q in self.players.values():
+            if q is p or q.get('ride'):
+                continue
+            car = q['car']; spec = self.car_spec(q)
+            d = math.hypot(car['x'] - p['x'], car['y'] - p['y'])
+            if d <= spec['len'] * .6 + 30 and (best is None or d < best[0]):
+                best = (d, q)
+        if not best:
+            return None
+        q = best[1]; car = q['car']
+        if car.get('wrecked_until', 0) > self.elapsed:
+            raise self.GameError('Эта машина разбита.')
+        if math.hypot(car.get('vx', 0), car.get('vy', 0)) > 80:
+            raise self.GameError('Машина едет. Пусть водитель остановится.')
+        if len(self.riders(q)) >= self.seats(q) - 1:
+            raise self.GameError('Мест нет: в «' + self.car_spec(q)['name'] + '» ' + str(self.seats(q)) + ' мест' + ('а' if self.seats(q) < 5 else '') + '.')
+        p['vehicle'] = True; p['ride'] = q['id']; p['x'], p['y'] = car['x'], car['y']; p['angle'] = car['angle']
+        self._notice(p['name'] + ' сел к тебе в машину', 'Пассажиров: ' + str(len(self.riders(q))) + ' из ' + str(self.seats(q) - 1) + '.', player=q['id'])
+        return q
+
+    def unboard(self, p, force=False):
+        """Step out of someone else's car; `force` when the car is gone or wrecked."""
+        q = self.driver_of(p)
+        spot = None
+        if q:
+            car = q['car']
+            if not force and math.hypot(car.get('vx', 0), car.get('vy', 0)) > 80:
+                raise self.GameError('Машина едет. Попроси водителя остановиться.')
+            spot = self.car_exit_spot(q, passenger=True)
+            if not spot and not force:
+                raise self.GameError('Двери не открыть: рядом стена.')
+            if not spot:
+                spot = (car['x'], car['y'])
+        if spot:
+            p['x'], p['y'] = spot
+        p['vehicle'] = False; p['ride'] = None
+
+    def tick_ride(self, p):
+        """Passengers sit in the driver's car and go where it goes."""
+        q = self.driver_of(p)
+        if not q or q['car'].get('wrecked_until', 0) > self.elapsed:
+            self.unboard(p, force=True)
+            return
+        car = q['car']; p['x'], p['y'], p['angle'] = car['x'], car['y'], car['angle']
+
+    def car_exit_spot(self, p, passenger=False):
         """The driver's door is on the left; then the right side, then behind and in front."""
         car = p['car']; spec = self.car_spec(p); a = car['angle']
         hx, hy = math.cos(a), math.sin(a); lx, ly = hy, -hx
         side = spec['wid'] / 2 + 14; fwd = spec['door'] * spec['len']
+        if passenger:
+            lx, ly = -lx, -ly; fwd = -spec['len'] * .12
         for sx, sy in ((lx * side + hx * fwd, ly * side + hy * fwd), (-lx * side + hx * fwd, -ly * side + hy * fwd),
                        (-hx * (spec['len'] / 2 + 16), -hy * (spec['len'] / 2 + 16)), (hx * (spec['len'] / 2 + 16), hy * (spec['len'] / 2 + 16))):
             x, y = car['x'] + sx, car['y'] + sy
