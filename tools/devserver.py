@@ -10,11 +10,10 @@ import json
 import random
 import sys
 import threading
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from server import GameServer, Handler, World  # noqa: E402
+from server import GameServer, Handler, World, simulate  # noqa: E402
 
 
 class DebugHandler(Handler):
@@ -47,13 +46,7 @@ def main():
     srv = GameServer(('0.0.0.0' if '--lan' in sys.argv else '127.0.0.1', port), world, '123456')
     srv.RequestHandlerClass = DebugHandler
 
-    def simulation():
-        before = time.monotonic()
-        while True:
-            time.sleep(.05); now = time.monotonic()
-            with world.lock: world.tick(now - before)
-            before = now
-    threading.Thread(target=simulation, daemon=True).start()
+    threading.Thread(target=simulate, args=(world, srv.stop_event), daemon=True).start()
     print('http://127.0.0.1:%d  (room code 123456)' % port, flush=True)
     srv.serve_forever()
 

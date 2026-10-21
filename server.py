@@ -11,6 +11,7 @@ import signal
 import socket
 import threading
 import time
+import traceback
 import webbrowser
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1743,6 +1744,8 @@ class Handler(BaseHTTPRequestHandler):
             with self.server.world.lock:
                 try:self._json(200,self.server.world.snapshot(self.headers.get('X-Session','')))
                 except GameError as e:self._json(401,{'error':str(e)})
+                except Exception:
+                    traceback.print_exc();self._json(500,{'error':'Ошибка на сервере.'})
             return
         if path not in STATIC:self._json(404,{'error':'Файл не найден'});return
         p=ROOT/'web'/STATIC[path]
@@ -1801,6 +1804,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200,{'result':result,'state':self.server.world.snapshot(token,full)})
             except GameError as e:self._json(400,{'error':str(e)})
             except (TypeError,ValueError,KeyError):self._json(400,{'error':'Некорректные данные действия.'})
+            except Exception:
+                # A bug in one action must not drop the connection or the room.
+                traceback.print_exc();self._json(500,{'error':'Ошибка на сервере: действие не выполнено.'})
+
+def simulate(world,stop):
+    """Advance the world 20 times a second. A faulty tick is logged and skipped: the room keeps running."""
+    before=time.monotonic();errors=0
+    while not stop.wait(.05):
+        now=time.monotonic()
+        try:
+            with world.lock:world.tick(now-before)
+        except Exception:
+            errors+=1
+            if errors<=20 or errors%1000==0:traceback.print_exc()
+        before=now
 
 def lan_addresses(port):
     addresses=set()
@@ -1860,13 +1878,7 @@ def run():
     print('\nПОСЛЕ ТИШИНЫ '+VERSION+'\nНа этом ПК: http://127.0.0.1:'+str(args.port),flush=True)
     if lan:print('Для друзей: '+', '.join(lan_addresses(args.port))+'\nКод комнаты: '+code+'\nЗакрытие этого окна завершит игру для всех.\n',flush=True)
     else:print('Одиночная игра: сеть не используется.\n',flush=True)
-    def simulation():
-        before=time.monotonic()
-        while not server.stop_event.wait(.05):
-            now=time.monotonic()
-            with world.lock:world.tick(now-before)
-            before=now
-    threading.Thread(target=simulation,daemon=True).start()
+    threading.Thread(target=simulate,args=(world,server.stop_event),daemon=True).start()
     if lan:threading.Thread(target=discovery_responder,args=(server,),daemon=True).start()
     def terminate(*_):
         server.stop_event.set()

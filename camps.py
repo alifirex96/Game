@@ -121,6 +121,9 @@ class CampMixin:
         for part in camp['fence'].values():
             if not part.get('house') and part.get('rect') and part['hp'] > 0:
                 self.terrain.remove_rect(part['rect'])
+            elif part.get('house') and part['hp'] <= 0:
+                # The house stands again for the next settler.
+                self.terrain.add_rect(part['rect'])
         if camp.get('gate_rect'):
             camp['gate_rect'] = None
         if camp['stash']['items'] or camp['stash']['coins']:
@@ -145,7 +148,15 @@ class CampMixin:
         if kind in ('wall', 'gate'):
             if camp.get('house'):
                 if kind == 'wall':
-                    raise self.GameError('У дома уже есть стены.')
+                    # A breached house wall is patched up with planks and nails.
+                    broken = [s for s, v in camp['fence'].items() if v.get('house') and v['hp'] <= 0]
+                    if not broken:
+                        raise self.GameError('Стены дома целы.')
+                    piece = camp['fence'][broken[0]]
+                    self.take_items(p, spec['needs'])
+                    piece['hp'] = piece['max']
+                    self.terrain.add_rect(piece['rect'])
+                    return 'Стена дома'
                 slot = 'gate'
                 h = self.terrain.houses[camp['house']]; d = h['door']
                 gx, gy = {'n':(h['x'], h['y'] - h['h'] / 2 + 4), 's':(h['x'], h['y'] + h['h'] / 2 - 4),
