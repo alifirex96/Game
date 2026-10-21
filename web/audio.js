@@ -59,6 +59,7 @@ A.play = function (kind, distance) {
   else if (kind === 'door') { tone(180, .2, 'square', .06, sfx, 90); burst(.15, 'lowpass', 500, .2); }
   else if (kind === 'skid') { burst(.25, 'bandpass', 1900, .05, sfx, 4, 2400); }
   else if (kind === 'crash') { burst(.35, 'lowpass', 500, .4 * k, sfx, 1, 120); burst(.25, 'highpass', 2500, .15 * k, sfx, 1, 4000); }
+  else if (kind === 'click') { burst(.03, 'highpass', 2600, .22, sfx, 1); tone(900, .03, 'square', .05, sfx, 700); }
   else if (kind === 'error') { tone(220, .18, 'triangle', .12, sfx, 160); }
   else if (kind === 'bite') { burst(.18, 'bandpass', 600, .35 * k, sfx, 2, 200); tone(90, .25, 'sawtooth', .12 * k, sfx, 60); }
   else if (kind === 'acid') { burst(.35, 'highpass', 900, .25 * k, sfx, 1, 3000); }

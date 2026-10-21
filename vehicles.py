@@ -4,7 +4,7 @@ Mixed into server.World. Runs on the host inside the world lock, once per tick f
 Units: world pixels and seconds. Input: steer and throttle in -1..1, handbrake on Shift.
 """
 import math
-from world_data import CARS, CAR_TANK, REGIONS, STARTER_CARS
+from world_data import CARS, CAR_TANK, REGIONS, ROAD_HALF, STARTER_CARS
 
 BRAKE = 520          # px/s² of a full brake
 HANDBRAKE = 380
@@ -37,7 +37,7 @@ class VehicleMixin:
             if self.blocked(cx, cy, r, faction):
                 return True
             # Rivers and lakes stop cars; bridges are part of the road.
-            if self.terrain.water(cx, cy, 4) and not self.terrain.on_road(cx, cy, 70) and not self.terrain.on_street(cx, cy, 10):
+            if self.terrain.water(cx, cy, 4) and not self.terrain.on_road(cx, cy, ROAD_HALF + 10) and not self.terrain.on_street(cx, cy, 10):
                 return True
         return False
 
@@ -125,7 +125,7 @@ class VehicleMixin:
         if car.get('fuel', 0) <= .01:
             throttle = 0
         # Surface and weather decide top speed and grip.
-        road = self.terrain.on_road(x, y, 60) or self.terrain.on_street(x, y, 8) or self.terrain.in_core(x, y)
+        road = self.terrain.on_road(x, y, ROAD_HALF + 10) or self.terrain.on_street(x, y, 8) or self.terrain.in_core(x, y)
         town = min(self.towns.values(), key=lambda t: (t['x'] - x) ** 2 + (t['y'] - y) ** 2)
         snowy_ground = REGIONS[town['region']]['cold'] >= 2
         top = spec['max'] * (1 + .06 * garage) * (1 if road else spec['offroad'])

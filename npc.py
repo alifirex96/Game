@@ -224,8 +224,9 @@ class NpcMixin:
                 else:
                     # Armed people carry rounds for their guns.
                     ammo = NPC_AMMO.get(npc['type'])
-                    if ammo and self.rng.random() < .55:
-                        self.give_item(attacker, ammo, self.rng.randint(4, 12))
+                    # A few rounds at most: ammo has to stay scarce.
+                    if ammo and self.rng.random() < .3:
+                        self.give_item(attacker, ammo, self.rng.randint(2, 5))
                     if self.rng.random() < (.4 if npc['faction'] == 'mutants' else .25):
                         self._loot_items(attacker, 1)
             self._credit_kill(attacker, npc)

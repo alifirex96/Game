@@ -9,7 +9,7 @@ an outsider may empty the stash.
 """
 import math
 import secrets
-from world_data import (ITEMS, RECIPES, CAMP_PARTS, CAMP_HALF, CAMP_STASH_SLOTS, HOUSE_WALL_HP, BODY_TIME,
+from world_data import (ROAD_HALF, ITEMS, RECIPES, CAMP_PARTS, CAMP_HALF, CAMP_STASH_SLOTS, HOUSE_WALL_HP, BODY_TIME,
                         HOUSE_FINDS, HOUSE_SEARCH_COOLDOWN, POI_MATERIALS, WEAPONS, ARMOR, CLOTHES, BACKPACKS, RESOURCES)
 
 GEAR_TABLES = {'weapon':WEAPONS, 'armor':ARMOR, 'clothes':CLOTHES, 'backpack':BACKPACKS}
@@ -96,7 +96,7 @@ class CampMixin:
             if self.terrain.in_town(x, y, 60) and not self.terrain.house_at(x, y, 40) and self.terrain.in_core(x, y):
                 raise self.GameError('На площади лагерь не поставить. Займи пустой дом или отойди.')
             for fx, fy in [(x + dx, y + dy) for dx in (-CAMP_HALF, 0, CAMP_HALF) for dy in (-CAMP_HALF, 0, CAMP_HALF)]:
-                if self.terrain.solid(fx, fy, 8) or self.terrain.water(fx, fy, 6) or self.terrain.on_road(fx, fy, 50) or self.terrain.on_street(fx, fy, 6):
+                if self.terrain.solid(fx, fy, 8) or self.terrain.water(fx, fy, 6) or self.terrain.on_road(fx, fy, ROAD_HALF + 10) or self.terrain.on_street(fx, fy, 6):
                     raise self.GameError('Здесь тесно для лагеря: нужна ровная площадка 200 × 200 без дорог и воды. Или зайди в пустой дом.')
             cx, cy = x, y
         if any(math.hypot(c['x'] - cx, c['y'] - cy) < 450 for c in self.camps.values()):
@@ -297,7 +297,7 @@ class CampMixin:
         got = {}
         for i in range(self.rng.randint(1, 3)):
             item = self.rng.choice(HOUSE_FINDS)
-            n = self.rng.randint(4, 12) if item in ('nails', 'ammo9', 'shells') else self.rng.randint(1, 3) if ITEMS[item].get('stack', 1) > 1 else 1
+            n = self.rng.randint(4, 12) if item == 'nails' else self.rng.randint(2, 6) if ITEMS[item].get('ammo') else self.rng.randint(1, 3) if ITEMS[item].get('stack', 1) > 1 else 1
             n = self.give_item(p, item, n)
             if n:
                 got[item] = got.get(item, 0) + n
@@ -308,7 +308,7 @@ class CampMixin:
         got = {}
         for i in range(2):
             item = self.rng.choice(POI_MATERIALS.get(poi['kind'], ['scrap']))
-            n = self.give_item(p, item, self.rng.randint(5, 15) if ITEMS[item].get('ammo') else self.rng.randint(1, 3))
+            n = self.give_item(p, item, self.rng.randint(3, 8) if ITEMS[item].get('ammo') else self.rng.randint(1, 3))
             if n:
                 got[item] = got.get(item, 0) + n
         return got

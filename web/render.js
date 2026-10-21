@@ -18,6 +18,8 @@ const TREES = {
 };
 const SNOWY = { tundra: 1, snowtaiga: 1 };
 let streets = [], houses = [], houseGrid = new Map(), streetGrid = new Map();
+// Highway asphalt width (two lanes each way, two cars side by side per lane); set from the config.
+let RW = 240;
 let cfg = null, towns = [], townById = {}, roads = [], waterSegs = [], lakes = [], pois = [], nodeGrid = new Map(), buildingGrid = new Map();
 let biomeMap = null, worldMap = null;
 const chunks = new Map(); let chunkQueue = 0;
@@ -50,6 +52,7 @@ R.coldAt = (x, y) => { const t = nearestTown(x, y); return (cfg.regions[t.region
 R.init = function (config) {
   cfg = config; towns = cfg.towns.map(t => Object.assign({}, t)); townById = {}; towns.forEach(t => townById[t.id] = t);
   // Highways come from the host and end at town gates, continuing as the town's cross streets.
+  RW = cfg.road_width || 240;
   roads = cfg.road_lines.map(e => Object.assign({}, e, { len: Math.hypot(e.bx - e.ax, e.by - e.ay) }));
   waterSegs = []; cfg.rivers.forEach(r => { for (let i = 0; i < r[2].length - 1; i++) waterSegs.push([r[2][i][0], r[2][i][1], r[2][i + 1][0], r[2][i + 1][1], r[1] / 2, r[0]]); });
   lakes = cfg.lakes.map(l => l[1]); pois = cfg.pois || [];
@@ -121,7 +124,7 @@ function buildChunk(cx, cy) {
   });
   // Scars of the catastrophe: craters, burnt ground, rusted barrels and bones of machinery.
   grid(220, 60, (x, y, h1, h2) => {
-    if (h1 > .16 || built(x, y, 40) || onRoad(x, y, 70) || water(x, y, 20)) return;
+    if (h1 > .16 || built(x, y, 40) || onRoad(x, y, RW / 2 + 25) || water(x, y, 20)) return;
     if (h1 < .05) { const s = 14 + h2 * 22; c.fillStyle = '#2b2a2455'; c.beginPath(); c.ellipse(x, y, s * 1.5, s * 1.1, h2 * 3, 0, 7); c.fill(); c.fillStyle = '#1f1e1a'; c.beginPath(); c.ellipse(x, y, s, s * .7, h2 * 3, 0, 7); c.fill(); c.strokeStyle = '#6a6455'; c.lineWidth = 3; c.beginPath(); c.ellipse(x, y, s, s * .7, h2 * 3, 3.6, 6.4); c.stroke(); }
     else if (h1 < .1) { c.fillStyle = '#1c1b1733'; for (let k = 0; k < 5; k++) { c.beginPath(); c.ellipse(x + hash(k, x) * 50 - 25, y + hash(y, k) * 40 - 20, 18 + hash(k, y) * 26, 10 + hash(x, k) * 16, k, 0, 7); c.fill(); } }
     else if (h1 < .13) { for (let k = 0; k < 3; k++) { const bx = x + k * 13 - 13, by = y + (k % 2) * 8; c.fillStyle = '#00000033'; c.beginPath(); c.ellipse(bx + 3, by + 3, 7, 5, 0, 0, 7); c.fill(); c.fillStyle = ['#6a3d26', '#4d5446', '#7a5a2e'][k]; c.beginPath(); c.arc(bx, by, 6, 0, 7); c.fill(); c.strokeStyle = '#2a2520'; c.lineWidth = 1; c.beginPath(); c.arc(bx, by, 4, 0, 7); c.stroke(); } }
@@ -135,7 +138,7 @@ function buildChunk(cx, cy) {
     const b = cfg.regions[t.region].biome; if (b === 'tundra' || b === 'taiga' || b === 'snowtaiga') continue;
     for (let k = 0; k < 4; k++) {
       const a = hash(k, t.x) * 6.28, d = 760 + hash(t.y, k) * 420, fx = t.x + Math.cos(a) * d, fy = t.y + Math.sin(a) * d;
-      if (onRoad(fx, fy, 260) || water(fx, fy, 250) || inTown(fx, fy, 260)) continue;
+      if (onRoad(fx, fy, RW / 2 + 230) || water(fx, fy, 250) || inTown(fx, fy, 260)) continue;
       const fw = 300 + hash(k, 3) * 240, fh = 180 + hash(4, k) * 140;
       if (fx + fw / 2 < x0 || fx - fw / 2 > x0 + CHUNK || fy + fh / 2 < y0 || fy - fh / 2 > y0 + CHUNK) continue;
       c.save(); c.translate(fx, fy); c.rotate((hash(k, 9) - .5) * .5);
@@ -162,9 +165,9 @@ function buildChunk(cx, cy) {
     c.restore();
   }
   // Roads with shoulders, cracks, markings, potholes; bridges over water.
-  const rs = roads.filter(rd => segDist(x0 + 256, y0 + 256, rd.ax, rd.ay, rd.bx, rd.by) < 500);
+  const rs = roads.filter(rd => segDist(x0 + 256, y0 + 256, rd.ax, rd.ay, rd.bx, rd.by) < 380 + RW / 2 + 60);
   c.lineCap = 'butt';
-  rs.forEach(rd => { c.strokeStyle = '#6a644f'; c.lineWidth = 96; line(c, rd); c.strokeStyle = '#4f4f47'; c.lineWidth = 74; line(c, rd); c.strokeStyle = '#575750'; c.lineWidth = 62; line(c, rd); });
+  rs.forEach(rd => { c.strokeStyle = '#6a644f'; c.lineWidth = RW + 40; line(c, rd); c.strokeStyle = '#4f4f47'; c.lineWidth = RW + 14; line(c, rd); c.strokeStyle = '#575750'; c.lineWidth = RW; line(c, rd); });
   rs.forEach(rd => {
     const ux = (rd.bx - rd.ax) / rd.len, uy = (rd.by - rd.ay) / rd.len, nx = -uy, ny = ux;
     const tc = (x0 + CHUNK / 2 - rd.ax) * ux + (y0 + CHUNK / 2 - rd.ay) * uy;
@@ -173,18 +176,18 @@ function buildChunk(cx, cy) {
       const px = rd.ax + ux * d, py = rd.ay + uy * d, h1 = hash(d, rd.ax), h2 = hash(rd.ay, d);
       if (inTown(px, py, -30)) continue;
       if (water(px, py)) { // bridge deck
-        c.fillStyle = '#7d7b72'; c.save(); c.translate(px, py); c.rotate(Math.atan2(uy, ux)); c.fillRect(-21, -46, 42, 92); c.fillStyle = '#5f5e57'; c.fillRect(-21, -38, 42, 76); c.fillStyle = '#9a978c'; c.fillRect(-21, -48, 42, 5); c.fillRect(-21, 43, 42, 5); c.fillStyle = '#3f3e3a'; for (let k = -18; k < 21; k += 10) { c.fillRect(k, -50, 3, 8); c.fillRect(k, 42, 3, 8); } c.fillStyle = '#00000040'; c.fillRect(-21, 48, 42, 10); c.restore();
+        c.fillStyle = '#7d7b72'; c.save(); c.translate(px, py); c.rotate(Math.atan2(uy, ux)); c.fillRect(-21, -RW / 2 - 16, 42, RW + 32); c.fillStyle = '#5f5e57'; c.fillRect(-21, -RW / 2 - 8, 42, RW + 16); c.fillStyle = '#9a978c'; c.fillRect(-21, -RW / 2 - 18, 42, 5); c.fillRect(-21, RW / 2 + 13, 42, 5); c.fillStyle = '#3f3e3a'; for (let k = -18; k < 21; k += 10) { c.fillRect(k, -50, 3, 8); c.fillRect(k, 42, 3, 8); } c.fillStyle = '#00000040'; c.fillRect(-21, 48, 42, 10); c.restore();
         continue;
       }
-      if (h1 < .45) { c.strokeStyle = '#3d3d38'; c.lineWidth = 1; c.beginPath(); const sx = px + nx * (h2 - .5) * 50, sy = py + ny * (h2 - .5) * 50; c.moveTo(sx, sy); c.lineTo(sx + ux * 14 + nx * 6, sy + uy * 14 + ny * 6); c.lineTo(sx + ux * 26 - nx * 4, sy + uy * 26 - ny * 4); c.stroke(); }
-      if (h1 > .9) { c.fillStyle = '#3a3a35'; c.beginPath(); c.ellipse(px + nx * (h2 - .5) * 40, py + ny * (h2 - .5) * 40, 6 + h2 * 6, 4 + h2 * 3, 0, 0, 7); c.fill(); c.fillStyle = '#4b5b5e66'; c.beginPath(); c.ellipse(px + nx * (h2 - .5) * 40, py + ny * (h2 - .5) * 40, 4 + h2 * 4, 2 + h2 * 2, 0, 0, 7); c.fill(); }
-      if (Math.floor(d / 40) % 2 === 0 && h2 > .25) { c.fillStyle = '#c8bf8c55'; c.save(); c.translate(px, py); c.rotate(Math.atan2(uy, ux)); c.fillRect(0, -1.2, 22, 2.4); c.restore(); }
-      c.fillStyle = '#d6d0b52a'; c.save(); c.translate(px, py); c.rotate(Math.atan2(uy, ux)); c.fillRect(0, -29, 40, 1.5); c.fillRect(0, 28, 40, 1.5); c.restore();
+      if (h1 < .45) { c.strokeStyle = '#3d3d38'; c.lineWidth = 1; c.beginPath(); const sx = px + nx * (h2 - .5) * RW * .8, sy = py + ny * (h2 - .5) * RW * .8; c.moveTo(sx, sy); c.lineTo(sx + ux * 14 + nx * 6, sy + uy * 14 + ny * 6); c.lineTo(sx + ux * 26 - nx * 4, sy + uy * 26 - ny * 4); c.stroke(); }
+      if (h1 > .9) { c.fillStyle = '#3a3a35'; c.beginPath(); c.ellipse(px + nx * (h2 - .5) * RW * .7, py + ny * (h2 - .5) * RW * .7, 6 + h2 * 6, 4 + h2 * 3, 0, 0, 7); c.fill(); c.fillStyle = '#4b5b5e66'; c.beginPath(); c.ellipse(px + nx * (h2 - .5) * RW * .7, py + ny * (h2 - .5) * RW * .7, 4 + h2 * 4, 2 + h2 * 2, 0, 0, 7); c.fill(); }
+      if (Math.floor(d / 40) % 2 === 0 && h2 > .2) { c.fillStyle = '#c8bf8c77'; c.save(); c.translate(px, py); c.rotate(Math.atan2(uy, ux)); c.fillRect(0, -1.6, 26, 3.2); c.restore(); }
+      c.fillStyle = '#d6d0b52a'; c.save(); c.translate(px, py); c.rotate(Math.atan2(uy, ux)); c.fillRect(0, -RW / 2 + 4, 40, 1.5); c.fillRect(0, RW / 2 - 5.5, 40, 1.5); c.restore();
       // Utility poles with sagging wires along the shoulder.
-      if (Math.floor(d / 40) % 6 === 0) { const qx = px + nx * 58, qy = py + ny * 58; if (!water(qx, qy)) { c.fillStyle = '#00000040'; c.fillRect(qx + 3, qy + 2, 10, 3); c.fillStyle = '#5a4a38'; c.beginPath(); c.arc(qx, qy, 3.5, 0, 7); c.fill(); c.fillStyle = '#6e6a5e'; c.fillRect(qx - nx * 8 - 1, qy - ny * 8 - 1, nx * 16 + 2, ny * 16 + 2); } }
-      if (Math.floor(d / 40) % 6 === 0) { c.strokeStyle = '#26262288'; c.lineWidth = .8; c.beginPath(); const qx = px + nx * 58, qy = py + ny * 58; c.moveTo(qx, qy); c.quadraticCurveTo(qx + ux * 120 + nx * 6, qy + uy * 120 + ny * 6, qx + ux * 240, qy + uy * 240); c.stroke(); }
+      if (Math.floor(d / 40) % 6 === 0) { const qx = px + nx * (RW / 2 + 30), qy = py + ny * (RW / 2 + 30); if (!water(qx, qy)) { c.fillStyle = '#00000040'; c.fillRect(qx + 3, qy + 2, 10, 3); c.fillStyle = '#5a4a38'; c.beginPath(); c.arc(qx, qy, 3.5, 0, 7); c.fill(); c.fillStyle = '#6e6a5e'; c.fillRect(qx - nx * 8 - 1, qy - ny * 8 - 1, nx * 16 + 2, ny * 16 + 2); } }
+      if (Math.floor(d / 40) % 6 === 0) { c.strokeStyle = '#26262288'; c.lineWidth = .8; c.beginPath(); const qx = px + nx * (RW / 2 + 30), qy = py + ny * (RW / 2 + 30); c.moveTo(qx, qy); c.quadraticCurveTo(qx + ux * 120 + nx * 6, qy + uy * 120 + ny * 6, qx + ux * 240, qy + uy * 240); c.stroke(); }
       // Abandoned cars, stopped where the silence caught them.
-      if (h1 > .94 && !water(px, py, 40)) { c.save(); c.translate(px + nx * (h2 - .5) * 40, py + ny * (h2 - .5) * 40); c.rotate(Math.atan2(uy, ux) + (h1 - .98) * 30); wreck(c, h2, h2 < .2); c.restore(); }
+      if (h1 > .94 && !water(px, py, 40)) { c.save(); c.translate(px + nx * (h2 - .5) * RW * .8, py + ny * (h2 - .5) * RW * .8); c.rotate(Math.atan2(uy, ux) + (h1 - .98) * 30); wreck(c, h2, h2 < .2); c.restore(); }
     }
   });
   // Trees: positions chosen here, painted later over characters (canopies are above people).
@@ -196,7 +199,7 @@ function buildChunk(cx, cy) {
     const dens = tdl.d * (.4 + 1.2 * hash(Math.floor(wx / 700), Math.floor(wy / 700)));
     if (hash(wx, wy) > dens) continue;
     // Cities are overgrown: trees grow between the houses, thinner than in the wild.
-    if (built(wx, wy, 30) || onRoad(wx, wy, 90) || water(wx, wy, 28) || (inTown(wx, wy) && hash(wy, wx * 1.7) > .45)) continue;
+    if (built(wx, wy, 30) || onRoad(wx, wy, RW / 2 + 40) || water(wx, wy, 28) || (inTown(wx, wy) && hash(wy, wx * 1.7) > .45)) continue;
     if (pois.some(p => Math.abs(p.x - wx) < 300 && Math.abs(p.y - wy) < 260)) continue;
     const kind = tdl.kinds[Math.floor(hash(wy, wx) * tdl.kinds.length)];
     trees.push({ x: wx, y: wy, kind, v: Math.floor(hash(wx * .3, wy) * 6) });
@@ -360,7 +363,7 @@ R.draw = function (c, v) {
       // While someone gets in, the car stays put where it was parked.
       const car = Object.assign({}, p.car, own && !entering ? { x: r.x, y: r.y, angle: r.ang != null ? r.ang : p.car.angle } : {});
       const door = rideId ? 0 : entering ? Math.sin(Math.min(1, Math.max(0, (since - .12) / (ENTER_TIME - .12))) * Math.PI) : leaving ? Math.sin(Math.min(1, since / EXIT_TIME) * Math.PI) : 0;
-      const road = R.onRoad(car.x, car.y, 60) || R.inTown(car.x, car.y), snow = R.coldAt(car.x, car.y) >= 2;
+      const road = R.onRoad(car.x, car.y, RW / 2 + 10) || R.inTown(car.x, car.y), snow = R.coldAt(car.x, car.y) >= 2;
       if (vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, r, now, dt, { damage: p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, engine: own && !entering && p.hp > 0, door, road, snow }) });
       if (!r.bnT || now - r.bnT > .5) { r.bnT = now; r.buildNear = !p.vehicle && cfg.buildings_world.some(b => Math.abs(b.x - r.x) < 230 && Math.abs(b.y - r.y) < 230 && towns2 && towns2[b.town] && towns2[b.town].owner === p.faction && towns2[b.town].construct && towns2[b.town].construct[b.kind]); }
       if (entering || leaving) {

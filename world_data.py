@@ -121,6 +121,9 @@ POIS = [
 POIS = [(p[0], p[1], p[2], p[3] * _S, p[4] * _S) for p in POIS]
 # Long highways get roadside stops of their own: filling stations, villages, farms and checkpoints.
 ROADSIDE_EVERY = 18000
+# Highway asphalt: two wide lanes, each takes two cars side by side (cars are 50–56 px wide).
+ROAD_WIDTH = 240
+ROAD_HALF = ROAD_WIDTH // 2
 ROADSIDE_KINDS = ['gas', 'village', 'gas', 'farm', 'village', 'military', 'gas', 'village']
 ROADSIDE_NAMES = ['Берёзовка', 'Сосновка', 'Ивановка', 'Каменка', 'Озёрное', 'Заречье', 'Липовка', 'Покровка',
                   'Никольское', 'Ольховка', 'Дубки', 'Красный Яр', 'Михайловка', 'Вязовка', 'Горки', 'Луговое',
@@ -612,5 +615,5 @@ def config():
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'post':POST,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
-            'perks':PERKS,'looks':LOOKS,'hero_looks':[hero_look(n) for n in range(1, MAX_LEVEL + 1)],'side_colors':SIDE_COLORS,'npc_looks':NPC_LOOKS,'npc_looks_cold':NPC_LOOKS_COLD,'recipes':RECIPES,'camp_parts':CAMP_PARTS,'camp_half':CAMP_HALF,'stash_slots':CAMP_STASH_SLOTS,'car_tank':CAR_TANK,'cars':CARS,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
+            'perks':PERKS,'looks':LOOKS,'hero_looks':[hero_look(n) for n in range(1, MAX_LEVEL + 1)],'side_colors':SIDE_COLORS,'npc_looks':NPC_LOOKS,'npc_looks_cold':NPC_LOOKS_COLD,'recipes':RECIPES,'road_width':ROAD_WIDTH,'camp_parts':CAMP_PARTS,'camp_half':CAMP_HALF,'stash_slots':CAMP_STASH_SLOTS,'car_tank':CAR_TANK,'cars':CARS,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}

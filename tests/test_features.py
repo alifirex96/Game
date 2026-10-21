@@ -604,13 +604,13 @@ class WildlifeAndFuelTests(unittest.TestCase):
         self.p['vehicle'] = True; self.p['x'], self.p['y'] = car['x'], car['y']
         self.p['input'] = [0, -1, False]
         run(self.world, 40, step=.1)
-        self.assertEqual(self.p['car']['fuel'], 0)
+        self.assertLess(self.p['car']['fuel'], .02)                # the engine dies at the last drop
         self.assertEqual(self.world.stocks[self.f]['fuel'], stock)
         with self.assertRaises(GameError):
             self.act('refuel', canister=True)
         self.p['items']['canister'] = 1
         self.act('refuel', canister=True)
-        self.assertEqual(self.p['car']['fuel'], 20)
+        self.assertAlmostEqual(self.p['car']['fuel'], 20, delta=.02)
 
     def test_refuel_only_in_own_settlement(self):
         self.p['vehicle'] = False

@@ -16,7 +16,7 @@ from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
-from world_data import (VERSION, WORLD_SIZE, RESOURCES, TOWNS, REGIONS, MAX_PLAYERS,
+from world_data import (ROAD_HALF, VERSION, WORLD_SIZE, RESOURCES, TOWNS, REGIONS, MAX_PLAYERS,
                         SIDE_COLORS, AI_SIDES, STORY_LINE, POST, BODY_TIME, CAMP_PARTS,
                         BIG_TOWNS, START_STOCK, NODE_RESPAWN, LOOKS, GIVERS, GIVER_PLAN, MAX_ACTIVE_QUESTS, BUILDINGS, EVENTS, QUESTS, WEAPONS, ARMOR, POI_KINDS,
                         POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
@@ -271,7 +271,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         for attempt in range(80):
             ax,ay,bx,by,a,b=self.rng.choice(self.terrain.road_segments)
             u=self.rng.uniform(.12,.88);length=math.hypot(bx-ax,by-ay) or 1
-            nx,ny=-(by-ay)/length,(bx-ax)/length;side=self.rng.choice((-1,1))*self.rng.uniform(70,150)
+            nx,ny=-(by-ay)/length,(bx-ax)/length;side=self.rng.choice((-1,1))*self.rng.uniform(ROAD_HALF+30,ROAD_HALF+110)
             x=ax+(bx-ax)*u+nx*side;y=ay+(by-ay)*u+ny*side
             if not self.terrain.free_spot(x,y,30) or self.terrain.water(x,y,40):continue
             pos={'x':x,'y':y}
@@ -915,7 +915,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             return {'title':'Пожар потушен','text':'Жители благодарны: репутация +2.','success':True}
         if op=='post':
             if p['vehicle']: raise GameError('Выйди из машины.')
-            if not self.terrain.on_road(p['x'],p['y'],90): raise GameError('Пост ставится прямо на трассе между поселениями.')
+            if not self.terrain.on_road(p['x'],p['y'],ROAD_HALF+30): raise GameError('Пост ставится прямо на трассе между поселениями.')
             if self.terrain.in_town(p['x'],p['y'],250): raise GameError('Слишком близко к поселению.')
             if any(dist(o,p)<700 for o in self.posts.values()): raise GameError('Рядом уже стоит пост.')
             if sum(1 for o in self.posts.values() if o['faction']==f)>=3: raise GameError('У фракции уже три поста.')
@@ -1431,7 +1431,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
     def _blocked_for(self,p,x,y,r):
         if self.blocked(x,y,r,p['faction']):return True
         # Cars cannot drive into rivers and lakes; bridges are the roads.
-        return p['vehicle'] and self.terrain.water(x,y,8) and not self.terrain.on_road(x,y,70) and not self.terrain.on_street(x,y,10)
+        return p['vehicle'] and self.terrain.water(x,y,8) and not self.terrain.on_road(x,y,ROAD_HALF+10) and not self.terrain.on_street(x,y,10)
 
     def _tick_construction(self,dt,active):
         for t in self.towns.values():

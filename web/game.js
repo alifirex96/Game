@@ -9,7 +9,7 @@ let cw=innerWidth,ch=innerHeight,dpr=1,cam={x:7300,y:5200}, drawPlayers={}, draw
 let last=performance.now(), frame=0, netBusy=false, netFailures=0, latestStamp=0, lastMessage=0, lastHud=0, pollCount=0;
 let zoom=Number(readStorage('as-zoom'))||1.3,aim={x:0,y:1}, nearest=null, currentTown=null, waypoint=null, lastAimAt=0;
 let heroColor=readStorage('as-color'),dialogGiver=null,camKick=0,hurtFlash=0,lastHp=null;
-let requestSerial=0,lastShot=0,holdMouse=false,showedWarning=false,mapState={zoom:1,fx:null,fy:null,selected:null},mapTr=null;
+let lastDry=0,requestSerial=0,lastShot=0,holdMouse=false,showedWarning=false,mapState={zoom:1,fx:null,fy:null,selected:null},mapTr=null;
 const palette=AS.colors;
 const sideName=id=>id&&state&&state.sides[id]?state.sides[id].name:'Независимые';
 const sideColor=id=>id&&state&&state.sides[id]?state.sides[id].color:palette.neutral;
@@ -150,6 +150,7 @@ function vitalsHtml(big){const me=state.me,bar=(ic,v,label,cls)=>'<div class="vi
 function equip(idx){if(!state||idx===state.me.gear.weapon)return;action('equip',{weapon:idx}).then(r=>{if(r){notify(cfg.weapons[idx].name,'Оружие в руках.');beep('door');}});}
 function weaponCd(){return state?cfg.weapons[state.me.gear.weapon].cd*1000+20:490;}
 function shoot(){if(!state||panel||state.me.vehicle||state.me.hp<=0)return;const now=performance.now();lastAimAt=now;if(now-lastShot<weaponCd()||state.me.reload>state.time)return;lastShot=now;
+ const wd=cfg.weapons[state.me.gear.weapon];if(state.me.mag<=0){beep('click');if(state.me.items[wd.ammo_item]>0){action('reload');return;}if(now-lastDry>2500){lastDry=now;notify('Нет патронов',(cfg.items[wd.ammo_item]||{}).name+': ищи в домах, у убитых, в магазине или сделай на верстаке.',true);}return;}
  // A light camera kick, stronger for heavy guns.
  camKick=[.6,1.6,.5,2,1.1,2.2,.6][state.me.gear.weapon]||.6;action('shoot');}
 const CAMP_R=110;

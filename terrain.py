@@ -1,7 +1,7 @@
 """World geometry shared by the simulation: water, roads, collisions and road routes."""
 import heapq
 import math
-from world_data import (WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS, ROADSIDE_EVERY, ROADSIDE_KINDS, ROADSIDE_NAMES,
+from world_data import (ROAD_HALF, WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS, ROADSIDE_EVERY, ROADSIDE_KINDS, ROADSIDE_NAMES,
                         RESOURCES, SLOTS, BUILDINGS, TOWN_GATE, LANDMARKS, LANDMARK_POS, POPULATION, town_size)
 
 CELL = 1000
@@ -201,7 +201,7 @@ class Terrain:
             for k in range(count):
                 u = (k + 1) / (count + 1.0); side = 1 if (n % 2) else -1
                 kind = ROADSIDE_KINDS[n % len(ROADSIDE_KINDS)]
-                off = 330 if kind == 'gas' else 620
+                off = ROAD_HALF + 300 if kind == 'gas' else ROAD_HALF + 580
                 x = ax + (bx - ax) * u + nx * off * side; y = ay + (by - ay) * u + ny * off * side
                 n += 1
                 if not (900 < x < WORLD_SIZE[0] - 900 and 900 < y < WORLD_SIZE[1] - 900):
@@ -248,7 +248,7 @@ class Terrain:
         """The square and its public buildings, embanked against rivers."""
         return any(abs(x - t['x']) < CORE[0] and abs(y - t['y']) < CORE[1] for t in self.town_grid.get((int(x // CELL), int(y // CELL)), ()))
 
-    def on_road(self, x, y, width=60):
+    def on_road(self, x, y, width=ROAD_HALF + 20):
         return any(seg_dist(x, y, s[0], s[1], s[2], s[3]) < width for s in self.road_segments)
 
     def water(self, x, y, pad=0):
@@ -376,7 +376,7 @@ def resource_nodes(terrain):
             u = s / (steps + 1.0)
             nx = -(by - ay) / length; ny = (bx - ax) / length
             side = 1 if s % 2 else -1
-            place('road'+str(counter), kinds[counter % 5], ax + (bx - ax) * u + nx * 150 * side,
-                  ay + (by - ay) * u + ny * 150 * side)
+            place('road'+str(counter), kinds[counter % 5], ax + (bx - ax) * u + nx * (ROAD_HALF + 100) * side,
+                  ay + (by - ay) * u + ny * (ROAD_HALF + 100) * side)
             counter += 1
     return nodes
