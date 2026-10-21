@@ -2,7 +2,7 @@ import random
 import unittest
 
 from server import World, GameError
-from world_data import CARS
+from world_data import CARS, WEAPONS
 
 
 class PassengerTests(unittest.TestCase):
@@ -166,6 +166,22 @@ class RespawnAmmoTests(unittest.TestCase):
         self.assertGreater(p['hp'], 0)
         self.assertEqual(w._mag(p), 8)
         self.assertEqual(p['items'].get('ammo9'), 16)
+
+    def test_every_owned_gun_comes_back_loaded(self):
+        w = World(None, rng=random.Random(14))
+        t = w.join('Стрелок'); p = w.players[t]
+        p['weapons'] = [0, 1, 2, 3, 5]; p['gear']['weapon'] = 0; p['mags'] = {}; p['items'] = {}
+        w._damage(p, 999)
+        for _ in range(80):
+            w.tick(.1)
+        self.assertEqual(p['weapons'], [0, 1, 2, 3, 5])                # nothing is lost
+        for i in p['weapons']:
+            p['gear']['weapon'] = i
+            self.assertEqual(w._mag(p), WEAPONS[i]['mag'])
+        self.assertEqual(p['items'].get('ammo9'), 16)
+        self.assertEqual(p['items'].get('ammo762'), 30)
+        self.assertGreaterEqual(p['items'].get('shells', 0), 6)          # the shotgun and the sawn-off share one stack
+        self.assertGreaterEqual(p['items'].get('ammo54', 0), 6)
 
 
 class RoadWreckTests(unittest.TestCase):

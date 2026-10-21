@@ -475,6 +475,9 @@ function gearHtml(p){const ride=rideOf(p);
  let html='<div class="g-top"><span class="g-name">'+esc(wd.name.toUpperCase())+'</span><span class="g-keys"><kbd>Q</kbd> <kbd>X</kbd></span></div>';
  if(reloading){const k=1-(p.reload-state.time)/(wd.reload||1);html+='<div class="g-big reload"><b>Перезарядка</b></div><div class="g-bar"><i style="width:'+Math.round(clamp(k,0,1)*100)+'%"></i></div>';}
  else html+='<div class="g-big'+(p.mag===0?' empty':'')+'"><b>'+p.mag+'</b><span>/ '+reserve+'</span><small>'+esc(ammoName.toLowerCase())+'</small></div>'+(wd.mag<=40?'<div class="pips">'+Array.from({length:wd.mag},(_,i)=>'<i'+(i<p.mag?'':' class="off"')+'></i>').join('')+'</div>':'<div class="g-bar"><i style="width:'+Math.round(p.mag/wd.mag*100)+'%"></i></div>');
+ // Every gun the hero owns, with its number key; the one in hand is lit.
+ const own=p.weapons.slice().sort((a,b)=>a-b),SHORT=['ПМ','Ружьё','АК','Обрез','СКС','СВД','ПКМ'];
+ if(own.length>1)html+='<div class="g-guns">'+own.map((w,i)=>'<span'+(w===p.gear.weapon?' class="on"':'')+'><kbd>'+(i+1)+'</kbd>'+SHORT[w]+'</span>').join('')+'</div>';
  return html+'<div class="g-sub">'+icon('vest')+esc(cfg.armor[p.gear.armor].name)+'</div>';}
 // One short line about the current work; the journal (J) has the rest.
 function questLine(){const p=state.me,s=state.story,qs=p.quests;

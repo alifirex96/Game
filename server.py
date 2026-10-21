@@ -580,11 +580,14 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         return n
 
     def _respawn_ammo(self,p):
-        """Coming back after a death: a full magazine and a couple more in the backpack for the gun in hand."""
-        w=p['gear']['weapon'];weapon=WEAPONS[w]
-        p.setdefault('mags',{})[str(w)]=weapon['mag'];p['reload_until']=0
-        spare=self.give_item(p,weapon['ammo_item'],int(clamp(weapon['mag']*2,6,30)))
-        self._notice('Патроны с собой',weapon['name']+': полный магазин'+(' и '+str(spare)+' в рюкзаке' if spare else '')+'.',player=p['id'])
+        """Coming back after a death: every gun the hero owns is loaded, with a couple of magazines of each calibre in the backpack."""
+        mags=p.setdefault('mags',{});spare={}
+        for w in p['weapons']:
+            weapon=WEAPONS[w];mags[str(w)]=weapon['mag']
+            spare[weapon['ammo_item']]=max(spare.get(weapon['ammo_item'],0),int(clamp(weapon['mag']*2,6,30)))
+        p['reload_until']=0
+        got=[ITEMS[k]['name']+' ×'+str(n) for k,n in ((k,self.give_item(p,k,n)) for k,n in spare.items()) if n]
+        self._notice('Оружие заряжено',', '.join(WEAPONS[w]['name'] for w in sorted(p['weapons']))+'. В рюкзаке: '+(', '.join(got) or 'места нет')+'.',player=p['id'])
 
     def _mag(self,p):
         w=p['gear']['weapon'];mags=p.setdefault('mags',{})
