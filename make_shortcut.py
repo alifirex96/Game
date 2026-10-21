@@ -19,12 +19,14 @@ def main():
     except (OSError,ValueError,subprocess.CalledProcessError):
         desktop=Path.home()/'Desktop'
     target=Path.home()/'.local/share/applications'
-    text='[Desktop Entry]\nType=Application\nName=После тишины\nComment=Россия: восстановление поселений, одиночная игра и LAN\nExec='+quote(python)+' '+quote(root/'launcher.py')+'\nIcon='+str(root/'web/icon.svg')+'\nTerminal=true\nCategories=Game;\nStartupNotify=true\n'
+    text='[Desktop Entry]\nType=Application\nName=После тишины\nComment=Россия: восстановление поселений, одиночная игра и LAN\nExec='+quote(python)+' '+quote(root/'launcher.py')+'\nIcon='+str(root/'web/icon.svg')+'\nTerminal=false\nCategories=Game;\nStartupNotify=true\n'
     for folder in (desktop,target):
         folder.mkdir(parents=True,exist_ok=True)
         path=folder/'after-silence.desktop'
         path.write_text(text,encoding='utf-8');path.chmod(0o755)
     print('Ярлык «После тишины» создан на рабочем столе и в меню пользователя.')
+    if '--quiet' in sys.argv:
+        return 0
     try:
         import tkinter as tk
         from tkinter import messagebox

@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Build a redistributable user-space Astra Linux tarball with executable scripts."""
+import sys
 import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = '0.1.0'
+sys.path.insert(0, str(ROOT))
+from world_data import VERSION  # noqa: E402
 DIST = ROOT / 'dist'
 FILES = (
-    'server.py', 'world_data.py', 'launcher.py', 'make_shortcut.py',
-    'Играть.sh', 'Создать-ярлык.sh', 'README.md',
-    'web/game.js', 'web/icon.svg', 'web/index.html', 'web/style.css',
+    'server.py', 'world_data.py', 'terrain.py', 'npc.py', 'vehicles.py', 'camps.py', 'launcher.py', 'make_shortcut.py',
+    'Играть.sh', 'Создать-ярлык.sh', 'README.md', 'CHANGELOG.md',
+    'web/game.js', 'web/render.js', 'web/sprites.js', 'web/audio.js',
+    'web/icon.svg', 'web/index.html', 'web/style.css', 'web/assets/characters.png', 'web/assets/givers.png', 'web/assets/portraits.jpg', 'web/assets/cars.png', 'web/assets/hero.png',
 )
 
 def normalize(member):
