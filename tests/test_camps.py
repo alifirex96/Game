@@ -124,5 +124,14 @@ class CampTests(unittest.TestCase):
             self.act(self.tb, 'search_house', id=house['id'])       # searched already
 
 
+    def test_owner_abandons_from_far_away(self):
+        camp = self.w.found_camp(self.a)
+        self.a['x'] += 40000                                        # a long drive away
+        self.w.elapsed += 5
+        self.act(self.ta, 'camp_abandon', camp=camp['id'])
+        self.assertNotIn(camp['id'], self.w.camps)
+        self.assertIsNone(self.w.sides[self.a['faction']]['camp'])
+
+
 if __name__ == '__main__':
     unittest.main()

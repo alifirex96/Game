@@ -983,16 +983,18 @@ class World(NpcMixin, VehicleMixin, CampMixin):
                 broke=self.damage_camp_piece(camp,slot,45,p)
                 self._notice('Кто-то ломает лагерь',p['name'],faction=camp['owner'],tone='error')
                 return {'title':'Разрушено' if broke else 'Удар','text':'Осталось '+str(int(piece['hp']))+' прочности.' if not broke else '','success':True,'quiet':not broke}
+            # Abandoning works from anywhere: the camp may be a long drive away.
+            if op=='camp_abandon':
+                if camp['owner']!=f: raise GameError('Бросить лагерь может только хозяин.')
+                left=bool(camp['stash']['items'] or camp['stash']['coins'])
+                self.abandon_camp(camp)
+                return {'title':'Лагерь брошен','text':('Вещи из ящика остались лежать на месте лагеря. ' if left else '')+'Новый лагерь можно заложить там, где стоишь: L.','success':False}
             if dist(p,camp)>(max(self.terrain.houses[camp['house']]['w'],self.terrain.houses[camp['house']]['h'])/2+60 if camp.get('house') else 220): raise GameError('Подойди к лагерю.')
             if op=='camp_build':
                 if not self.camp_allowed(camp,f): raise GameError('Это чужой лагерь.')
                 name=self.build_part(p,camp,str(data.get('kind')),data.get('slot'));p['act']={'kind':'hammer','at':round(self.elapsed,2)}
                 self.gain_xp(p,'build')
                 return {'title':'Построено: '+name,'success':True}
-            if op=='camp_abandon':
-                if camp['owner']!=f: raise GameError('Бросить лагерь может только хозяин.')
-                self.abandon_camp(camp)
-                return {'title':'Лагерь брошен','text':'Вещи из ящика остались лежать на месте.','success':False}
             n=self.stash_move(p,camp,str(data.get('item')),finite(data.get('count',1),1),op=='stash_put')
             if not n: raise GameError('Не поместилось.' if op=='stash_take' else 'Нечего положить.')
             return {'title':('Положено' if op=='stash_put' else 'Взято')+': '+(str(n)+' монет' if data.get('item')=='coins' else ITEMS[data.get('item')]['name']+' ×'+str(n)),'success':True,'quiet':True}

@@ -118,7 +118,7 @@ addEventListener('keydown',e=>{
  if(e.code==='KeyJ'){if(panel==='journal')closePanel();else showJournal();}
  if(e.code==='KeyO'){if(panel==='people')closePanel();else showPeople();}
  if(e.code==='KeyC'){if(panel==='craft')closePanel();else showCraft();}
- if(e.code==='KeyL'){if(panel==='camp')closePanel();else{const c=myCamp();if(!c)foundCamp();else if(distance(c,state.me)<(c.house?140:260))showCamp(c);else{waypoint={x:c.x,y:c.y,name:'Лагерь'};notify('Лагерь далеко','Указатель ведёт к нему. Бросить его можно в меню лагеря.');}}}
+ if(e.code==='KeyL'){if(panel==='camp')closePanel();else{const c=myCamp();if(!c)foundCamp();else if(distance(c,state.me)<(c.house?140:260))showCamp(c);else showCampFar(c);}}
  if(panel)return;
  if(e.code==='KeyE')interact();
  if(e.code==='KeyF')action('vehicle').then(r=>{if(r)beep('door');});
@@ -333,6 +333,19 @@ function slotsUsed(items){return Object.keys(items).reduce((a,k)=>a+Math.ceil(it
 function needsHtml(needs){return Object.keys(needs||{}).map(k=>{const have=state.me.items[k]||0;return '<span class="cost '+(have>=needs[k]?'good':'bad')+'"><b>'+esc(cfg.items[k].name)+'</b> '+have+' / '+needs[k]+'</span>';}).join(' ');}
 function hasNeeds(needs){return Object.keys(needs||{}).every(k=>(state.me.items[k]||0)>=needs[k]);}
 function campCanUse(c){return c.owner===state.me.faction||friendly(c.owner);}
+// The own camp seen from afar: where it is, what stands there, a waypoint, and abandoning it without walking back.
+function showCampFar(camp){const me=state.me,parts=cfg.camp_parts,near=Object.values(state.towns).slice().sort((a,b)=>distance(a,camp)-distance(b,camp))[0];
+ const built=['fire','bed','stash','bench','collector'].filter(k=>camp.parts[k]&&camp.parts[k].hp>0).map(k=>camp.house&&parts[k].house_name?parts[k].house_name:parts[k].name);
+ const st=camp.stash||{items:{},coins:0},stashed=slotsUsed(st.items),owner=camp.owner===me.faction;
+ let h='<div class="modal-body"><p>'+(camp.house?'Обжитый дом':'Лагерь под открытым небом')+' у поселения <b>'+esc(near?near.name:'—')+'</b> · отсюда '+(Math.round(distance(camp,me)/100)/10)+' км.</p>'+
+  '<p class="small muted" style="margin-top:8px">Постройки: '+(built.length?esc(built.join(', ')):'пока нет')+'. Ограда '+(camp.breached?'не закрыта':'закрыта')+'.'+(camp.parts.stash&&camp.parts.stash.hp>0?' В ящике: '+stashed+' мест'+(st.coins?', '+st.coins+' монет':'')+'.':'')+'</p>'+
+  '<div class="event-options" style="margin-top:16px"><button class="primary" id="camp-way">Указатель к лагерю</button>'+(owner?'<button class="quiet danger" id="camp-far-abandon">Бросить лагерь отсюда</button>':'')+'</div>'+
+  (owner?'<p class="small muted" id="camp-far-note" style="margin-top:10px">Постройки исчезнут. Вещи и монеты из ящика останутся лежать на месте лагеря — их сможет забрать любой. После этого новый лагерь можно заложить там, где стоишь (L).</p>':'<p class="small muted" style="margin-top:10px">Это лагерь твоего клана; бросить его может только хозяин.</p>')+'</div>';
+ modal('camp','<span class="eyebrow">ТВОЙ ЛАГЕРЬ · ДАЛЕКО</span><h2>'+(camp.house?'Обжитый дом':'Лагерь')+' · '+esc(sideName(camp.owner))+'</h2>',h);
+ $('camp-way').onclick=()=>{waypoint={x:camp.x,y:camp.y,name:'Лагерь'};closePanel();notify('Указатель на лагерь','Следуй стрелке.');};
+ const ab=$('camp-far-abandon');if(ab)ab.onclick=async()=>{
+  if(!ab.dataset.sure){ab.dataset.sure='1';ab.textContent='Точно бросить? Нажми ещё раз';ab.classList.add('armed');return;}
+  const r=await action('camp_abandon',{camp:camp.id});if(!r)return;if(waypoint&&waypoint.name==='Лагерь')waypoint=null;closePanel();};}
 function showCamp(camp){if(!state)return;if(!camp){foundCamp();return;}
  const own=campCanUse(camp),parts=cfg.camp_parts,house=!!camp.house,me=state.me;
  let h='<div class="modal-body"><p>'+(house?'Лагерь в заброшенном доме: стены уже стоят, нужна только дверь.':'Лагерь под открытым небом: обнеси его частоколом из восьми секций с воротами.')+' '+(camp.breached?'<b class="bad">Ограда не закрыта — чужие могут залезть в ящик.</b>':'<b class="good">Ограда закрыта.</b>')+'</p>';
