@@ -522,6 +522,11 @@ function drawPlayer(c, p, r, v) {
   // Standing next to an own construction site, the hero keeps hammering.
   if ((!act || act.t > 1) && !p.moving && p.hp > 0 && r.buildNear) act = { kind: 'hammer', t: now % .9 };
   ejectShell(r, ang, p.gear ? p.gear.weapon : 0);
+  // The axe bites in: chips fly from in front of the feet.
+  if (act && act.kind === 'chop' && act.t > .46 && act.t < .9 && r.chipAt !== r.actAt) {
+    r.chipAt = r.actAt; const fx = r.x + Math.cos(ang) * 17, fy = r.y + Math.sin(ang) * 17;
+    for (let i = 0; i < 7; i++) { const a = ang + (Math.random() - .5) * 3.6, sp = 40 + Math.random() * 70; puff('debris', fx, fy, Math.cos(a) * sp, Math.sin(a) * sp, .5 + Math.random() * .3, 1.5 + Math.random() * 1.5, i % 3 ? '#c9a46a' : '#7a5a36'); }
+  }
   // Stepping out of the car fades in; climbing in fades out (drawn by the caller while gliding to the car).
   const fade = r.carAt ? Math.min(1, (now - r.carAt) / .3) : 1;
   const w = p.gear ? p.gear.weapon : 0;
