@@ -1339,7 +1339,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             if abs(x-b['x'])<b['w']/2+r and abs(y-b['y'])<b['h']/2+r:
                 if b.get('gate') and self.gate_open_for(b,faction):continue
                 return True
-        return False
+        return self.terrain.wreck_hit(x,y,r)
 
     def tick(self,dt):
         now=time.monotonic()
@@ -1729,6 +1729,7 @@ class Handler(BaseHTTPRequestHandler):
             cfg['towns']=[dict(t,r=w.terrain.towns[t['id']]['r'],h=w.terrain.towns[t['id']]['h']) for t in cfg['towns']]
             cfg['streets']=[[round(v) for v in s] for s in w.terrain.streets]
             cfg['houses']=[{k:h[k] for k in ('id','town','kind','x','y','w','h','door')} for h in w.terrain.houses.values()]
+            cfg['wrecks']=[[k['x'],k['y'],k['a'],k['m'],int(k['bus']),int(k['burnt'])] for k in w.terrain.wrecks]
             cfg['road_lines']=[{'ax':s[0],'ay':s[1],'bx':s[2],'by':s[3],'a':s[4],'b':s[5]} for s in w.terrain.road_segments]
             cfg['join_code']=self.server.join_code if self._local() else None
             cfg['lan_addresses']=lan_addresses(self.server.server_port) if cfg['join_code'] else []

@@ -19,10 +19,10 @@ const TREES = {
 const SNOWY = { tundra: 1, snowtaiga: 1 };
 let streets = [], houses = [], houseGrid = new Map(), streetGrid = new Map();
 // Highway asphalt width (two lanes each way, two cars side by side per lane); set from the config.
-let RW = 240;
+let RW = 240, roadWrecks = [];
 let cfg = null, towns = [], townById = {}, roads = [], waterSegs = [], lakes = [], pois = [], nodeGrid = new Map(), buildingGrid = new Map();
 let biomeMap = null, worldMap = null;
-const chunks = new Map(); let chunkQueue = 0;
+const chunks = new Map(); let chunkQueue = 0, chunkMissedCars = false;
 const particles = []; const seenEffects = new Set(); let lightning = 0;
 const townDecor = new Map();
 const R = AS.render = { quality: 'high', onSound: null };
@@ -52,7 +52,7 @@ R.coldAt = (x, y) => { const t = nearestTown(x, y); return (cfg.regions[t.region
 R.init = function (config) {
   cfg = config; towns = cfg.towns.map(t => Object.assign({}, t)); townById = {}; towns.forEach(t => townById[t.id] = t);
   // Highways come from the host and end at town gates, continuing as the town's cross streets.
-  RW = cfg.road_width || 240;
+  RW = cfg.road_width || 240; roadWrecks = cfg.wrecks || [];
   roads = cfg.road_lines.map(e => Object.assign({}, e, { len: Math.hypot(e.bx - e.ax, e.by - e.ay) }));
   waterSegs = []; cfg.rivers.forEach(r => { for (let i = 0; i < r[2].length - 1; i++) waterSegs.push([r[2][i][0], r[2][i][1], r[2][i + 1][0], r[2][i + 1][1], r[1] / 2, r[0]]); });
   lakes = cfg.lakes.map(l => l[1]); pois = cfg.pois || [];
@@ -100,9 +100,11 @@ function makeWorldMap() {
 /* ---------- terrain chunks ---------- */
 function getChunk(cx, cy) {
   const key = cx + ',' + cy; let ch = chunks.get(key);
+  // A chunk painted before the car drawings loaded is painted again once they are here.
+  if (ch && ch.missedCars && S.carsReady()) { chunks.delete(key); ch = null; }
   if (ch) { ch.used = performance.now(); return ch; }
   if (chunkQueue >= (R.quality === 'low' ? 1 : 2)) return null;
-  chunkQueue++; ch = buildChunk(cx, cy); ch.used = performance.now(); chunks.set(key, ch);
+  chunkQueue++; chunkMissedCars = false; ch = buildChunk(cx, cy); ch.missedCars = chunkMissedCars; ch.used = performance.now(); chunks.set(key, ch);
   const limit = R.quality === 'low' ? 24 : 40;
   if (chunks.size > limit) { const old = [...chunks.entries()].sort((a, b) => a[1].used - b[1].used).slice(0, chunks.size - limit); old.forEach(o => chunks.delete(o[0])); }
   return ch;
@@ -186,10 +188,15 @@ function buildChunk(cx, cy) {
       // Utility poles with sagging wires along the shoulder.
       if (Math.floor(d / 40) % 6 === 0) { const qx = px + nx * (RW / 2 + 30), qy = py + ny * (RW / 2 + 30); if (!water(qx, qy)) { c.fillStyle = '#00000040'; c.fillRect(qx + 3, qy + 2, 10, 3); c.fillStyle = '#5a4a38'; c.beginPath(); c.arc(qx, qy, 3.5, 0, 7); c.fill(); c.fillStyle = '#6e6a5e'; c.fillRect(qx - nx * 8 - 1, qy - ny * 8 - 1, nx * 16 + 2, ny * 16 + 2); } }
       if (Math.floor(d / 40) % 6 === 0) { c.strokeStyle = '#26262288'; c.lineWidth = .8; c.beginPath(); const qx = px + nx * (RW / 2 + 30), qy = py + ny * (RW / 2 + 30); c.moveTo(qx, qy); c.quadraticCurveTo(qx + ux * 120 + nx * 6, qy + uy * 120 + ny * 6, qx + ux * 240, qy + uy * 240); c.stroke(); }
-      // Abandoned cars, stopped where the silence caught them.
-      if (h1 > .94 && !water(px, py, 40)) { c.save(); c.translate(px + nx * (h2 - .5) * RW * .8, py + ny * (h2 - .5) * RW * .8); c.rotate(Math.atan2(uy, ux) + (h1 - .98) * 30); wreck(c, h2, h2 < .2); c.restore(); }
     }
   });
+  // Abandoned cars on the highways: the host's list, the same for everyone and solid in the game.
+  roadWrecks.forEach(w => { if (Math.abs(w[0] - x0 - CHUNK / 2) > CHUNK / 2 + 70 || Math.abs(w[1] - y0 - CHUNK / 2) > CHUNK / 2 + 70) return;
+    c.save(); c.translate(w[0], w[1]); c.rotate(w[2]);
+    if (!w[4] && !S.carsReady()) chunkMissedCars = true;
+    if (w[4] || !S.carsReady()) { const im = S.vehicle(w[4] ? 'bus' : 'wreck', ['#7c3b2f', '#56646d', '#8b7d55', '#3e4d40', '#b8b2a0', '#2d3a4f'][w[3] % 6], 2); c.drawImage(im.im, -im.ox, -im.oy); }
+    else { const spec = cfg.cars[w[3]]; S.car(c, { model: w[3], len: spec.len, wid: spec.wid, damage: w[5] ? 2 : 1 }); }
+    c.restore(); });
   // Trees: positions chosen here, painted later over characters (canopies are above people).
   const trees = []; const td = TREES[biome] || TREES.mixed;
   const step = 46;

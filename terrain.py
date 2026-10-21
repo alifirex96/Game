@@ -1,11 +1,12 @@
 """World geometry shared by the simulation: water, roads, collisions and road routes."""
 import heapq
 import math
-from world_data import (ROAD_HALF, WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS, ROADSIDE_EVERY, ROADSIDE_KINDS, ROADSIDE_NAMES,
+from world_data import (CARS, ROAD_HALF, ROAD_WIDTH, WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS, ROADSIDE_EVERY, ROADSIDE_KINDS, ROADSIDE_NAMES,
                         RESOURCES, SLOTS, BUILDINGS, TOWN_GATE, LANDMARKS, LANDMARK_POS, POPULATION, town_size)
 
 CELL = 1000
 RECT_CELL = 250               # finer buckets for walls and buildings: cities have hundreds of houses
+WRECK_EVERY = 6700            # mean gap between abandoned cars along a highway
 TOWN_HALF = (480, 420)        # half-size of the smallest settlement
 CORE = (520, 480)             # the square and the ten public buildings; rivers never cross it
 WALL = 8                      # thickness of house walls
@@ -82,10 +83,47 @@ class Terrain:
         self.streets = []; self.street_grid = {}; self.houses = {}
         for t in self.towns.values():
             self._lay_out_town(t)
+        self._road_wrecks()
         self.graph = {t: [] for t in self.towns}
         for a, b in ROADS:
             d = math.hypot(self.towns[a]['x'] - self.towns[b]['x'], self.towns[a]['y'] - self.towns[b]['y'])
             self.graph[a].append((b, d)); self.graph[b].append((a, d))
+
+    # ---- abandoned cars on the highways: rare, and solid -------------------------
+    def _road_wrecks(self):
+        """Cars stand where the silence caught them. Every client draws the same list; cars and people bump into them."""
+        self.wrecks = []; self.wreck_grid = {}
+        for ax, ay, bx, by, a, b in self.road_segments:
+            length = math.hypot(bx - ax, by - ay)
+            if length < 2000:
+                continue
+            ux, uy = (bx - ax) / length, (by - ay) / length; nx, ny = -uy, ux
+            rnd = _seeded('wreck:' + a + ':' + b)
+            d = 900 + rnd() * WRECK_EVERY
+            while d < length - 900:
+                x, y = ax + ux * d, ay + uy * d
+                if not self.in_town(x, y, 400) and not self.water(x, y, 160) and \
+                        not any(abs(p['x'] - x) < 700 and abs(p['y'] - y) < 700 for p in self.pois.values()):
+                    lateral = (rnd() - .5) * ROAD_WIDTH * .76
+                    angle = math.atan2(uy, ux) + (rnd() - .5) * 1.1 + (math.pi if rnd() < .5 else 0)
+                    bus = rnd() < .12
+                    self._add_wreck({'x':round(x + nx * lateral, 1), 'y':round(y + ny * lateral, 1), 'a':round(angle, 3),
+                                     'm':int(rnd() * len(CARS)) % len(CARS), 'bus':bus, 'burnt':rnd() < .5})
+                d += WRECK_EVERY * (.45 + rnd() * 1.1)
+
+    def _add_wreck(self, w):
+        length, width = (110, 34) if w['bus'] else (CARS[w['m']]['len'], CARS[w['m']]['wid'])
+        r = width * .5; off = length / 2 - r
+        c, s = math.cos(w['a']), math.sin(w['a'])
+        w['circles'] = [(w['x'] + c * k, w['y'] + s * k, r) for k in (-off, 0.0, off)]
+        self.wrecks.append(w)
+        for cx, cy, cr in w['circles']:
+            for gx in range(int((cx - cr - 60) // RECT_CELL), int((cx + cr + 60) // RECT_CELL) + 1):
+                for gy in range(int((cy - cr - 60) // RECT_CELL), int((cy + cr + 60) // RECT_CELL) + 1):
+                    self.wreck_grid.setdefault((gx, gy), []).append((cx, cy, cr))
+
+    def wreck_hit(self, x, y, r):
+        return any((x - cx) ** 2 + (y - cy) ** 2 < (cr + r) ** 2 for cx, cy, cr in self.wreck_grid.get((int(x // RECT_CELL), int(y // RECT_CELL)), ()))
 
     def gate(self, tid, other):
         """Highways enter a town where its main avenues reach the edge."""
@@ -238,7 +276,7 @@ class Terrain:
         for b in self.grid.get((int(x // RECT_CELL), int(y // RECT_CELL)), ()):
             if abs(x - b['x']) < b['w'] / 2 + r and abs(y - b['y']) < b['h'] / 2 + r:
                 return True
-        return False
+        return self.wreck_hit(x, y, r)
 
     def in_town(self, x, y, pad=0):
         towns = self.town_grid.get((int(x // CELL), int(y // CELL)), ()) if pad <= 500 else self.towns.values()

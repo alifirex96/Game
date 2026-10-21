@@ -166,3 +166,18 @@ class RespawnAmmoTests(unittest.TestCase):
         self.assertGreater(p['hp'], 0)
         self.assertEqual(w._mag(p), 8)
         self.assertEqual(p['items'].get('ammo9'), 16)
+
+
+class RoadWreckTests(unittest.TestCase):
+    def test_wrecks_are_rare_and_solid(self):
+        import math
+        w = World(None, rng=random.Random(13))
+        road = sum(math.hypot(s[2] - s[0], s[3] - s[1]) for s in w.terrain.road_segments)
+        self.assertGreater(len(w.terrain.wrecks), 20)
+        self.assertGreater(road / len(w.terrain.wrecks), 5000)          # about one per 7 km of highway
+        wr = w.terrain.wrecks[0]
+        self.assertTrue(w.blocked(wr['x'], wr['y'], 10))                  # a person cannot walk through
+        t = w.join('Водитель'); p = w.players[t]
+        spec = w.car_spec(p)
+        self.assertTrue(w._car_blocked(spec, wr['x'], wr['y'], 0.0))       # nor drive through
+        self.assertFalse(w.blocked(wr['x'] + 400, wr['y'] + 400, 10) and w.terrain.wreck_hit(wr['x'] + 400, wr['y'] + 400, 10))

@@ -521,7 +521,8 @@ function carCanvas(model, len, wid, damage) {
     c.translate(w / 2, h / 2); c.rotate(Math.PI / 2); c.drawImage(CARS_IMG, model * 128, 0, 128, 224, -64 * k, -112 * k, 128 * k, 224 * k);
     if (damage) {
       c.globalCompositeOperation = 'source-atop';
-      c.fillStyle = damage === 2 ? 'rgba(24,20,16,.72)' : 'rgba(40,30,20,.22)'; c.fillRect(-h, -w, h * 2, w * 2);
+      c.fillStyle = damage === 2 ? 'rgba(24,20,16,.72)' : 'rgba(40,30,20,.34)'; c.fillRect(-h, -w, h * 2, w * 2);
+      if (damage === 1) { const r = rng(model * .1 + .7); for (let i = 0; i < 12; i++) { c.fillStyle = r() < .6 ? 'rgba(122,70,38,.45)' : 'rgba(30,26,20,.35)'; c.beginPath(); c.arc((r() - .5) * h, (r() - .5) * w * .8, 2 + r() * 5, 0, 7); c.fill(); } }
       if (damage === 2) { const r = rng(model * .1 + .3); for (let i = 0; i < 26; i++) { c.fillStyle = r() < .5 ? 'rgba(120,58,30,.5)' : 'rgba(10,8,6,.6)'; c.beginPath(); c.arc((r() - .5) * h, (r() - .5) * w * .8, 2 + r() * 7, 0, 7); c.fill(); } }
     }
     return { im, ox: w / 2, oy: h / 2 };
