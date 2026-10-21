@@ -442,6 +442,10 @@ def xp_to_next(level):
 def max_hp(level):
     return 100 + 5 * (level - 1)
 
+def hero_look(level):
+    """The hero's twenty drawings are one person growing up: a new outfit about every level and a half."""
+    return min(len(LOOKS) - 1, (level - 1) * len(LOOKS) // MAX_LEVEL)
+
 # One storyline for every side, built from the chapters above.
 STORY_LINE = [dict(STORY['survivors'][0]), dict(STORY['survivors'][1]), dict(STORY['bandits'][1]),
               dict(STORY['survivors'][2]), dict(STORY['survivors'][3]), dict(STORY['survivors'][4])]
@@ -520,5 +524,5 @@ def config():
             'poi_kinds':POI_KINDS,'weapons':WEAPONS,'armor':ARMOR,'npc_types':NPC_TYPES,'post':POST,
             'post_cost':POST_COST,'prices':PRICES,'build_time':BUILD_TIME,'weather_names':WEATHER,
             'storage':[STORAGE_BASE,STORAGE_PER_WAREHOUSE],'day_seconds':DAY_SECONDS,
-            'perks':PERKS,'looks':LOOKS,'npc_looks':NPC_LOOKS,'npc_looks_cold':NPC_LOOKS_COLD,'shelter_radius':SHELTER_RADIUS,'shelter_warn':SHELTER_WARN,'car_tank':CAR_TANK,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
+            'perks':PERKS,'looks':LOOKS,'hero_looks':[hero_look(n) for n in range(1, MAX_LEVEL + 1)],'side_colors':SIDE_COLORS,'npc_looks':NPC_LOOKS,'npc_looks_cold':NPC_LOOKS_COLD,'shelter_radius':SHELTER_RADIUS,'shelter_warn':SHELTER_WARN,'car_tank':CAR_TANK,'shop':SHOP_ITEMS,'items':ITEMS,'clothes':CLOTHES,'backpacks':BACKPACKS,'story_coins':STORY_COINS,'landmarks':{k:{'name':v[0],'w':v[1],'h':v[2],'x':LANDMARK_POS[0],'y':LANDMARK_POS[1]} for k, v in LANDMARKS.items()},'max_level':MAX_LEVEL,'xp_table':[xp_to_next(n) for n in range(1, MAX_LEVEL + 1)],
             'towns':[dict(id=t[0],name=t[1],x=t[2],y=t[3],region=t[4]) for t in TOWNS]}

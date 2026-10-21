@@ -127,3 +127,18 @@ class TradeAndClanTests(unittest.TestCase):
         self.assertEqual(self.world.snapshot(self.ta)['players'][0]['tag'], 'СВ')
         self.act(self.tb, 'clan_leave')
         self.assertTrue(self.world.hostile(self.a, self.b))
+
+
+class HeroLookTests(unittest.TestCase):
+    def test_look_follows_level_and_colour_tells_players_apart(self):
+        from world_data import hero_look, SIDE_COLORS, MAX_LEVEL
+        self.assertEqual(hero_look(1), 0)
+        self.assertEqual(hero_look(MAX_LEVEL), 19)
+        self.assertTrue(all(hero_look(n) <= hero_look(n + 1) for n in range(1, MAX_LEVEL)))
+        w = World(rng=random.Random(1))
+        a = w.players[w.join('А', None, None, SIDE_COLORS[5])]
+        b = w.players[w.join('Б', None, None, SIDE_COLORS[5])]
+        self.assertEqual(w.sides[a['faction']]['color'], SIDE_COLORS[5])
+        self.assertNotEqual(w.sides[b['faction']]['color'], SIDE_COLORS[5])
+        a['level'] = 16
+        self.assertEqual(w._public_player(a)['look'], hero_look(16))

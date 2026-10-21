@@ -8,7 +8,7 @@ let cfg=null, state=null, token='', connected=false, joining=false, busy=false, 
 let cw=innerWidth,ch=innerHeight,dpr=1,cam={x:7300,y:5200}, drawPlayers={}, drawNpcs={};
 let last=performance.now(), frame=0, netBusy=false, netFailures=0, latestStamp=0, lastMessage=0, lastHud=0, pollCount=0;
 let zoom=Number(readStorage('as-zoom'))||1.3,aim={x:0,y:1}, nearest=null, currentTown=null, waypoint=null, lastAimAt=0;
-let look=Number(readStorage('as-look')||0),dialogGiver=null;
+let heroColor=readStorage('as-color'),dialogGiver=null;
 let requestSerial=0,lastShot=0,holdMouse=false,showedWarning=false,mapState={zoom:1,fx:null,fy:null,selected:null},mapTr=null;
 const palette=AS.colors;
 const sideName=id=>id&&state&&state.sides[id]?state.sides[id].name:'Независимые';
@@ -91,7 +91,7 @@ function acceptState(s){if(!s||s.stamp<latestStamp)return;latestStamp=s.stamp;
 }
 async function join(){if(joining||!cfg)return;joining=true;const btn=$('join');btn.disabled=true;btn.textContent='Подключение…';SND.resume();
  try{const name=$('player-name').value,code=$('room-code')?$('room-code').value.trim():'';token=readStorage('as-token-'+location.host);
- const data=await fetchJson('/api/join',{name,code,token,look});token=data.token;writeStorage('as-token-'+location.host,token);writeStorage('as-name',name);writeStorage('as-look',String(look));
+ const data=await fetchJson('/api/join',{name,code,token,color:heroColor});token=data.token;writeStorage('as-token-'+location.host,token);writeStorage('as-name',name);writeStorage('as-color',heroColor||'');
  latestStamp=0;lastMessage=0;state=null;acceptState(data.state);connected=true;drawPlayers={};drawNpcs={};cam={x:state.me.x,y:state.me.y};closePanel();$('hud').classList.remove('hidden');
  const home=shelterOf(state.me.faction);if(distance(home,state.me)>1500)waypoint={x:home.x,y:home.y,name:'Убежище'};
  const near=Object.values(state.towns).sort((a,b)=>distance(a,state.me)-distance(b,state.me))[0];notify('Ты очнулся у дороги','Рядом: '+near.name+'. '+home.name+' отмечено указателем.');
@@ -151,13 +151,14 @@ function shoot(){if(!state||panel||state.me.vehicle||state.me.hp<=0)return;const
 function closePanel(){panel=null;selected=null;screen.className='';screen.innerHTML='';document.body.classList.remove('dialog-open');clearKeys();}
 function modal(type,head,body,width){panel=type;document.body.classList.add('dialog-open');screen.className='';screen.innerHTML='<section class="modal '+(width||'')+'"><div class="modal-head"><div>'+head+'</div><button class="close" id="close-panel" aria-label="Закрыть">'+icon('close')+'</button></div>'+body+'</section>';$('close-panel').onclick=closePanel;clearKeys();}
 function showTitle(){panel='title';document.body.classList.remove('dialog-open');$('hud').classList.add('hidden');screen.className='title-screen';
- const local=cfg&&cfg.join_code,params=new URLSearchParams(location.search),preset=(params.get('code')||'').replace(/\D/g,'').slice(0,6),names=cfg?cfg.looks:[];
- if(!(look>=0&&look<names.length))look=0;
+ const local=cfg&&cfg.join_code,params=new URLSearchParams(location.search),preset=(params.get('code')||'').replace(/\D/g,'').slice(0,6),colors=cfg?cfg.side_colors:[];
+ if(!colors.includes(heroColor))heroColor=colors[Math.floor(Math.random()*colors.length)];
  screen.innerHTML='<div class="title-layout"><div class="overline">РОССИЯ ПОСЛЕ КАТАСТРОФЫ</div><h1>ПОСЛЕ<br><span>ТИШИНЫ</span></h1><p class="story">Дороги остались. Государства — нет.<br>У тебя есть убежище, машина и пустой рюкзак.<br>Остальное придётся взять самому.</p><div class="lobby"><label>ПОЗЫВНОЙ<input id="player-name" maxlength="20" value="'+esc(readStorage('as-name')||'Каскад')+'"></label>'+(local?'':'<label>КОД КОМНАТЫ<input id="room-code" inputmode="numeric" maxlength="6" placeholder="6 цифр от ведущего" value="'+esc(preset)+'"></label>')+
- '<div class="look-pick"><span>ОБЛИК · <b id="look-name">'+esc(names[look]||'')+'</b></span><div class="looks">'+names.map((n,i)=>'<button class="look-btn'+(i===look?' on':'')+'" data-look="'+i+'" title="'+esc(n)+'" style="background-position:'+(i%5*25)+'% '+(Math.floor(i/5)*100/3).toFixed(3)+'%"></button>').join('')+'</div></div>'+
+ '<div class="look-pick"><span>ЦВЕТ · <b>облик растёт вместе с уровнем</b></span><div class="hero-pick"><canvas id="hero-preview" width="96" height="96"></canvas><div class="swatches">'+colors.map(c=>'<button class="swatch'+(c===heroColor?' on':'')+'" data-color="'+c+'" style="background:'+c+'" aria-label="Цвет '+c+'"></button>').join('')+'</div></div></div>'+
  '<button class="primary" id="join">Войти в мир '+icon('arrow')+'</button><button class="quiet" id="help-title">Как играть</button></div><div class="meta">ASTRA LINUX · КАЖДЫЙ САМ ЗА СЕБЯ · ДО '+(cfg?cfg.max_players:25)+' ИГРОКОВ<br>ВЕРСИЯ '+esc(cfg?cfg.version:'')+'</div></div><div class="title-footer">ВЫЖИТЬ. ДОГОВОРИТЬСЯ. УДЕРЖАТЬ.</div>'+(local?'<div class="room-card"><span class="eyebrow">КОМНАТА НА ЭТОМ ПК</span><b>Код '+esc(local)+'</b><span>'+(cfg.lan_addresses.length?'Другим игрокам: '+cfg.lan_addresses.map(esc).join('<br>'):'Одиночная игра: сеть не используется.')+'</span><small>Один компьютер хранит мир. У каждого игрока своё убежище под охраной; поселения держат мародёры. Объединяйтесь в кланы, торгуйте или воюйте.</small></div>':'');
  $('join').onclick=join;$('help-title').onclick=()=>showHelp(true);
- screen.querySelectorAll('[data-look]').forEach(b=>b.onclick=()=>{look=Number(b.dataset.look);screen.querySelectorAll('.look-btn').forEach(x=>x.classList.toggle('on',x===b));$('look-name').textContent=names[look];beep('ui');});
+ const preview=()=>{const cv=$('hero-preview');if(!cv)return;const c=cv.getContext('2d');c.clearRect(0,0,96,96);const im=AS.sprites.heroIcon(0,heroColor);if(im)c.drawImage(im,8,8,80,80);else setTimeout(preview,200);};preview();
+ screen.querySelectorAll('[data-color]').forEach(b=>b.onclick=()=>{heroColor=b.dataset.color;screen.querySelectorAll('.swatch').forEach(x=>x.classList.toggle('on',x===b));preview();beep('ui');});
  const nameInput=$('player-name');nameInput.addEventListener('keydown',e=>{if(e.key==='Enter')join();});
 }
 function showPause(){if(!state)return;modal('pause','<span class="eyebrow">ЭКСПЕДИЦИЯ</span><h2>Передышка</h2>',
@@ -274,7 +275,7 @@ function storyHtml(){const s=state.story,c=s.chapter;if(!c)return '<div class="s
  if(s.ready)html+='<div class="notice">Глава выполнена. Решение принимается у радиста крупного города: '+esc(radios.join(', '))+'.</div>';
  else if(c.goal.kind==='victory'){const radio=Math.max(0,...Object.values(state.towns).filter(t=>t.owner===state.me.faction).map(t=>t.levels.radio));html+='<p class="small muted">'+esc(sideName(state.me.faction))+': поселений '+Object.values(state.towns).filter(t=>t.owner===state.me.faction).length+' / 5 · лучшая радиостанция '+radio+' / 2</p>';}
  return html+'</div>';}
-function characterHtml(){const p=state.me,need=cfg.xp_table[p.level-1]||1;return '<div class="char-card"><div class="section-label"><span>ПЕРСОНАЖ · '+esc(p.name.toUpperCase())+'</span><b>'+p.level+' / '+cfg.max_level+' ур.</b></div><div class="bar big"><i style="width:'+(p.level>=cfg.max_level?100:Math.round(p.xp/need*100))+'%"></i></div><p class="small muted">Опыт '+p.xp+' / '+need+' · здоровье '+p.max_hp+' · урон +'+3*(p.level-1)+'%. Опыт дают сбор, стройка, события, разведка новых мест, бой, тайники, захваты и задания.</p><div class="perks">'+cfg.perks.map(k=>'<span class="perk '+(p.level>=k.level?'on':'')+'"><b>'+k.level+' ур. · '+esc(k.name)+'</b><small>'+esc(k.desc)+'</small></span>').join('')+'</div></div>';}
+function characterHtml(){const p=state.me,need=cfg.xp_table[p.level-1]||1;return '<div class="char-card"><div class="section-label"><span>ПЕРСОНАЖ · '+esc(p.name.toUpperCase())+'</span><b>'+p.level+' / '+cfg.max_level+' ур.</b></div><div class="bar big"><i style="width:'+(p.level>=cfg.max_level?100:Math.round(p.xp/need*100))+'%"></i></div><p class="small muted">Опыт '+p.xp+' / '+need+' · здоровье '+p.max_hp+' · урон +'+3*(p.level-1)+'%. Опыт дают сбор, стройка, события, разведка новых мест, бой, тайники, захваты и задания.</p>'+(()=>{const cur=cfg.hero_looks[p.level-1],next=cfg.hero_looks.findIndex(v=>v>cur);return '<p class="small" style="margin-top:6px">Облик: <b>'+esc(cfg.looks[cur])+'</b>'+(next>=0?' · следующий («'+esc(cfg.looks[cfg.hero_looks[next]])+'») — на '+(next+1)+' уровне':' · последний')+'</p>';})()+'<div class="perks">'+cfg.perks.map(k=>'<span class="perk '+(p.level>=k.level?'on':'')+'"><b>'+k.level+' ур. · '+esc(k.name)+'</b><small>'+esc(k.desc)+'</small></span>').join('')+'</div></div>';}
 function showJournal(){if(!state)return;const qs=state.me.quests;let html='<div class="modal-body">'+characterHtml()+storyHtml()+'<span class="eyebrow" style="display:block;margin:18px 0 10px">ЗАДАНИЯ · '+qs.length+' / 3</span><div class="quests-list">';
  if(!qs.length)html+='<p class="small muted">Заданий нет. Работу дают люди на площадях поселений: подойди к ним и нажми E.</p>';
  qs.forEach(q=>{const n=Math.max(0,state.me.stats[q.kind]-q.start),done=n>=q.target,role=(cfg.givers.find(g=>g.type===q.giver)||{}).role||'';

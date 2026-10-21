@@ -20,7 +20,7 @@ from world_data import (VERSION, WORLD_SIZE, RESOURCES, TOWNS, REGIONS, MAX_PLAY
                         SIDE_COLORS, AI_SIDES, STORY_LINE, POST, SHELTER_RADIUS, SHELTER_WARN, SHELTER_GUARDS,
                         BIG_TOWNS, START_STOCK, NODE_RESPAWN, LOOKS, GIVERS, GIVER_PLAN, MAX_ACTIVE_QUESTS, BUILDINGS, EVENTS, QUESTS, WEAPONS, ARMOR, POI_KINDS,
                         POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
-                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, xp_to_next, max_hp, config)
+                        WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, xp_to_next, max_hp, hero_look, config)
 from terrain import Terrain, town_buildings, resource_nodes, landmark_rect
 from npc import NpcMixin
 
@@ -212,7 +212,8 @@ class World(NpcMixin):
         self.log=self.log[-60:]
 
     def _public_player(self, p):
-        out={k:p[k] for k in ('id','name','faction','x','y','angle','hp','stamina','vehicle','dead_until','gear','level','xp','look')}
+        out={k:p[k] for k in ('id','name','faction','x','y','angle','hp','stamina','vehicle','dead_until','gear','level','xp')}
+        out['look']=hero_look(p['level'])
         clan=self.clans.get(self.sides.get(p['faction'],{}).get('clan'))
         out['tag']=clan['tag'] if clan else ''
         out['max_hp']=max_hp(p['level'])
@@ -221,15 +222,20 @@ class World(NpcMixin):
         out['sprint']=bool(p['input'][2])
         return out
 
-    def join(self, name, faction=None, token=None, look=None):
-        """Every player is a side of their own. The faction argument is ignored (kept for old clients)."""
-        look=int(clamp(finite(look,0),0,len(LOOKS)-1)) if look is not None else None
+    def _free_color(self,color,sid=None):
+        used={s['color'] for k,s in self.sides.items() if k!=sid}
+        if color in SIDE_COLORS and color not in used:return color
+        return next((c for c in SIDE_COLORS if c not in used),SIDE_COLORS[len(self.sides)%len(SIDE_COLORS)])
+
+    def join(self, name, faction=None, token=None, color=None):
+        """Every player is a side of their own. The faction argument is ignored (kept for old clients).
+        Everyone plays the same hero, whose look follows the level; the chosen colour tells players apart."""
         if token in self.players:
             p=self.players[token]
             p['last_seen']=time.monotonic()
             p['name']=str(name).strip()[:20] or p['name']
-            self.sides[p['faction']]['name']=p['name']
-            if look is not None:p['look']=look
+            side=self.sides[p['faction']];side['name']=p['name']
+            if color in SIDE_COLORS:side['color']=self._free_color(color,p['faction'])
             return token
         name=str(name).strip()[:20] or 'Путник'
         now=time.monotonic()
@@ -242,11 +248,10 @@ class World(NpcMixin):
         if not site:
             raise GameError('Свободных мест для убежища не осталось.')
         town=self.towns[site['town']]
-        used={s['color'] for s in self.sides.values()}
-        color=next((c for c in SIDE_COLORS if c not in used),SIDE_COLORS[len(self.sides)%len(SIDE_COLORS)])
+        color=self._free_color(color)
         token=secrets.token_urlsafe(32);pid=secrets.token_hex(6);sid='p_'+pid
         self.add_side(sid,name,color,site['id'])
-        p={'id':pid,'name':name,'faction':sid,'look':look if look is not None else self.rng.randrange(len(LOOKS)),
+        p={'id':pid,'name':name,'faction':sid,
            'x':site['x'],'y':site['y']+80,'angle':0.0,
            'hp':100.0,'stamina':100.0,'vehicle':False,
            'car':{'x':site['x']+90,'y':site['y']+25,'angle':0.0,'hp':100.0,'wrecked_until':0.0,'fuel':20.0},
@@ -307,6 +312,8 @@ class World(NpcMixin):
             p['xp']-=xp_to_next(p['level']);p['level']+=1
             p['hp']=self.max_hp(p)
             perk=next((k for k in PERKS if k['level']==p['level']),None)
+            if hero_look(p['level'])!=hero_look(p['level']-1):
+                self._notice('Новый облик: '+LOOKS[hero_look(p['level'])],'Опыт виден по снаряжению.',player=p['id'])
             self.effects.append({'id':secrets.token_hex(4),'kind':'levelup','x':p['x'],'y':p['y'],'ex':p['x'],'ey':p['y'],'until':self.elapsed+1.5,'faction':p['faction'],'player':p['id']})
             self._notice('Новый уровень: '+str(p['level']),'Здоровье '+str(int(self.max_hp(p)))+', урон +'+str(3*(p['level']-1))+'%.'+(' Навык: '+perk['name']+' — '+perk['desc'] if perk else ''),player=p['id'])
             self._notice(p['name']+' достиг уровня '+str(p['level']),'',faction=p['faction'],skip=p['id'])
@@ -1464,7 +1471,7 @@ class World(NpcMixin):
                 for m in members:sides[m]['clan']=cid
             for p in players.values():
                 if p['faction'] not in sides:raise ValueError('Player side')
-                p.setdefault('look',0);p['look']=int(clamp(finite(p['look']),0,len(LOOKS)-1))
+                p.pop('look',None)
             for t in towns.values():
                 if t['owner'] not in sides:t['owner']=None
             self.elapsed=max(0,finite(raw['time']));self.production_clock=finite(raw.get('production_clock',0))%12
@@ -1575,7 +1582,7 @@ class Handler(BaseHTTPRequestHandler):
                     if len(attempts)>=12:self._json(429,{'error':'Слишком много попыток. Подожди минуту.'});return
                     if not self._local() and not secrets.compare_digest(str(data.get('code','')),self.server.join_code):
                         attempts.append(now);self._json(403,{'error':'Неверный код комнаты.'});return
-                    token=self.server.world.join(data.get('name',''),None,data.get('token'),data.get('look'))
+                    token=self.server.world.join(data.get('name',''),None,data.get('token'),data.get('color'))
                     self._json(200,{'token':token,'state':self.server.world.snapshot(token)});return
                 if path=='/api/host':
                     # Room settings are changed only on the host computer itself.

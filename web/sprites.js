@@ -530,6 +530,28 @@ AS.sprites.giver = function (c, o) {
   c.fillStyle = '#0a0f0b55'; c.beginPath(); c.ellipse(3, 4, size * .36, size * .3, 0, 0, 7); c.fill();
   c.save(); c.rotate(-Math.PI / 2 + Math.sin(o.phase || 0) * .04); c.drawImage(giverCanvas(o.art), -size / 2, -size / 2, size, size); c.restore();
 };
+// Players all wear the hero's drawings; their clothes take the player's colour (hue) so friends and rivals differ.
+// Skin, hair-dark outlines and boots keep their own colours.
+function rgbToHsl(r, g, b) { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; if (mx === mn) return [0, 0, l]; const d = mx - mn, s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); let h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return [h / 6, s, l]; }
+function hslToRgb(h, s, l) { if (!s) return [l * 255, l * 255, l * 255]; const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q; const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < .5 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; }; return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255]; }
+function tintedCanvas(look, tint) {
+  return cached('tint' + look + tint, () => {
+    const base = lookCanvas(look), im = canvas(base.width, base.height), c = im.getContext('2d'); c.drawImage(base, 0, 0);
+    const [th, ts] = rgbToHsl(...hex(tint)), data = c.getImageData(0, 0, im.width, im.height), d = data.data;
+    const hx = im.width * .495, hy = im.height * .227, hr = im.width * .19;   // the head: hair and helmets keep their colour
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 20) continue;
+      const px = (i / 4) % im.width, py = Math.floor(i / 4 / im.width);
+      if ((px - hx) ** 2 + (py - hy) ** 2 < hr * hr) continue;
+      const [h, s, l] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+      if (l < .16 || (h > .02 && h < .11 && s > .3 && l > .42)) continue;      // outlines, boots, skin
+      const [r, g, b] = hslToRgb(th, Math.min(.75, s * .45 + ts * .4), l);
+      d[i] = d[i] * .35 + r * .65; d[i + 1] = d[i + 1] * .35 + g * .65; d[i + 2] = d[i + 2] * .35 + b * .65;
+    }
+    c.putImageData(data, 0, 0); return im;
+  });
+}
+AS.sprites.heroIcon = (look, tint) => sheetReady ? (tint ? tintedCanvas(look, tint) : lookCanvas(look)) : null;
 AS.sprites.lookReady = () => sheetReady;
 AS.sprites.lookIcon = look => sheetReady ? lookCanvas(look) : null;
 // o: {look, weapon, phase, moving, run, aim, shot, flash, busy, dead, size}. Forward is +x like the rest of the scene.
@@ -546,7 +568,7 @@ AS.sprites.look = function (c, o) {
   }
   c.save(); c.rotate(-Math.PI / 2 + sway); const k = 1 + bob * .025;
   if (o.dead) c.globalAlpha = .85;
-  c.drawImage(lookCanvas(o.look || 0), -size / 2 * k, -size / 2 * k, size * k, size * k);
+  c.drawImage(o.tint ? tintedCanvas(o.look || 0, o.tint) : lookCanvas(o.look || 0), -size / 2 * k, -size / 2 * k, size * k, size * k);
   c.restore(); c.globalAlpha = 1;
   if (o.dead) { c.fillStyle = '#20100c55'; c.beginPath(); c.ellipse(0, 0, size * .42, size * .32, 0, 0, 7); c.fill(); return; }
   if (aiming && o.weapon >= 1) { c.save(); c.translate(4, 4); c.fillStyle = '#1d1e1b'; c.fillRect(14, -1.2, ([0, 18, 18, 10, 20, 22, 20][o.weapon] || 12), 2.4); c.restore(); }

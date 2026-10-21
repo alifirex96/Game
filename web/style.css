@@ -62,9 +62,6 @@
 .side-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}.side-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:5px}.side-row>div{flex:1;display:flex;flex-direction:column}.side-row small{color:var(--muted);font-size:11px}.side-row .dot{width:12px;height:12px;border-radius:50%}.side-row button{padding:8px 12px;font-size:12px}
 /* 0.5: look picker, dialogues with people, trade between players */
 .look-pick{display:flex;flex-direction:column;gap:8px;font-size:10px;letter-spacing:2px;color:var(--muted);font-weight:700}.look-pick b{color:var(--ink);letter-spacing:.5px;font-weight:600}
-.looks{display:grid;grid-template-columns:repeat(10,1fr);gap:4px;max-width:440px}
-.look-btn{aspect-ratio:1;min-width:34px;background-color:#1a241f;background-image:url(assets/characters.png);background-size:500% 400%;border:1px solid #ffffff14;border-radius:3px;padding:0}
-.look-btn.on{border-color:var(--orange);background-color:#2a3027;box-shadow:0 0 0 1px var(--orange) inset}
 .dialog .dialog-head{display:flex;gap:16px;align-items:flex-start;margin-bottom:16px}.dialog-head canvas{border:1px solid #ffffff1c;border-radius:3px;flex:none}
 .speech{font-size:15px;color:#e8e1cf;line-height:1.5}.lore{margin-top:8px;color:var(--muted);font-style:italic;font-size:13px}
 .quest-card .speech{font-size:13px;color:#cfc6b0;margin-bottom:6px;font-style:italic}.quest-card.done{border-color:#8aa38d55}
@@ -74,3 +71,5 @@
 .map-legend i.square{border-radius:0;background:#b7b69f}.chip{font-size:11px;padding:3px 8px;border:1px solid #ffffff26;border-radius:3px;color:var(--muted)}
 .dialog .portrait{flex:none;width:120px;height:160px;background-image:url(assets/portraits.jpg);background-size:400% 200%;border:1px solid #ffffff22;border-radius:3px;box-shadow:0 6px 18px #0007}
 @media (max-width:640px){.dialog .portrait{width:84px;height:112px}}
+.hero-pick{display:flex;gap:12px;align-items:center}.hero-pick canvas{flex:none;background:#1a241f;border:1px solid #ffffff14;border-radius:3px}
+.swatches{display:grid;grid-template-columns:repeat(9,1fr);gap:4px;flex:1}.swatch{aspect-ratio:1;min-width:20px;border-radius:2px;border:2px solid transparent;padding:0}.swatch.on{border-color:#f2ecdc}

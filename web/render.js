@@ -399,7 +399,7 @@ function drawPlayer(c, p, r, v) {
   const ang = isMe && !p.vehicle ? Math.atan2(v.aim.y, v.aim.x) : (t - p.shot < .6 ? p.angle : p.angle);
   const dead = p.hp <= 0;
   c.save(); c.translate(r.x, r.y); c.rotate(dead ? 0 : (isMe ? ang : (r.ang != null ? r.ang : p.angle)));
-  S.look(c, { look: p.look || 0, weapon: p.gear ? p.gear.weapon : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: (isMe && v.holdAim) || t - p.shot < 1.2, shot: t - p.shot < .25, flash: t - p.shot < .07, dead });
+  S.look(c, { look: p.look || 0, tint: col(p.faction), weapon: p.gear ? p.gear.weapon : 0, phase: r.phase || 0, moving: p.moving, run: p.sprint, aim: (isMe && v.holdAim) || t - p.shot < 1.2, shot: t - p.shot < .25, flash: t - p.shot < .07, dead });
   c.restore();
   if (dead) return;
   const mx = p.max_hp || 100; if (p.hp < mx) { c.fillStyle = '#18271fcc'; c.fillRect(r.x - 18, r.y + 22, 36, 4); c.fillStyle = p.hp > mx * .4 ? '#9cc28c' : '#d27a5e'; c.fillRect(r.x - 18, r.y + 22, 36 * p.hp / mx, 4); }
