@@ -202,7 +202,7 @@ class World(NpcMixin):
                 a = .6 + k * 2.1
                 gid = tid + ':' + kind
                 spec = GIVERS[kind]
-                self.givers[gid] = {'id':gid,'town':tid,'type':kind,'role':spec['role'],'look':spec['look'],
+                self.givers[gid] = {'id':gid,'town':tid,'type':kind,'role':spec['role'],'look':spec['look'],'art':spec['art'],
                                     'name':spec['names'][(i + k) % len(spec['names'])],
                                     'x':round(t['x'] + math.cos(a) * 168),'y':round(t['y'] + math.sin(a) * 140)}
 
@@ -341,7 +341,7 @@ class World(NpcMixin):
         active={q['kind'] for q in p['quests']}
         offers=[] if len(p['quests'])>=MAX_ACTIVE_QUESTS else \
             [{k:tpl[k] for k in ('kind','name','text','intro','coins','reward','target')} for tpl in QUESTS if tpl['giver']==g['type'] and tpl['kind'] not in active]
-        out={'giver':{k:g[k] for k in ('id','name','role','type','look','town')},'greet':pick(spec['greet']),'lore':pick(spec['lore']),
+        out={'giver':{k:g[k] for k in ('id','name','role','type','look','art','town')},'greet':pick(spec['greet']),'lore':pick(spec['lore']),
              'offers':offers,'full':len(p['quests'])>=MAX_ACTIVE_QUESTS,
              'turnins':[{'id':q['id'],'name':q['name'],'coins':q.get('coins',0),'reward':q['reward'],'done':q.get('done','')} for q in done],
              'progress':[{'id':q['id'],'name':q['name'],'n':max(0,p['stats'][q['kind']]-q['start']),'target':q['target']} for q in mine if q not in done]}
@@ -1504,8 +1504,9 @@ class GameServer(ThreadingHTTPServer):
 
 STATIC={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/game.js':'game.js',
         '/sprites.js':'sprites.js','/render.js':'render.js','/audio.js':'audio.js','/icon.svg':'icon.svg',
-        '/assets/characters.png':'assets/characters.png'}
-TYPES={'html':'text/html; charset=utf-8','css':'text/css; charset=utf-8','js':'application/javascript; charset=utf-8','svg':'image/svg+xml','png':'image/png'}
+        '/assets/characters.png':'assets/characters.png','/assets/givers.png':'assets/givers.png',
+        '/assets/portraits.jpg':'assets/portraits.jpg'}
+TYPES={'html':'text/html; charset=utf-8','css':'text/css; charset=utf-8','js':'application/javascript; charset=utf-8','svg':'image/svg+xml','png':'image/png','jpg':'image/jpeg'}
 
 class Handler(BaseHTTPRequestHandler):
     server_version='AfterSilence/'+VERSION

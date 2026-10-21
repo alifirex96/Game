@@ -512,6 +512,24 @@ function lookCanvas(look) {
     c.drawImage(mid, 0, 0, LOOK_PX, LOOK_PX); return im;
   });
 }
+// People on the squares who give work: their own drawn figures (web/assets/givers.png, 7 cells in a row).
+const GIVERS = new Image(); let giversReady = false;
+GIVERS.onload = () => { giversReady = true; }; GIVERS.src = 'assets/givers.png';
+function giverCanvas(art) {
+  return cached('giver' + art, () => {
+    const mid = canvas(64, 64), m = mid.getContext('2d'); m.imageSmoothingEnabled = true; if (m.imageSmoothingQuality) m.imageSmoothingQuality = 'high';
+    m.drawImage(GIVERS, art * 128, 0, 128, 128, 0, 0, 64, 64);
+    const im = canvas(LOOK_PX, LOOK_PX), c = im.getContext('2d'); c.imageSmoothingEnabled = true; if (c.imageSmoothingQuality) c.imageSmoothingQuality = 'high';
+    c.drawImage(mid, 0, 0, LOOK_PX, LOOK_PX); return im;
+  });
+}
+// o: {art, look, phase}; facing +x like other characters. Falls back to the common sheet until the image loads.
+AS.sprites.giver = function (c, o) {
+  if (!giversReady) { AS.sprites.look(c, { look: o.look, phase: 0, moving: false }); return; }
+  const size = 40;
+  c.fillStyle = '#0a0f0b55'; c.beginPath(); c.ellipse(3, 4, size * .36, size * .3, 0, 0, 7); c.fill();
+  c.save(); c.rotate(-Math.PI / 2 + Math.sin(o.phase || 0) * .04); c.drawImage(giverCanvas(o.art), -size / 2, -size / 2, size, size); c.restore();
+};
 AS.sprites.lookReady = () => sheetReady;
 AS.sprites.lookIcon = look => sheetReady ? lookCanvas(look) : null;
 // o: {look, weapon, phase, moving, run, aim, shot, flash, busy, dead, size}. Forward is +x like the rest of the scene.

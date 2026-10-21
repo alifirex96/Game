@@ -285,7 +285,7 @@ function showJournal(){if(!state)return;const qs=state.me.quests;let html='<div 
  screen.querySelectorAll('.quest-waypoint').forEach(b=>b.onclick=()=>{waypoint=Object.assign({},state.towns[b.dataset.town]);showMap(b.dataset.town);});
 }
 function showDialog(d){dialogGiver=d.giver;const g=d.giver,t=state.towns[g.town];
- let html='<div class="modal-body dialog"><div class="dialog-head"><canvas id="giver-face" width="72" height="72"></canvas><div><p class="speech">«'+esc(d.greet)+'»</p><p class="lore">'+esc(d.lore)+'</p></div></div>';
+ let html='<div class="modal-body dialog"><div class="dialog-head"><div class="portrait" style="background-position:'+(g.art%4*100/3).toFixed(3)+'% '+(Math.floor(g.art/4)*100)+'%"></div><div><p class="speech">«'+esc(d.greet)+'»</p><p class="lore">'+esc(d.lore)+'</p></div></div>';
  d.turnins.forEach(q=>{html+='<div class="quest-card done"><div class="section-label"><span>ЗАДАНИЕ ВЫПОЛНЕНО</span><b class="good">'+icon('coin')+' '+q.coins+'</b></div><h3>'+esc(q.name)+'</h3><small>Награда: '+esc(Object.keys(q.reward).map(k=>q.reward[k]+' '+cfg.resources[k].toLowerCase()).join(', '))+'</small><button class="primary" data-turnin="'+q.id+'">Сдать работу</button></div>';});
  d.progress.forEach(q=>{html+='<p class="small muted">'+esc(q.name)+': '+Math.min(q.n,q.target)+' / '+q.target+' — «Как сделаешь, приходи».</p>';});
  if(d.story){const s=d.story,c=s.chapter;html+='<span class="eyebrow shop-eyebrow">РАДИОСВЯЗЬ</span>';
@@ -297,7 +297,6 @@ function showDialog(d){dialogGiver=d.giver;const g=d.giver,t=state.towns[g.town]
  else if(!d.turnins.length&&!d.story)html+='<p class="small muted">«Пока ничего. Загляни позже — или к другим на площади».</p>';
  html+='<button class="quiet" id="bye" style="width:100%;margin-top:14px">«Бывай»</button></div>';
  modal('dialog','<span class="eyebrow">'+esc(g.role.toUpperCase())+' · '+esc(t.name.toUpperCase())+'</span><h2>'+esc(g.name)+'</h2>',html);
- const face=$('giver-face').getContext('2d');face.fillStyle='#1c231d';face.fillRect(0,0,72,72);const icon72=AS.sprites.lookIcon(g.look);if(icon72)face.drawImage(icon72,4,4,64,64);
  $('bye').onclick=closePanel;
  const reopen=r=>{if(r&&r.dialog)showDialog(r.dialog);};
  screen.querySelectorAll('[data-accept]').forEach(b=>b.onclick=async()=>reopen(await action('quest_accept',{giver:g.id,kind:b.dataset.accept})));
