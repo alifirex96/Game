@@ -1,0 +1,44 @@
+name: Release
+
+# Pushing a tag like v0.6.0 tests the game, builds the Astra Linux archive
+# and publishes a GitHub release with it; the notes come from CHANGELOG.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Python unit and HTTP tests
+        run: python3 -m unittest discover -s tests
+      - name: JavaScript syntax
+        run: for f in web/*.js; do node --check "$f"; done
+      - name: Version matches the tag
+        run: |
+          version=$(python3 -c "import world_data; print(world_data.VERSION)")
+          test "v$version" = "$GITHUB_REF_NAME"
+      - name: Build portable archive
+        run: python3 tools/package.py
+      - name: Release notes from the changelog
+        run: |
+          python3 - <<'EOF'
+          import os, re
+          version = os.environ['GITHUB_REF_NAME'][1:]
+          text = open('CHANGELOG.md', encoding='utf-8').read()
+          m = re.search(r'^## ' + re.escape(version) + r'\n(.*?)(?=^## |\Z)', text, re.S | re.M)
+          notes = (m.group(1).strip() if m else 'См. CHANGELOG.md.')
+          notes += '\n\n**Установка:** скачай AfterSilence-Astra-' + version + '.tar.gz, распакуй в свою папку и запусти «Играть.sh». Нужны только Python 3.7+ и браузер, права администратора не нужны.'
+          open('notes.md', 'w', encoding='utf-8').write(notes)
+          EOF
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/AfterSilence-Astra-*.tar.gz --title "После тишины ${GITHUB_REF_NAME#v}" --notes-file notes.md
