@@ -317,7 +317,7 @@ class CampMixin:
             n = self.give_item(p, item, n)
             if n:
                 got[item] = got.get(item, 0) + n
-        self.gain_xp(p, 'loot')
+        self.gain_xp(p, 'search')
         return {'title':'Обыскан дом', 'text':('Найдено: ' + self.items_text(got)) if got else 'Пусто или рюкзак полон.', 'success':bool(got)}
 
     def poi_materials(self, p, poi):

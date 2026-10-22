@@ -84,10 +84,17 @@ function acceptState(s){if(!s||s.stamp<latestStamp)return;latestStamp=s.stamp;
  // Light snapshots omit slow-changing settlement data; keep the last full copy.
  if(!s.full&&state){s.towns=state.towns;s.harvested=state.harvested;}
  if(!s.towns)return;
+ if(state&&state.me&&s.me.quests)questProgress(state.me,s.me);
+ if(s.me.hp<=0&&(panel==='dialog'||panel==='inventory'||panel==='craft'))closePanel();
  state=s;
  s.messages.forEach(m=>{if(m.id>lastMessage){if(lastMessage!==0){notify(m.title,m.text,m.tone==='error');if(m.tone==='error')beep('error');}lastMessage=m.id;}});
  if(s.load_warning&&!showedWarning){showedWarning=true;notify('Сохранение',s.load_warning,true);}
 }
+// A counter that moved is worth a line: '2 / 3', and a clear call when the job is ready to hand in.
+function questProgress(was,now){now.quests.forEach(q=>{const a=(was.stats[q.kind]||0)-q.start,b=(now.stats[q.kind]||0)-q.start;
+ if(b>a&&a<q.target){const role=(cfg.givers.find(g=>g.type===q.giver)||{}).role||'';
+  if(b>=q.target){notify('Задание выполнено: '+q.name,'Сдай: '+role.toLowerCase()+' в любом поселении.');beep('success');}
+  else notify(q.name,Math.min(b,q.target)+' / '+q.target);}});}
 async function join(){if(joining||!cfg)return;joining=true;const btn=$('join');btn.disabled=true;btn.textContent='Подключение…';SND.resume();
  try{const name=$('player-name').value,code=$('room-code')?$('room-code').value.trim():'';token=readStorage('as-token-'+location.host);
  const data=await fetchJson('/api/join',{name,code,token,color:heroColor});token=data.token;writeStorage('as-token-'+location.host,token);writeStorage('as-name',name);writeStorage('as-color',heroColor||'');
@@ -118,6 +125,8 @@ addEventListener('keydown',e=>{
  if(e.code==='KeyJ'){if(panel==='journal')closePanel();else showJournal();}
  if(e.code==='KeyO'){if(panel==='people')closePanel();else showPeople();}
  if(e.code==='KeyC'){if(panel==='craft')closePanel();else showCraft();}
+ if(e.code==='KeyI'||e.code==='Tab'){e.preventDefault();if(panel==='inventory')closePanel();else if(!panel)showInventory();}
+ if(e.code==='KeyB'&&panel==='post'){closePanel();return;}
  if(e.code==='KeyL'){if(panel==='camp')closePanel();else{const c=myCamp();if(!c)foundCamp();else if(distance(c,state.me)<(c.house?140:260))showCamp(c);else showCampFar(c);}}
  if(panel)return;
  if(e.code==='KeyE')interact();
@@ -125,7 +134,6 @@ addEventListener('keydown',e=>{
  if(e.code==='KeyH')action('heal');
  if(e.code==='KeyR')action('repair',{kit:true});
  if(e.code==='KeyT')action('refuel',{canister:true});
- if(e.code==='KeyI'||e.code==='Tab')showInventory();
  if(e.code==='KeyG')quickUse(['canned','crackers'],'Нечего есть. Еду продают в магазине, находят в тайниках и на складах с припасами.');
  if(e.code==='KeyV'){if(state&&R.water(state.me.x,state.me.y,70)&&!state.me.vehicle)action('drink');else quickUse(['water','tea'],'Нет воды. Подойди к реке или купи бутылку в магазине.');}
  if(e.code==='KeyQ'&&state){const own=state.me.weapons.slice().sort((a,b)=>a-b),i=own.indexOf(state.me.gear.weapon);equip(own[(i+1)%own.length]);}
@@ -184,7 +192,7 @@ function showPause(){if(!state)return;modal('pause','<span class="eyebrow">ЭК�
 // Host only: wipe the world and start over. The old save stays next to the new one as a backup.
 function confirmNewWorld(){modal('new-world','<span class="eyebrow">ВЕДУЩИЙ</span><h2>Новая игра с нуля</h2>',
  '<div class="modal-body"><p>Мир создаётся заново: все игроки, поселения, лагеря, машины, вещи и уровни исчезнут. Каждому придётся войти снова и начать с первого уровня.</p><p class="small muted" style="margin-top:10px">Старый мир не удаляется — он сохранится рядом резервной копией.</p><div class="event-options" style="margin-top:18px"><button class="primary" id="new-world-yes">Начать заново</button><button class="secondary" id="new-world-no">Отмена</button></div></div>');
- $('new-world-no').onclick=()=>connected?closePanel():showTitle();
+ $('new-world-no').onclick=()=>connected?showPause():showTitle();
  $('new-world-yes').onclick=async()=>{try{await fetchJson('/api/host',{new_world:true});}catch(e){notify('Не получилось',e.message,true);return;}
   connected=false;state=null;latestStamp=0;showTitle();notify('Новый мир создан','Войди — всё начнётся с нуля. Другие игроки тоже войдут заново.');};}
 function showSettings(){modal('settings','<span class="eyebrow">ЭТОТ КОМПЬЮТЕР</span><h2>Настройки</h2>',
@@ -328,7 +336,8 @@ function showDialog(d){dialogGiver=d.giver;const g=d.giver,t=state.towns[g.town]
 }
 function showShelter(){showCamp(myCamp());}
 // Camps: what is built, what can be built from the backpack, the crate.
-function myCamp(){return state&&state.sides[state.me.faction].camp?(state.camps||[]).find(c=>c.id===state.sides[state.me.faction].camp):null;}
+function myCamp(){if(!state)return null;const own=state.sides[state.me.faction].camp;
+ return own?(state.camps||[]).find(c=>c.id===own)||null:(state.camps||[]).find(c=>campCanUse(c))||null;}
 function slotsUsed(items){return Object.keys(items).reduce((a,k)=>a+Math.ceil(items[k]/((cfg.items[k]||{}).stack||1)),0);}
 function needsHtml(needs){return Object.keys(needs||{}).map(k=>{const have=state.me.items[k]||0;return '<span class="cost '+(have>=needs[k]?'good':'bad')+'"><b>'+esc(cfg.items[k].name)+'</b> '+have+' / '+needs[k]+'</span>';}).join(' ');}
 function hasNeeds(needs){return Object.keys(needs||{}).every(k=>(state.me.items[k]||0)>=needs[k]);}
@@ -378,7 +387,7 @@ function showCraft(){if(!state)return;const me=state.me,fire=nearPart('fire',110
  let h='<div class="modal-body"><p class="small muted">Рюкзак: '+slotsUsed(me.items)+' / '+cfg.backpacks[me.gear.backpack].slots+' мест. Материалы складываются: доски по 10, гвозди по 30, патроны по 20–40 в одно место.</p>';
  groups.forEach(([at,title,ok])=>{h+='<span class="eyebrow shop-eyebrow">'+title+'</span><div class="craft-grid">';
   cfg.recipes.filter(r=>r.at===at).forEach(r=>{const lvl=me.level>=(r.level||1),res=Object.keys(r.res||{}).every(k=>state.stock[k]>=r.res[k]),can=ok&&lvl&&res&&hasNeeds(r.needs);
-   const what=r.makes?Object.keys(r.makes).map(k=>cfg.items[k].name+(r.makes[k]>1?' ×'+r.makes[k]:'')).join(', '):'надеть сразу';
+   const what=r.makes?Object.keys(r.makes).map(k=>cfg.items[k].name+(r.makes[k]>1?' ×'+r.makes[k]:'')).join(', '):r.gear&&r.gear[0]==='weapon'?'сразу в руки':'надеть сразу';
    h+='<button class="decision" data-craft-id="'+r.id+'" '+(can?'':'disabled')+'><div><b>'+esc(r.name)+'</b><strong>'+(lvl?'':'ур. '+r.level)+'</strong></div><small>'+esc(what)+'</small><span class="decision-cost">'+needsHtml(r.needs)+(r.res?' '+costText(r.res):'')+'</span></button>';});
   h+='</div>';});
  modal('craft','<span class="eyebrow">РЕМЕСЛО</span><h2>Крафт</h2>',h+'</div>','wide');
@@ -476,7 +485,7 @@ function gearHtml(p){const ride=rideOf(p);
  const wd=cfg.weapons[p.gear.weapon],reserve=p.items[wd.ammo_item]||0,reloading=p.reload>state.time,ammoName=(cfg.items[wd.ammo_item]||{}).name||'';
  let html='<div class="g-top"><span class="g-name">'+esc(wd.name.toUpperCase())+'</span><span class="g-keys"><kbd>Q</kbd> <kbd>X</kbd></span></div>';
  if(reloading){const k=1-(p.reload-state.time)/(wd.reload||1);html+='<div class="g-big reload"><b>Перезарядка</b></div><div class="g-bar"><i style="width:'+Math.round(clamp(k,0,1)*100)+'%"></i></div>';}
- else html+='<div class="g-big'+(p.mag===0?' empty':'')+'"><b>'+p.mag+'</b><span>/ '+reserve+'</span><small>'+esc(ammoName.toLowerCase())+'</small></div>'+(wd.mag<=40?'<div class="pips">'+Array.from({length:wd.mag},(_,i)=>'<i'+(i<p.mag?'':' class="off"')+'></i>').join('')+'</div>':'<div class="g-bar"><i style="width:'+Math.round(p.mag/wd.mag*100)+'%"></i></div>');
+ else html+='<div class="g-big'+(p.mag===0?' empty':'')+'"><b>'+p.mag+'</b><span>/ '+reserve+'</span><small>'+esc(ammoName.charAt(0).toLowerCase()+ammoName.slice(1))+'</small></div>'+(wd.mag<=40?'<div class="pips">'+Array.from({length:wd.mag},(_,i)=>'<i'+(i<p.mag?'':' class="off"')+'></i>').join('')+'</div>':'<div class="g-bar"><i style="width:'+Math.round(p.mag/wd.mag*100)+'%"></i></div>');
  // Every gun the hero owns, with its number key; the one in hand is lit.
  const own=p.weapons.slice().sort((a,b)=>a-b),SHORT=['ПМ','Ружьё','АК','Обрез','СКС','СВД','ПКМ'];
  if(own.length>1)html+='<div class="g-guns">'+own.map((w,i)=>'<span'+(w===p.gear.weapon?' class="on"':'')+'><kbd>'+(i+1)+'</kbd>'+SHORT[w]+'</span>').join('')+'</div>';
@@ -513,7 +522,7 @@ function updateHud(){if(!state)return;const p=state.me,all=Object.values(state.t
  ti.innerHTML='<div class="section-label"><span>'+(cap?'БОРЬБА ЗА ПЛОЩАДЬ':'СОСТОЯНИЕ ПОСЕЛЕНИЯ')+'</span><span style="color:'+sideColor(t.owner)+'">'+(t.owner===p.faction?'СВОЁ':t.owner&&friendly(t.owner)?'КЛАН':t.owner?'ЧУЖОЕ':'МАРОДЁРЫ')+'</span></div><div class="city-title">'+esc(t.name)+'</div><div class="town-stats"><div><b>'+n+'<small> / '+total+'</small></b><span>зданий</span></div><div><b>'+t.workers+'<small> / '+t.population+'</small></b><span>занятых жителей</span></div><div><b>'+Math.round(t.loyalty)+'<small>%</small></b><span>лояльность</span></div></div><div class="bar"><i style="width:'+(cap?clamp(cap.progress/30*100,0,100):n/total*100)+'%"></i></div><div class="town-hint">'+(!t.owner&&t.guards?'Площадь держат мародёры: '+t.guards+'. Перебей их, чтобы захватить':cap?(cap.contested?'Оспаривается — убери противников из круга':!cap.active?'Атакующие покинули круг':sideName(cap.faction)+' · '+Math.floor(Math.max(0,cap.progress))+' / 30 сек.'):(Object.keys(t.fires||{}).length?'🔥 Пожар! Потуши горящее здание (E)':cons?'Идёт стройка: '+cons+' · стой рядом, чтобы ускорить':'Площадь: флаг в центре · E'))+'</div>';
  }
  nearest=null;const candidates=[];
- if(!p.vehicle&&p.hp>0){cfg.givers.forEach(g=>{const d=distance(g,p);if(d<120)candidates.push({type:'giver',obj:g,d:d-40});});
+ if(!p.vehicle&&p.hp>0){cfg.givers.forEach(g=>{const d=distance(g,p);if(d<120)candidates.push({type:'giver',obj:g,d:d-110});});
  (state.camps||[]).forEach(c=>{if(Math.abs(c.x-p.x)>400||Math.abs(c.y-p.y)>400)return;
   Object.keys(c.parts).forEach(k=>{const pt=c.parts[k];if(pt.hp>0&&distance(pt,p)<55&&(campCanUse(c)||c.breached))candidates.push({type:'camp',obj:c,d:distance(pt,p)-10});});
   if(!campCanUse(c))Object.keys(c.fence).forEach(k=>{const f=c.fence[k];if(f.hp>0&&Math.abs(f.x-p.x)<f.w/2+40&&Math.abs(f.y-p.y)<f.h/2+40)candidates.push({type:'fence',obj:{camp:c,slot:k,piece:f},d:30});});

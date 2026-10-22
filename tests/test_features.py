@@ -188,7 +188,7 @@ class FeatureTests(unittest.TestCase):
 
     def test_marauders_hold_free_towns_until_killed(self):
         town = self.world.towns['revda']
-        self.goto(town, 40)
+        self.goto(town, 40); self.p['level'] = 5
         self.world.stocks[self.f].update(metal=200, food=200)
         self.world.tick_garrisons(self.world.active_players())
         guards = self.world.garrison(town)
@@ -210,11 +210,18 @@ class FeatureTests(unittest.TestCase):
 
     def test_big_cities_have_a_stronger_garrison(self):
         town = self.world.towns['ekaterinburg']
-        self.goto(town, 40)
+        self.goto(town, 40); self.p['level'] = 12
         self.world.tick_garrisons(self.world.active_players())
         kinds = [n['type'] for n in self.world.garrison(town)]
         self.assertEqual(kinds.count('occupier'), 5)
         self.assertEqual(kinds.count('occupier_elite'), 2)
+
+    def test_newcomers_meet_a_smaller_garrison(self):
+        town = self.world.towns['ekaterinburg']
+        self.goto(town, 40); self.p['level'] = 1
+        self.world.tick_garrisons(self.world.active_players())
+        kinds = [n['type'] for n in self.world.garrison(town)]
+        self.assertEqual(kinds, ['occupier'] * 3)
 
     def test_light_snapshot_omits_towns(self):
         state = self.world.snapshot(self.token, full=False)

@@ -41,6 +41,19 @@ class VehicleMixin:
                 return True
         return False
 
+    def _car_spot(self, spec, x, y, rmin, rmax, angle=0.0, faction=None):
+        """The nearest place around (x, y) where the whole car fits, searched ring by ring."""
+        step = 20
+        r = rmin
+        while r <= rmax:
+            for k in range(max(1, int(2 * math.pi * r / 40))):
+                a = k * 2 * math.pi / max(1, int(2 * math.pi * r / 40))
+                cx, cy = x + math.cos(a) * r, y + math.sin(a) * r
+                if not self._car_blocked(spec, cx, cy, angle, faction):
+                    return cx, cy
+            r += step
+        return None
+
     def seats(self, p):
         return self.car_spec(p).get('seats', 4)
 
@@ -118,6 +131,11 @@ class VehicleMixin:
 
     def drive(self, p, dt, steer, throttle, handbrake, garage):
         car = p['car']; spec = self.car_spec(p)
+        if self._car_blocked(spec, car['x'], car['y'], car['angle'], p['faction']):
+            # Wedged into a wall (a fence built over it, an odd tow spot): ease the car out instead of freezing it.
+            spot = self._car_spot(spec, car['x'], car['y'], 10, 120, car['angle'], p['faction'])
+            if spot:
+                car.update(x=spot[0], y=spot[1], vx=0.0, vy=0.0)
         x, y, a = car['x'], car['y'], car['angle']
         hx, hy = math.cos(a), math.sin(a); nx, ny = -hy, hx
         vx, vy = car.get('vx', 0.0), car.get('vy', 0.0)

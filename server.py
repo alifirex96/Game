@@ -270,8 +270,13 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         """A random roadside spot away from enemies; every player starts somewhere different."""
         f=p['faction']
         enemies=[o for o in self.players.values() if o is not p and o['faction']!=f]
+        # Newcomers wake up where the winter will not kill them before they find a coat.
+        roads=self.terrain.road_segments
+        if p.get('level',1)<5:
+            warm=[s for s in roads if REGIONS[min(self.towns.values(),key=lambda t:(t['x']-s[0])**2+(t['y']-s[1])**2)['region']]['cold']<=1]
+            roads=warm or roads
         for attempt in range(80):
-            ax,ay,bx,by,a,b=self.rng.choice(self.terrain.road_segments)
+            ax,ay,bx,by,a,b=self.rng.choice(roads)
             u=self.rng.uniform(.12,.88);length=math.hypot(bx-ax,by-ay) or 1
             nx,ny=-(by-ay)/length,(bx-ax)/length;side=self.rng.choice((-1,1))*self.rng.uniform(ROAD_HALF+30,ROAD_HALF+110)
             x=ax+(bx-ax)*u+nx*side;y=ay+(by-ay)*u+ny*side
@@ -1323,6 +1328,10 @@ class World(NpcMixin, VehicleMixin, CampMixin):
     def _damage(self,p,amount):
         p['hp']=max(0,p['hp']-amount)
         if p['hp']==0 and not p['dead_until']:
+            if p['vehicle'] and not p.get('ride'):
+                p['car'].update(vx=0.0,vy=0.0,steer=0.0)
+                for q in self.riders(p):self.unboard(q,force=True)
+            if p.get('ride'):self.unboard(p,force=True)
             p['dead_until']=self.elapsed+7;p['vehicle']=False;p['input']=[0,0,False]
             self._death_penalty(p)
             self._notice('Ты ранен','Через 7 секунд очнёшься в новом месте у дороги.',player=p['id'],tone='error')
@@ -1372,8 +1381,10 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             car=p['car']
             if car.get('wrecked_until',0) and self.elapsed>=car['wrecked_until']:
                 camp=self.camp_of(p['faction']);t=camp if camp else p
-                spot=self._free_near(t['x'],t['y'],160,320) or (t['x']+150,t['y'])
-                p['car']=self.new_car(spot[0],spot[1],0.0,max(10.0,car.get('fuel',0)),car.get('model'))
+                fresh=self.new_car(t['x']+150,t['y'],0.0,max(10.0,car.get('fuel',0)),car.get('model'))
+                spot=self._car_spot(CARS[fresh['model']],t['x'],t['y'],160,420)
+                if spot:fresh['x'],fresh['y']=spot
+                p['car']=fresh
             if p['hp']<=0:
                 if self.elapsed>=p['dead_until']:
                     # Each respawn is a new random roadside spot; the car comes along so nobody is stranded.
@@ -1437,7 +1448,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         """Hunger, thirst, cold, bleeding and sickness, simulated on the host."""
         sick=p['sick']>self.elapsed
         k=(2 if sprinting else .6 if p['vehicle'] else 1)*(1.8 if sick else 1)
-        p['food']=max(0,p['food']-.065*k*dt);p['water']=max(0,p['water']-.1*k*dt)
+        p['food']=max(0,p['food']-.065*k*dt);p['water']=max(0,p['water']-.08*k*dt)
         town=min(self.towns.values(),key=lambda t:dist(t,p))
         hour=(8+self.elapsed*1.4/60)%24;night=hour>=21 or hour<6
         wading=not p['vehicle'] and self.terrain.water(p['x'],p['y'])

@@ -193,7 +193,7 @@ SWAP_TIME = .5
 WEAPONS = [
     {'name':'Пистолет Макарова','ammo_item':'ammo9','mag':8,'reload':1.4,'dmg':16,'cd':.45,'range':420,'ammo':.12,'cost':{},'price':0,'level':1,'width':20},
     {'name':'Охотничье ружьё','ammo_item':'shells','mag':2,'reload':2.0,'dmg':32,'cd':.95,'range':540,'ammo':.25,'cost':{'metal':30,'wood':12},'workshop':1,'price':180,'level':1,'width':28},
-    {'name':'Автомат Калашникова','ammo_item':'ammo762','mag':30,'reload':2.3,'dmg':13,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':630,'level':6,'width':20,'spread':.05},
+    {'name':'Автомат Калашникова','ammo_item':'ammo762','mag':30,'reload':2.3,'dmg':17,'cd':.15,'range':470,'ammo':.08,'cost':{'metal':70,'fuel':12},'workshop':2,'price':630,'level':6,'width':20,'spread':.05},
     {'name':'Обрез','ammo_item':'shells','mag':2,'reload':1.8,'dmg':44,'cd':1.1,'range':300,'ammo':.3,'price':120,'level':2,'width':38},
     {'name':'Карабин СКС','ammo_item':'ammo762','mag':10,'reload':2.0,'dmg':38,'cd':.7,'range':600,'ammo':.2,'price':360,'level':4,'width':20},
     {'name':'Снайперская винтовка СВД','ammo_item':'ammo54','mag':10,'reload':2.6,'dmg':72,'cd':1.6,'range':780,'ammo':.4,'price':1020,'level':12,'width':16},
@@ -253,7 +253,7 @@ POI_MATERIALS = {
     'farm':['rope','cloth','planks','herbs'], 'village':['planks','cloth','herbs','nails','shells'], 'oil':['gunpowder','scrap','tape'],
     'mine':['scrap','gunpowder','nails'], 'rail':['nails','scrap','cloth','planks'],
 }
-HOUSE_FINDS = ['cloth','nails','planks','rope','tape','herbs','scrap','ammo9','cloth','canned','water','bandage','crackers','gunpowder','shells','pills']
+HOUSE_FINDS = ['cloth','nails','planks','rope','tape','herbs','scrap','ammo9','cloth','canned','water','water','bandage','crackers','gunpowder','shells','pills']
 HOUSE_SEARCH_COOLDOWN = 900
 # Crafting: 'at' is where it can be made — by hand anywhere, at a fire, or at a workbench in a camp.
 # 'res' takes the side's shared resources; 'gear' sets equipment; 'part' builds a piece of the camp.
@@ -262,14 +262,15 @@ RECIPES = [
     {'id':'rope','name':'Верёвка','at':'hand','needs':{'cloth':3},'makes':{'rope':1}},
     {'id':'meat','name':'Жареное мясо','at':'fire','needs':{'meat_raw':1},'makes':{'meat':1}},
     {'id':'tea','name':'Чай на травах','at':'fire','needs':{'herbs':2,'water':1},'makes':{'tea':1}},
+    {'id':'planks_hand','name':'Тёсаные доски','at':'hand','res':{'wood':6},'makes':{'planks':1}},
     {'id':'planks','name':'Доски из брёвен','at':'bench','res':{'wood':4},'makes':{'planks':2}},
     {'id':'scrap','name':'Металлолом из металла','at':'bench','res':{'metal':3},'makes':{'scrap':2}},
     {'id':'nails','name':'Гвозди','at':'bench','needs':{'scrap':1},'makes':{'nails':10}},
     {'id':'gunpowder','name':'Порох из селитры и топлива','at':'bench','needs':{'herbs':1},'res':{'fuel':4},'makes':{'gunpowder':1}},
-    {'id':'ammo9','name':'Патроны 9×18 ×10','at':'bench','needs':{'gunpowder':1,'scrap':1},'makes':{'ammo9':10}},
-    {'id':'shells','name':'Патроны 12 калибра ×6','at':'bench','needs':{'gunpowder':1,'scrap':1,'cloth':1},'makes':{'shells':6}},
-    {'id':'ammo762','name':'Патроны 7,62×39 ×10','at':'bench','needs':{'gunpowder':2,'scrap':2},'makes':{'ammo762':10}},
-    {'id':'ammo54','name':'Патроны 7,62×54R ×10','at':'bench','needs':{'gunpowder':3,'scrap':2},'makes':{'ammo54':10}},
+    {'id':'ammo9','name':'Патроны 9×18 ×6','at':'bench','needs':{'gunpowder':1,'scrap':1},'makes':{'ammo9':6}},
+    {'id':'shells','name':'Патроны 12 калибра ×4','at':'bench','needs':{'gunpowder':1,'scrap':1,'cloth':1},'makes':{'shells':4}},
+    {'id':'ammo762','name':'Патроны 7,62×39 ×6','at':'bench','needs':{'gunpowder':2,'scrap':2},'makes':{'ammo762':6}},
+    {'id':'ammo54','name':'Патроны 7,62×54R ×5','at':'bench','needs':{'gunpowder':3,'scrap':2},'makes':{'ammo54':5}},
     {'id':'medkit','name':'Аптечка','at':'bench','needs':{'bandage':2,'herbs':3},'makes':{'medkit':1}},
     {'id':'repairkit','name':'Ремкомплект','at':'bench','needs':{'scrap':3,'tape':1,'nails':5},'makes':{'repairkit':1}},
     {'id':'canister','name':'Канистра','at':'bench','needs':{'scrap':5},'makes':{'canister':1}},
@@ -439,9 +440,9 @@ QUESTS = [
   'text':'Доставь 6 припасов на площадь указанного поселения.',
   'intro':'Есть груз, есть адрес, нет охраны. Довезёшь — заплачу. Не довезёшь — значит, не судьба.',
   'done':'Дошло, значит. Хорошо. Держи, как договаривались.'},
- {'kind':'trade','giver':'trader','coins':20,'name':'Рыночный день','target':1,'reward':{'food':3},
-  'text':'Соверши обмен у торговцев на площади нейтрального или своего поселения.',
-  'intro':'Рынок держится на тех, кто меняется. Сделай хоть одну сделку — и я тебя запомню.',
+ {'kind':'trade','giver':'trader','coins':20,'name':'Рыночный день','target':3,'reward':{'food':3},
+  'text':'Соверши три обмена у торговцев на площади нейтрального или своего поселения.',
+  'intro':'Рынок держится на тех, кто меняется. Сделай пару-тройку сделок — и я тебя запомню.',
   'done':'Вот теперь ты свой на этом рынке.'},
  {'kind':'explore','giver':'trader','coins':30,'name':'Дальше знакомой дороги','target':1,'reward':{'fuel':3},
   'text':'Впервые доберись до ещё одного поселения.',
@@ -523,7 +524,7 @@ STORY = {
 MAX_LEVEL = 30
 XP = {'harvest':4,'build':15,'built':25,'event':20,'event_fail':5,'explore':30,'deliver':25,'aid':10,
       'tax':10,'raid':25,'capture':60,'quest':40,'story':80,'kill_marauder':15,'kill_fighter':20,
-      'kill_player':35,'kill_animal':10,'kill_mutant':20,'kill_convoy':30,'loot':25,'airdrop':20,'extinguish':15,'trade':3,'post':20,'craft':10}
+      'kill_player':35,'kill_animal':10,'kill_mutant':20,'kill_convoy':30,'loot':25,'search':6,'airdrop':20,'extinguish':15,'trade':3,'post':20,'craft':10}
 PERKS = [
     {'level':5,'name':'Сноровка','desc':'Сбор ресурсов приносит на 2 единицы больше.'},
     {'level':10,'name':'Полевой медик','desc':'Перевязка стоит 3 припаса и лечит на 45.'},

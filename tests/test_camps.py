@@ -99,12 +99,12 @@ class CampTests(unittest.TestCase):
         bench = camp['parts']['bench']; self.a['x'], self.a['y'] = bench['x'] + 20, bench['y']
         self.a['items'].update(gunpowder=1); self.a['items'].pop('ammo9', None)
         self.act(self.ta, 'craft_item', id='ammo9')
-        self.assertEqual(self.a['items']['ammo9'], 10)
+        self.assertEqual(self.a['items']['ammo9'], 6)
         self.a['mags']['0'] = 0
         self.act(self.ta, 'reload')
-        self.assertEqual(self.a['mags']['0'], WEAPONS[0]['mag'])
-        self.assertEqual(self.a['items']['ammo9'], 10 - WEAPONS[0]['mag'])
-        self.a['items'].pop('ammo9'); self.a['mags']['0'] = 0; self.w.elapsed += 5
+        self.assertEqual(self.a['mags']['0'], 6)                  # a partial magazine: all there was
+        self.assertNotIn('ammo9', self.a['items'])
+        self.a['items'].pop('ammo9', None); self.a['mags']['0'] = 0; self.w.elapsed += 5
         with self.assertRaises(GameError):
             self.act(self.ta, 'reload')
         with self.assertRaises(GameError):

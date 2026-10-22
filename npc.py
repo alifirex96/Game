@@ -20,6 +20,7 @@ CELL = 600                 # spatial grid for target searches
 WAKE = 3200                # characters further than this from every player sleep
 GARRISON_RANGE = 2600      # garrisons and guards stand only where somebody can see them
 ROAMERS = ('marauder', 'bandit')
+SQUAD_JOBS = ('capture', 'raid', 'defend', 'home')
 SQUAD_COSTS = {'talk':{'food':12,'wood':8},'bribe':{'food':18,'fuel':8},'assault':{'metal':12,'food':6}}
 
 
@@ -316,7 +317,8 @@ class NpcMixin:
                     del self.npcs[npc['id']]
                     continue
             # Nobody is around: the character waits instead of spending the host's time.
-            if npc['near'] > WAKE and npc['mode'] != 'travel':
+            # Squads on a job keep going, or a fight that began on the road would freeze them for good.
+            if npc['near'] > WAKE and npc['mode'] != 'travel' and (npc.get('job') or {}).get('kind') not in SQUAD_JOBS:
                 continue
             npc['cd'] = max(0, npc['cd'] - dt)
             npc['think'] -= dt
@@ -875,9 +877,14 @@ class NpcMixin:
         """Is somebody hostile to f still holding the square?"""
         return any(self.hostile(n, {'faction':f}) and self._dist(n, t) < 600 for n in self.garrison(t))
 
-    def garrison_size(self, t):
+    def garrison_size(self, t, level=30):
+        """Free squares are held by marauders; how many depends on the strongest player who came near."""
         big = t['id'] in BIG_TOWNS
         if t['owner'] is None:
+            if level < 5:
+                return [('occupier', 3 if big else 2)]
+            if level < 10:
+                return [('occupier', 5 if big else 3)] + ([('occupier_elite', 1)] if big else [])
             return [('occupier', 5 if big else 3)] + ([('occupier_elite', 2)] if big else [])
         return [('defender', 2 + t['levels']['guard'] + (2 if big else 0))]
 
@@ -922,7 +929,8 @@ class NpcMixin:
             have = {}
             for n in g:
                 have[n['type']] = have.get(n['type'], 0) + 1
-            for kind, count in self.garrison_size(t):
+            level = max((p['level'] for p in alive if self._dist(p, t) < GARRISON_RANGE), default=30)
+            for kind, count in self.garrison_size(t, level):
                 # A fresh garrison stands in full; reinforcements of an owned town arrive one at a time.
                 missing = count - have.get(kind, 0)
                 for i in range(min(missing, 1) if st['spawned'] else missing):
