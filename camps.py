@@ -234,8 +234,8 @@ class CampMixin:
 
     def tick_camps(self, dt):
         for camp in self.camps.values():
-            col = camp['parts'].get('collector')
-            if col and col['hp'] > 0 and self.elapsed - camp.get('water_at', 0) >= 120:
+            col = camp['parts'].get('collector'); crate = camp['parts'].get('stash')
+            if col and col['hp'] > 0 and crate and crate['hp'] > 0 and self.elapsed - camp.get('water_at', 0) >= 120:
                 camp['water_at'] = self.elapsed
                 stash = camp['stash']['items']
                 if stash.get('water', 0) < 3 and self.slots_used(stash) < CAMP_STASH_SLOTS:
@@ -317,7 +317,7 @@ class CampMixin:
             n = self.give_item(p, item, n)
             if n:
                 got[item] = got.get(item, 0) + n
-        p['stats']['loot'] += 1; self.gain_xp(p, 'loot')
+        self.gain_xp(p, 'loot')
         return {'title':'Обыскан дом', 'text':('Найдено: ' + self.items_text(got)) if got else 'Пусто или рюкзак полон.', 'success':bool(got)}
 
     def poi_materials(self, p, poi):
@@ -374,6 +374,9 @@ class CampMixin:
 
     # ---- stash ----
     def stash_move(self, p, camp, item, count, put):
+        crate = camp['parts'].get('stash')
+        if not crate or crate['hp'] <= 0:
+            raise self.GameError('Ящика нет: построй его (L).')
         if not self.camp_allowed(camp, p['faction']) and not self.camp_breached(camp):
             raise self.GameError('Ящик за оградой. Чтобы добраться, пробей стену или ворота.')
         stash = camp['stash']['items']

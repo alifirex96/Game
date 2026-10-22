@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 from world_data import (ROAD_HALF, VERSION, WORLD_SIZE, RESOURCES, TOWNS, REGIONS, MAX_PLAYERS,
-                        SIDE_COLORS, AI_SIDES, STORY_LINE, POST, BODY_TIME, CAMP_PARTS,
+                        SIDE_COLORS, AI_SIDES, NPC_TYPES, STORY_LINE, POST, BODY_TIME, CAMP_PARTS,
                         BIG_TOWNS, START_STOCK, NODE_RESPAWN, LOOKS, GIVERS, GIVER_PLAN, MAX_ACTIVE_QUESTS, BUILDINGS, EVENTS, QUESTS, WEAPONS, ARMOR, POI_KINDS,
                         POST_COST, PRICES, BUILD_TIME, STORAGE_BASE, STORAGE_PER_WAREHOUSE,
                         WEATHER, WORLD_SCALE, MAX_LEVEL, XP, PERKS, SHOP_ITEMS, STORY_COINS, ITEMS, LOOT_ITEMS, CLOTHES, BACKPACKS, CAR_TANK, CARS, xp_to_next, max_hp, hero_look, SWAP_TIME, config)
@@ -33,6 +33,7 @@ DISCOVERY_PORT = 8766
 STAT_KEYS = ('harvest','build','event','explore','deliver','capture','aid','kills','loot','trade','hunt','mutants')
 FSTAT_KEYS = ('kills','convoy','tribute','post','trade','capture')
 CLAN_SIZE = 6
+QUEST_REST = 600        # seconds before the same job is offered again
 TRADE_RANGE = 260
 
 def clamp(v, low, high):
@@ -342,7 +343,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         pick=lambda lines:fill(lines[int(self.elapsed//30+len(g['id']))%len(lines)])
         mine=[q for q in p['quests'] if q['giver']==g['type']]
         done=[q for q in mine if p['stats'][q['kind']]-q['start']>=q['target']]
-        active={q['kind'] for q in p['quests']}
+        active={q['kind'] for q in p['quests']}|{k for k,u in p.get('quest_rest',{}).items() if u>self.elapsed}
         offers=[] if len(p['quests'])>=MAX_ACTIVE_QUESTS else \
             [{k:tpl[k] for k in ('kind','name','text','intro','coins','reward','target')} for tpl in QUESTS if tpl['giver']==g['type'] and tpl['kind'] not in active]
         out={'giver':{k:g[k] for k in ('id','name','role','type','look','art','town')},'greet':pick(spec['greet']),'lore':pick(spec['lore']),
@@ -358,8 +359,13 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         """A new game from scratch. The old save stays next to the new one as a dated backup."""
         lock,rng,path,code,settings=self.lock,self.rng,self.save_path,self.room_code,dict(self.settings)
         backup=None
+        if path:
+            self.save()
         if path and path.exists():
-            backup=path.with_name(path.stem+'-'+time.strftime('%Y%m%d-%H%M%S')+'.bak'+path.suffix)
+            stamp=time.strftime('%Y%m%d-%H%M%S');n=1
+            backup=path.with_name(path.stem+'-'+stamp+'.bak'+path.suffix)
+            while backup.exists():
+                n+=1;backup=path.with_name(path.stem+'-'+stamp+'-'+str(n)+'.bak'+path.suffix)
             path.replace(backup)
         self.__init__(path,rng)
         self.lock=lock;self.room_code=code;self.settings.update(settings);self.reset_at=time.monotonic()
@@ -531,6 +537,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
     def command(self,token,data):
         p=self.player(token)
         op=data.get('op')
+        if not isinstance(op,str): raise GameError('Неизвестное действие.')
         if op=='input':
             p['input']=[clamp(finite(data.get('x')), -1,1),clamp(finite(data.get('y')),-1,1),bool(data.get('sprint'))]
             p['aim']=[clamp(finite(data.get('ax')), -1,1),clamp(finite(data.get('ay'),1),-1,1)]
@@ -577,7 +584,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         need=weapon['mag']-self._mag(p);n=min(need,p['items'].get(ammo,0))
         if n<=0:return 0
         self.take_items(p,{ammo:n});p['mags'][str(w)]=self._mag(p)+n
-        p['reload_until']=self.elapsed+weapon['reload'];p['act']={'kind':'reload','at':round(self.elapsed,2)}
+        p['reload_until']=self.elapsed+weapon['reload']*(.75 if self.has_perk(p,15) else 1);p['act']={'kind':'reload','at':round(self.elapsed,2)}
         return n
 
     def _respawn_ammo(self,p):
@@ -665,7 +672,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             return {'title':'Машина отремонтирована','text':'−4 металла','success':True}
         if op=='heal':
             if p['hp']>=self.max_hp(p) and not p['bleeding']: raise GameError('Ты не ранен.')
-            for item in (('bandage','medkit') if p['bleeding'] else ('medkit',)):
+            for item in (('bandage','medkit') if p['bleeding'] else ('medkit','bandage')):
                 if p['items'].get(item,0)>0:
                     self._cooldown(p,'heal',3);return self._use(p,item)
             # No bandage: tear up whatever is at hand. It still stops the bleeding.
@@ -673,6 +680,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             if p['bleeding'] and not self._can_pay(f,{'food':cost}) and p['items'].get('cloth',0)>0:
                 self._cooldown(p,'heal',3);self.take_items(p,{'cloth':1});p['bleeding']=False
                 return {'title':'Перевязка тряпкой','text':'Кровь остановлена, −1 ткань.','success':True}
+            if not self._can_pay(f,{'food':cost}): raise GameError('Нечем перевязаться: нужен бинт, аптечка, ткань или '+str(cost)+' припасов.')
             self._cooldown(p,'heal',6);self._pay(f,{'food':cost});p['hp']=min(self.max_hp(p),p['hp']+amount)
             stopped=p['bleeding'];p['bleeding']=False
             return {'title':'Перевязка','text':'Здоровье +'+str(amount)+', −'+str(cost)+' припасов'+(' · кровь остановлена' if stopped else ''),'success':True}
@@ -684,6 +692,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             if not ws: raise GameError('Изготовление возможно у мастерской своего поселения.')
             level=max(self.towns[b['town']]['levels']['workshop'] for b in ws)
             if level<table[tier]['workshop']: raise GameError('Нужна мастерская уровня '+str(table[tier]['workshop'])+'.')
+            if p['level']<table[tier].get('level',1): raise GameError('Нужен уровень '+str(table[tier]['level'])+'.')
             if (tier in p['weapons']) if item=='weapon' else p['gear'][item]>=tier: raise GameError('У тебя уже есть это или лучше.')
             self._pay(f,table[tier]['cost']);p['gear'][item]=tier;self.gain_xp(p,'craft')
             if item=='weapon':p['weapons'].append(tier)
@@ -787,6 +796,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             if not tpl: raise GameError('Такой работы здесь нет.')
             if len(p['quests'])>=MAX_ACTIVE_QUESTS: raise GameError('У тебя уже '+str(MAX_ACTIVE_QUESTS)+' задания. Сначала закончи что-нибудь.')
             if any(q['kind']==tpl['kind'] for q in p['quests']): raise GameError('Похожее дело у тебя уже есть.')
+            if p.get('quest_rest',{}).get(tpl['kind'],0)>self.elapsed: raise GameError('Такую работу ты недавно сделал. Загляни позже.')
             q=self._quest(p,tpl,g);p['quests'].append(q)
             return {'title':'Задание: '+q['name'],'text':q['text']+' Сдать — '+GIVERS[g['type']]['role'].lower()+' в любом поселении.','success':True,'dialog':self.dialog(p,g)}
         if op=='quest_turnin':
@@ -797,6 +807,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             self._reward(f,q['reward']);self.reputation[f]=min(100,self.reputation[f]+2)
             coins=q.get('coins',20);p['coins']+=coins;p['completed']+=1
             p['quests'].remove(q);self.gain_xp(p,'quest')
+            p.setdefault('quest_rest',{})[q['kind']]=self.elapsed+QUEST_REST
             return {'title':'Задание сдано','text':g['name']+': «'+q.get('done','Спасибо.')+'» +'+str(coins)+' монет · '+self.resource_text(q['reward']),'success':True,'dialog':self.dialog(p,g)}
         if op=='quest_drop':
             q=next((q for q in p['quests'] if q['id']==data.get('id')),None)
@@ -868,7 +879,7 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             if car.get('fuel',0)>=tank-.5: raise GameError('Бак полон.')
             if data.get('canister'):
                 if p['items'].get('canister',0)<1: raise GameError('Нет канистры. Её продают в магазине и находят в тайниках.')
-                if not p['vehicle'] and dist(car,p)>110: raise GameError('Подойди к своей машине.')
+                if p.get('ride') or (not p['vehicle'] and dist(car,p)>110): raise GameError('Подойди к своей машине.')
                 p['items']['canister']-=1
                 if not p['items']['canister']:del p['items']['canister']
                 car['fuel']=min(tank,car.get('fuel',0)+20)
@@ -1025,10 +1036,11 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         """A clean {'coins':n,'items':{},'res':{}} from client data."""
         raw=raw if isinstance(raw,dict) else {}
         out={'coins':int(clamp(finite(raw.get('coins',0)),0,99999)),'items':{},'res':{}}
-        for k,v in (raw.get('items') or {}).items():
+        items=raw.get('items');res=raw.get('res')
+        for k,v in (items if isinstance(items,dict) else {}).items():
             n=int(clamp(finite(v),0,99))
             if k in ITEMS and n:out['items'][k]=n
-        for k,v in (raw.get('res') or {}).items():
+        for k,v in (res if isinstance(res,dict) else {}).items():
             n=int(clamp(finite(v),0,9999))
             if k in RESOURCES and n:out['res'][k]=n
         return out
@@ -1093,6 +1105,8 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             if isinstance(b,dict) and stretch==1:
                 self.bodies[bid]={'id':bid,'x':finite(b.get('x')),'y':finite(b.get('y')),'name':str(b.get('name',''))[:40],'until':finite(b.get('until')),
                                   'coins':max(0,int(finite(b.get('coins',0)))),'items':{k:int(finite(v)) for k,v in (b.get('items') or {}).items() if k in ITEMS and finite(v)>0}}
+                if isinstance(b.get('npc'),dict) and b['npc'].get('type') in NPC_TYPES:
+                    n=b['npc'];self.bodies[bid]['npc']={'type':n['type'],'look':n.get('look'),'angle':finite(n.get('angle')),'faction':str(n.get('faction',''))}
 
     def offer_view(self,o):
         names={q['id']:q['name'] for q in self.players.values()}
@@ -1237,7 +1251,8 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             if kind!='weapon' and p['gear'][kind]>=idx: raise GameError('У тебя уже есть не хуже.')
             price=item['price'];name=item['name']
         elif kind in SHOP_ITEMS or kind in ITEMS:
-            item=SHOP_ITEMS.get(kind) or ITEMS[kind];price=item['price'];name=item['name']
+            item=SHOP_ITEMS.get(kind) or ITEMS[kind];price=item.get('price',0);name=item['name']
+            if price<=0: raise GameError('Этого в магазине нет.')
             count=int(clamp(finite(data.get('count',1),1),1,50)) if kind in ITEMS else 1
             if kind in ITEMS and self.room_for(p,kind,count)<count: raise GameError('Рюкзак полон. Купи рюкзак побольше или используй вещи.')
             price*=count;name+=(' ×'+str(count) if count>1 else '')
@@ -1262,7 +1277,8 @@ class World(NpcMixin, VehicleMixin, CampMixin):
         give=data.get('give');get=data.get('get');amount=data.get('amount')
         if give not in RESOURCES or get not in RESOURCES or give==get or amount not in (10,25,50): raise GameError('Выбери, что отдать и что получить.')
         self._cooldown(p,'trade',.8)
-        prices=PRICES.get(t['region'],PRICES['default'])
+        local=PRICES.get(t['region'],PRICES['default'])
+        prices={k:clamp(local[k],PRICES['default'][k]*.9,PRICES['default'][k]*1.1) for k in RESOURCES}
         mod=.78 if t['owner']!=f else .86+t['loyalty']*.001
         receive=int(amount*prices[give]/prices[get]*mod)
         if receive<1: raise GameError('Слишком невыгодный обмен.')
@@ -1512,6 +1528,8 @@ class World(NpcMixin, VehicleMixin, CampMixin):
             self.weather={'kind':self.rng.choice(kinds),'until':self.elapsed+self.rng.uniform(200,420)}
         for k,d in list(self.airdrops.items()):
             if d['until']<self.elapsed:del self.airdrops[k]
+        for k in [k for k,o in self.offers.items() if o['until']<=self.elapsed]:del self.offers[k]
+        if self.truce['proposals']:self.truce['proposals']=[x for x in self.truce['proposals'] if x['until']>self.elapsed]
         for t in self.towns.values():
             for kind,until in list(t['fires'].items()):
                 if until<=self.elapsed:
@@ -1710,6 +1728,7 @@ TYPES={'html':'text/html; charset=utf-8','css':'text/css; charset=utf-8','js':'a
 
 class Handler(BaseHTTPRequestHandler):
     server_version='AfterSilence/'+VERSION
+    timeout=15          # idle connections do not hold a thread forever
 
     def log_message(self,fmt,*args):
         if len(args)>1 and str(args[1]) not in ('200','304'):print(fmt%args,flush=True)
@@ -1779,7 +1798,7 @@ class Handler(BaseHTTPRequestHandler):
                     attempts=self.server.join_attempts.setdefault(ip,[])
                     attempts[:]=[n for n in attempts if now-n<60]
                     if len(attempts)>=12:self._json(429,{'error':'Слишком много попыток. Подожди минуту.'});return
-                    if not self._local() and not secrets.compare_digest(str(data.get('code','')),self.server.join_code):
+                    if not self._local() and not secrets.compare_digest(str(data.get('code','')).encode('utf-8'),self.server.join_code.encode('utf-8')):
                         attempts.append(now);self._json(403,{'error':'Неверный код комнаты.'});return
                     token=self.server.world.join(data.get('name',''),None,data.get('token'),data.get('color'))
                     self._json(200,{'token':token,'state':self.server.world.snapshot(token)});return

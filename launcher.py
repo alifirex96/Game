@@ -82,7 +82,7 @@ def existing_game():
     try:
         with urllib.request.urlopen(URL + '/api/config', timeout=.7) as response:
             value = json.load(response)
-            return value if value.get('version') and value.get('factions') else None
+            return value if value.get('version') and value.get('cars') else None
     except (OSError, ValueError):
         return None
 

@@ -182,8 +182,9 @@ class NpcMixin:
             return
         self.fstats[f]['kills'] += 1
         if 'stats' in attacker:
-            attacker['stats']['kills'] += 1
             kind = victim.get('faction')
+            if kind not in ('wild', 'game', 'mutants'):
+                attacker['stats']['kills'] += 1
             self.gain_xp(attacker, 'kill_player' if 'stats' in victim else
                          'kill_marauder' if victim.get('type') in ('marauder', 'occupier') else
                          'kill_animal' if kind in ('wild', 'game') else 'kill_mutant' if kind == 'mutants' else 'kill_fighter')
