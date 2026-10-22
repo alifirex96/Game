@@ -190,7 +190,7 @@ class CampMixin:
                 self.terrain.add_rect(rect)
             else:
                 self.terrain.add_rect(rect)          # gates are solid in the grid; allies pass them in blocked_for
-            return spec['name']
+            return spec.get('house_name', spec['name']) if camp.get('house') else spec['name']
         if kind in camp['parts'] and camp['parts'][kind]['hp'] > 0:
             raise self.GameError(spec['name'] + ' уже есть.')
         self.take_items(p, spec['needs'])

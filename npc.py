@@ -222,7 +222,7 @@ class NpcMixin:
                 if spec.get('meat'):
                     got = self.give_item(attacker, 'meat_raw', spec['meat'])
                     hide = self.give_item(attacker, 'hide', 2 if npc['type'] == 'bear' else 1) if npc['type'] != 'boar' else 0
-                    self._notice('Добыча: ' + spec['name'], (('Сырое мясо ×' + str(got)) if got else 'Рюкзак полон — мясо осталось.') + (' Шкура ×' + str(hide) + '.' if hide else ''), player=attacker['id'])
+                    self._notice('Добыча: ' + spec['name'], (('Сырое мясо ×' + str(got)) if got else 'Рюкзак полон — мясо пропало.') + (' Шкура ×' + str(hide) + '.' if hide else ''), player=attacker['id'])
             self._credit_kill(attacker, npc)
         # What the dead carried stays on the body until somebody searches it (E).
         loot = {}
