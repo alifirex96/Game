@@ -539,12 +539,19 @@ function drawPlayer(c, p, r, v) {
   if (p.act && p.act.at !== r.actAt) { r.actAt = p.act.at; r.actStart = now - Math.max(0, Math.min(.3, t - p.act.at)); r.actKind = p.act.kind; }
   let act = r.actKind ? { kind: r.actKind, t: now - r.actStart } : null;
   // Standing next to an own construction site, the hero keeps hammering.
-  if ((!act || act.t > 1) && !p.moving && p.hp > 0 && r.buildNear) act = { kind: 'hammer', t: now % 1.2 };
+  if ((!act || act.t > 2.5) && !p.moving && p.hp > 0 && r.buildNear) act = { kind: 'hammer', t: now % 1.2 };
   ejectShell(r, ang, p.gear ? p.gear.weapon : 0);
   // The axe bites in: chips fly from in front of the feet.
   if (act && act.kind === 'chop' && act.t > .62 && act.t < 1.1 && r.chipAt !== r.actAt) {
     r.chipAt = r.actAt; const fx = r.x + Math.cos(ang) * 17, fy = r.y + Math.sin(ang) * 17;
     for (let i = 0; i < 7; i++) { const a = ang + (Math.random() - .5) * 3.6, sp = 40 + Math.random() * 70; puff('debris', fx, fy, Math.cos(a) * sp, Math.sin(a) * sp, .5 + Math.random() * .3, 1.5 + Math.random() * 1.5, i % 3 ? '#c9a46a' : '#7a5a36'); }
+  }
+  // The pick strikes further out: stone grit, a few sparks and a little dust.
+  if (act && act.kind === 'mine' && act.t > .84 && act.t < 1.3 && r.chipAt !== r.actAt) {
+    r.chipAt = r.actAt; const fx = r.x + Math.cos(ang) * 23, fy = r.y + Math.sin(ang) * 23;
+    for (let i = 0; i < 8; i++) { const a = ang + (Math.random() - .5) * 3.8, sp = 35 + Math.random() * 60; puff('debris', fx, fy, Math.cos(a) * sp, Math.sin(a) * sp, .45 + Math.random() * .3, 1.2 + Math.random() * 1.6, i % 3 ? '#8f8b82' : '#5d5a54'); }
+    for (let i = 0; i < 3; i++) { const a = ang + (Math.random() - .5) * 2.4, sp = 70 + Math.random() * 60; puff('spark', fx, fy, Math.cos(a) * sp, Math.sin(a) * sp, .22, 1); }
+    puff('dust', fx, fy, 0, 0, .7, 6, '#8d8673');
   }
   // Stepping out of the car fades in; climbing in fades out (drawn by the caller while gliding to the car).
   const fade = r.carAt ? Math.min(1, (now - r.carAt) / .3) : 1;

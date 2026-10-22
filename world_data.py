@@ -1,5 +1,5 @@
 """Static game rules and the schematic map of Russia. Python 3.7+, standard library only."""
-VERSION = '0.6.1'
+VERSION = '0.7.0'
 # Map coordinates below are written at 1:1 and stretched by WORLD_SCALE, so settlements are far apart
 # while roads and rivers keep their real width. At 24 neighbouring towns are 25–78 thousand px apart:
 # one to three minutes by car, several minutes on foot.

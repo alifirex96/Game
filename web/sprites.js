@@ -642,9 +642,22 @@ function heldThing(c, kind, x, y, swing) {
 const HERO = new Image(); let heroReady = false, heroMask = null;
 HERO.onload = () => { heroReady = true; }; HERO.src = 'assets/hero.png';
 const HC = 160, HCOLS = 12, HAX = 80, HAY = 72;
-const HSET = { walk: [0, 12], loot: [54, 6], die_back: [60, 6], die_front: [66, 6], chop: [72, 6] };
+const HSET = { walk: [0, 12], loot: [54, 6], die_back: [60, 6], die_front: [66, 6], chop: [72, 6],
+  // Built from the frames above by tools/hero_frames.js: pickaxe, tin can, water bottle, bandage on one knee, AK magazine change.
+  mine: [78, 6], eat: [84, 3], drink: [87, 3], bandage: [90, 3], reload_ak: [93, 3] };
 // Chop: ready, over the shoulder, overhead (held), down, impact (held), back; seconds per frame.
 const CHOP_TIME = [.14, .16, .22, .1, .28, .2];
+// Timed sequences [frame, seconds] for the other actions; the frame is an offset in its set (bandage: 'k' is the kneel of the search set).
+const HSEQ = {
+  // The pick is heavier than the axe: a longer wind-up and a longer rest on the stone.
+  mine: [[0, .2], [1, .22], [2, .32], [3, .1], [4, .34], [5, .26]],
+  // Two spoonfuls: the can comes up, the head stays, the can goes down.
+  eat: [[0, .25], [1, .15], [2, .4], [1, .15], [0, .2], [1, .15], [2, .35], [1, .15]],
+  drink: [[0, .25], [1, .2], [2, .8], [1, .2], [0, .2]],
+  bandage: [['k', .35], [0, .3], [1, .3], [2, .3], [1, .3], [0, .3], [1, .3], ['k', .3]],
+};
+const seqLen = q => q.reduce((a, f) => a + f[1], 0);
+function seqAt(q, at) { let left = at; for (const f of q) { if (left < f[1]) return f[0]; left -= f[1]; } return q[q.length - 1][0]; }
 for (let w = 0; w < 7; w++) HSET['w' + w] = [12 + w * 6, 6];
 // Per weapon: muzzle (cell pixels from the body centre) and how far the barrel points off the facing line.
 const HGUN = [[2, 5, 0], [39, 19, 1.04], [34, 14, .91], [28, 5, 1.1], [38, 18, .99], [51, 34, .99], [57, 20, 1.07]];
@@ -670,12 +683,13 @@ function heroFrame(c, n, tint) {
   hsc.globalCompositeOperation = 'source-over';
   const a = c.globalAlpha; c.globalAlpha = a * .82; c.drawImage(hscratch, -HAX, -HAY); c.globalAlpha = a;
 }
-const HERO_RIG_ACTS = { mine: 1, eat: 1, drink: 1, bandage: 1 };
+const ACT_TIME = { swap: .5, chop: 1.1, mine: seqLen(HSEQ.mine), eat: seqLen(HSEQ.eat), drink: seqLen(HSEQ.drink), bandage: seqLen(HSEQ.bandage) };
 // Returns false when the frames cannot show this pose (the cut-out rig draws it instead).
 function drawHero(c, o) {
-  const act = o.act, at = act ? act.t : 99, live = act && at < (act.kind === 'reload' ? o.reloadTime || 1.5 : act.kind === 'swap' ? .5 : act.kind === 'chop' ? 1.1 : 1.2);
+  const act = o.act, at = act ? act.t : 99, moving = o.speed > 0;
+  // Work and first aid are done standing still: a step cancels the pose (reloading and swapping go on while walking).
+  const live = act && at < (act.kind === 'reload' ? o.reloadTime || 1.5 : ACT_TIME[act.kind] || 1.2) && (!moving || act.kind === 'reload' || act.kind === 'swap');
   const dead = o.dead || 0;
-  if (!dead && live && HERO_RIG_ACTS[act.kind]) return false;
   const k = (o.size || 38) / 102, w = Math.max(0, Math.min(6, o.weapon | 0)), aim = dead ? 0 : ease(o.aim || 0);
   let set = w >= 1 || aim > .05 ? 'w' + w : 'walk', frame = 0, turn = 0, dip = 0;
   const [first, count] = HSET[set];
@@ -691,6 +705,15 @@ function drawHero(c, o) {
   } else if (live && act.kind === 'chop') {
     let f = 0, left = at; while (f < 5 && left >= CHOP_TIME[f]) left -= CHOP_TIME[f++];
     n = HSET.chop[0] + f;
+  } else if (live && HSEQ[act.kind]) {
+    const f = seqAt(HSEQ[act.kind], at);
+    n = f === 'k' ? HSET.loot[0] + 1 : HSET[act.kind][0] + f;
+  } else if (live && act.kind === 'reload' && w === 2 && !moving) {
+    // AK: hand to the magazine, out, a fresh one from the pouch, in, then a short pull on the bolt.
+    const p = Math.min(1, at / (o.reloadTime || 1.5)), R = HSET.reload_ak[0];
+    n = p < .08 ? first : p < .26 ? R : p < .46 ? R + 1 : p < .66 ? R + 2 : p < .84 ? R : first;
+    dip = Math.sin(Math.min(1, p / .84) * Math.PI) * .5; turn = -dip * .25;
+    if (p > .86) dip -= Math.sin((p - .86) / .14 * Math.PI) * .35;
   } else if (live && act.kind === 'reload') {
     const p = Math.min(1, at / (o.reloadTime || 1.5)); dip = Math.sin(p * Math.PI); turn = -dip * .35;
   } else if (live && act.kind === 'swap') {
