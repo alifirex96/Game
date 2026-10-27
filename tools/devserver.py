@@ -2,7 +2,7 @@
 """A game server for checks and screenshots: a fresh world, fixed room code 123456 and a /debug endpoint.
 
 Usage: python3 tools/devserver.py [port] [--lan]
-POST /debug with JSON, for example {"weather": "fog"}, {"teleport": [x, y]} or {"exec": "p = ...; w.spawn_npc(...)"};
+POST /debug with JSON, for example {"weather": "fog"}, {"teleport": [x, y]}, {"spawn": [["infected", x, y]]} or {"exec": "p = ...; w.spawn_npc(...)"};
 `exec` runs Python with `w` bound to the World. Never ship this: it is not in the package, and it listens only
 on 127.0.0.1 unless --lan is given (for a second browser on another address in the same machine or network).
 """
@@ -29,11 +29,9 @@ class DebugHandler(Handler):
             if 'weather' in data: w.weather = {'kind': data['weather'], 'until': w.elapsed + 9999}
             if 'teleport' in data:
                 for p in w.players.values():
-                    p['x'], p['y'] = data['teleport']; p['car'].update(x=data['teleport'][0] + 80, y=data['teleport'][1])
-            if 'stock' in data:
-                for f in w.stocks: w.stocks[f].update(data['stock'])
+                    p['x'], p['y'] = data['teleport']
             if 'spawn' in data:
-                for kind, faction, x, y in data['spawn']: w.spawn_npc(kind, faction, x, y)
+                for kind, x, y in data['spawn']: w.spawn_npc(kind, x, y)
             if 'gear' in data:
                 for p in w.players.values(): p['gear'].update(data['gear'])
             if 'exec' in data: exec(data['exec'], {'w': w})

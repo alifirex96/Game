@@ -1,18 +1,15 @@
-"""Camps, crafting, ammunition and searching abandoned houses."""
+"""Camps, crafting and ammunition."""
 import random
 import time
 import unittest
 from server import GameError, World
-from world_data import WEAPONS
-from test_features import open_ground
+from world_data import WEAPONS, FISTS
+from helpers import quiet_world, open_ground
 
 
 class CampTests(unittest.TestCase):
     def setUp(self):
-        self.w = World(rng=random.Random(8))
-        self.w.settings['ai'] = False
-        for name in ('_spawn_marauders', '_spawn_creatures', 'tick_garrisons'):
-            setattr(self.w, name, lambda active: None)
+        self.w = quiet_world(8)
         self.ta = self.w.join('Хозяин'); self.a = self.w.players[self.ta]
         self.tb = self.w.join('Гость'); self.b = self.w.players[self.tb]
         self.spot = open_ground(self.w)
@@ -54,7 +51,7 @@ class CampTests(unittest.TestCase):
         # Shots break a section of the fence; then the crate is open to anyone.
         wall = camp['fence']['n1']['rect']
         self.b['x'], self.b['y'] = wall['x'], wall['y'] - 200; self.b['aim'] = [0, 1]
-        self.w.stocks[self.b['faction']]['metal'] = 99
+        self.b['weapons'] = [0, FISTS]; self.b['gear']['weapon'] = 0
         for i in range(40):
             self.w.elapsed += 1; self.b['mags']['0'] = 8
             try:
@@ -83,46 +80,28 @@ class CampTests(unittest.TestCase):
         with self.assertRaises(GameError):
             self.w.found_camp(self.b)                               # someone lives here already
 
-    def test_bed_brings_you_back_to_camp(self):
-        camp = self.w.found_camp(self.a)
-        self.w.build_part(self.a, camp, 'bed')
-        self.w._damage(self.a, 9999)
-        self.w.elapsed = self.a['dead_until'] + .1
-        self.a['last_seen'] = time.monotonic(); self.w.tick(.05)
-        bed = camp['parts']['bed']
-        self.assertLess(abs(self.a['x'] - bed['x']) + abs(self.a['y'] - bed['y']), 30)
-        self.assertEqual(len(self.w.bodies), 1)
-
-    def test_bench_makes_ammo_and_reload_uses_it(self):
+    def test_bench_makes_a_sawnoff_and_reload_uses_ammo(self):
         camp = self.w.found_camp(self.a)
         self.w.build_part(self.a, camp, 'bench')
         bench = camp['parts']['bench']; self.a['x'], self.a['y'] = bench['x'] + 20, bench['y']
-        self.a['items'].update(gunpowder=1); self.a['items'].pop('ammo9', None)
-        self.act(self.ta, 'craft_item', id='ammo9')
-        self.assertEqual(self.a['items']['ammo9'], 6)
-        self.a['mags']['0'] = 0
+        self.a['weapons'] = [1, FISTS]; self.a['gear']['weapon'] = 1; self.a['mags'] = {'1':3}
+        self.a['items'].update(tape=1, shells=1)
+        self.act(self.ta, 'craft_item', id='sawnoff')
+        self.assertEqual(self.a['weapons'], [3, FISTS]); self.assertEqual(self.a['gear']['weapon'], 3)
+        self.assertEqual(self.a['items']['shells'], 4)              # the rounds from the long gun
+        self.w.elapsed += 5
         self.act(self.ta, 'reload')
-        self.assertEqual(self.a['mags']['0'], 6)                  # a partial magazine: all there was
-        self.assertNotIn('ammo9', self.a['items'])
-        self.a['items'].pop('ammo9', None); self.a['mags']['0'] = 0; self.w.elapsed += 5
-        with self.assertRaises(GameError):
-            self.act(self.ta, 'reload')
-        with self.assertRaises(GameError):
-            self.act(self.ta, 'craft_item', id='ammo9')             # no gunpowder left
+        self.assertEqual(self.a['mags']['3'], 2)
+        self.assertEqual(self.a['items']['shells'], 2)
         self.a['x'] += 600
         with self.assertRaises(GameError):
             self.act(self.ta, 'craft_item', id='nails')             # far from the bench
 
-    def test_hand_crafting_and_house_search(self):
+    def test_hand_crafting(self):
         self.act(self.ta, 'craft_item', id='bandage')
         self.assertEqual(self.a['items']['bandage'], 1)
-        house = next(iter(self.w.terrain.houses.values()))
-        self.b['items'] = {}; self.b['x'], self.b['y'] = house['x'], house['y']
-        r = self.act(self.tb, 'search_house', id=house['id'])
-        self.assertTrue(self.b['items'] or 'Пусто' in r['text'])
         with self.assertRaises(GameError):
-            self.act(self.tb, 'search_house', id=house['id'])       # searched already
-
+            self.act(self.ta, 'craft_item', id='meat')              # needs a fire
 
     def test_owner_abandons_from_far_away(self):
         camp = self.w.found_camp(self.a)

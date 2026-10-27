@@ -3,7 +3,7 @@
 'use strict';
 const AS = window.AS = window.AS || {};
 let ctx = null, master, sfx, music, amb, noise, delay, wind, windFilter, rain, engine, engineGain, engineFilter, drone, droneGain;
-let nextHowl = 0, nextChord = 0, nextNote = 0, chordIndex = 0, nextBird = 0, nextCricket = 0, nextStep = 0, nextSkid = 0, tension = 0;
+let nextHowl = 0, nextChord = 0, nextNote = 0, chordIndex = 0, nextBird = 0, nextCricket = 0, nextStep = 0, nextSkid = 0, tension = 0, nextGroan = 0;
 const A = AS.audio = { enabled: true, music: .55, sfx: .8 };
 const CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62], [50, 53, 57], [57, 60, 64], [52, 56, 59], [57, 60, 64]];
 const PENTA = [57, 60, 62, 64, 67, 69, 72, 74, 76];
@@ -62,6 +62,8 @@ A.play = function (kind, distance) {
   else if (kind === 'click') { burst(.03, 'highpass', 2600, .22, sfx, 1); tone(900, .03, 'square', .05, sfx, 700); }
   else if (kind === 'error') { tone(220, .18, 'triangle', .12, sfx, 160); }
   else if (kind === 'bite') { burst(.18, 'bandpass', 600, .35 * k, sfx, 2, 200); tone(90, .25, 'sawtooth', .12 * k, sfx, 60); }
+  else if (kind === 'swing') { burst(.14, 'bandpass', 700, .16 * k, sfx, 2, 1600); }
+  else if (kind === 'groan') { const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 3; o.type = 'sawtooth'; const base = 70 + Math.random() * 40; o.frequency.setValueAtTime(base, t); o.frequency.linearRampToValueAtTime(base * 1.4, t + .4); o.frequency.linearRampToValueAtTime(base * .8, t + 1.1); o.connect(f); f.connect(g); g.connect(sfx); env(g, t, .09 * k, .15, .9); o.start(t); o.stop(t + 1.2); }
   else if (kind === 'acid') { burst(.35, 'highpass', 900, .25 * k, sfx, 1, 3000); }
   else if (kind === 'howl') { const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1200; o.type = 'triangle'; o.frequency.setValueAtTime(380, t); o.frequency.linearRampToValueAtTime(620, t + .9); o.frequency.linearRampToValueAtTime(520, t + 2.4); o.frequency.linearRampToValueAtTime(330, t + 3.2); o.connect(f); f.connect(g); g.connect(amb); g.connect(delay); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.05 * k, t + .6); g.gain.exponentialRampToValueAtTime(.0001, t + 3.3); o.start(t); o.stop(t + 3.4); }
   else if (kind === 'levelup') { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => ctx && tone(f, .35, 'triangle', .12), i * 110)); }
@@ -80,14 +82,16 @@ A.update = function (v) {
   rain.gain.setTargetAtTime(v.weatherMode === 'rain' ? (kind === 'storm' ? .22 : .13) : 0, t, 1.2);
   const driving = me.vehicle, moving = me.moving;
   // Engine revs climb through four gears and drop at every shift; tyres squeal when the car slides.
-  const speed = driving ? Math.hypot(me.car.vx || 0, me.car.vy || 0) : 0, gear = Math.min(3, Math.floor(speed / 115)), rev = Math.min(1.4, (speed - gear * 115) / 115);
+  const car = v.myCar || {}, speed = driving ? Math.hypot(car.vx || 0, car.vy || 0) : 0, gear = Math.min(3, Math.floor(speed / 115)), rev = Math.min(1.4, (speed - gear * 115) / 115);
   engineGain.gain.setTargetAtTime(driving ? .05 + Math.min(.07, speed / 4500) : 0, t, .15);
   engine.frequency.setTargetAtTime(driving ? 34 + rev * 34 + gear * 7 : 34, t, .12); engineFilter.frequency.setTargetAtTime(driving ? 240 + speed * .9 : 240, t, .2);
-  if (driving && me.car.slip && speed > 90 && t > nextSkid) { nextSkid = t + .22; A.play('skid'); }
+  if (driving && car.slip && speed > 90 && t > nextSkid) { nextSkid = t + .22; A.play('skid'); }
   if (!driving && moving && me.hp > 0 && t > nextStep) { nextStep = t + (me.sprint ? .28 : .42); A.play('step'); }
   if (!night && kind !== 'storm' && kind !== 'rain' && t > nextBird) { nextBird = t + 2 + Math.random() * 6; const f = 2200 + Math.random() * 1800; for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++) setTimeout(() => ctx && tone(f * (1 + Math.random() * .2), .09, 'sine', .025, amb, f * 1.3), i * 120); }
   if (night && t > nextHowl) { nextHowl = t + 25 + Math.random() * 50; if (v.weatherMode === 'snow' || Math.random() < .5) A.play('howl', 400 + Math.random() * 600); }
   if (night && kind === 'clear' && t > nextCricket) { nextCricket = t + .8 + Math.random() * 1.5; for (let i = 0; i < 4; i++) setTimeout(() => ctx && tone(4300, .03, 'sine', .012, amb), i * 45); }
+  // The infected moan when they are near; louder and more often when they run at you.
+  if (v.infectedNear && t > nextGroan) { nextGroan = t + (v.infectedNear.run ? 1.2 : 3.5) + Math.random() * 3; A.play('groan', v.infectedNear.d); if (v.infectedNear.run) tension = Math.min(1, tension + .1); }
   tension = Math.max(0, tension - .004);
   droneGain.gain.setTargetAtTime(tension * .05, t, .6);
   // Generative score: sparse minor chords with a pentatonic voice over a delay.

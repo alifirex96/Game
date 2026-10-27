@@ -1,4 +1,4 @@
-"""Camps, crafting, house searching and bodies of the fallen.
+"""Camps, crafting and bodies of the fallen.
 
 Mixed into server.World. Everything here runs on the host, inside the world lock.
 
@@ -10,10 +10,7 @@ an outsider may empty the stash.
 import math
 import secrets
 from world_data import (ROAD_HALF, ITEMS, RECIPES, CAMP_PARTS, CAMP_HALF, CAMP_STASH_SLOTS, HOUSE_WALL_HP, BODY_TIME,
-                        HOUSE_FINDS, HOUSE_SEARCH_COOLDOWN, POI_MATERIALS, WEAPONS, ARMOR, CLOTHES, BACKPACKS, RESOURCES)
-
-GEAR_TABLES = {'weapon':WEAPONS, 'armor':ARMOR, 'clothes':CLOTHES, 'backpack':BACKPACKS}
-INSIDE_PARTS = ('fire', 'bed', 'stash', 'bench', 'collector')
+                        NPC_TYPES, WEAPONS, GEAR_ITEM)
 
 
 class CampError(Exception):
@@ -68,10 +65,10 @@ class CampMixin:
         """Where the furniture stands: a ring inside the fence, or the corners of a house."""
         if camp.get('house'):
             h = self.terrain.houses[camp['house']]; ax, ay = h['w'] / 2 - 13, h['h'] / 2 - 13
-            spots = [(-.55, -.55), (.55, -.55), (-.55, .55), (.55, .55), (0, 0)]
-            return {k: (camp['x'] + sx * ax, camp['y'] + sy * ay) for k, (sx, sy) in zip(('bed', 'stash', 'bench', 'collector', 'fire'), spots)}
+            spots = [(.55, -.55), (-.55, .55), (.55, .55), (0, 0)]
+            return {k: (camp['x'] + sx * ax, camp['y'] + sy * ay) for k, (sx, sy) in zip(('stash', 'bench', 'collector', 'fire'), spots)}
         r = CAMP_HALF * .5
-        return {'fire': (camp['x'], camp['y']), 'bed': (camp['x'] - r, camp['y'] - r), 'stash': (camp['x'] + r, camp['y'] - r),
+        return {'fire': (camp['x'], camp['y']), 'stash': (camp['x'] + r, camp['y'] - r),
                 'bench': (camp['x'] - r, camp['y'] + r * .9), 'collector': (camp['x'] + r, camp['y'] + r * .9)}
 
     @staticmethod
@@ -108,7 +105,7 @@ class CampMixin:
             raise self.GameError('Рядом чужой лагерь.')
         cid = 'c' + secrets.token_hex(4)
         camp = {'id':cid, 'owner':f, 'x':round(cx, 1), 'y':round(cy, 1), 'house':house['id'] if house else None,
-                'parts':{}, 'fence':{}, 'stash':{'items':{}, 'coins':0}, 'water_at':self.elapsed}
+                'parts':{}, 'fence':{}, 'stash':{'items':{}}, 'water_at':self.elapsed}
         if house:
             # The house's own walls are the fence: sturdy, already standing. The doorway needs a door.
             for i, rect in enumerate(house['walls']):
@@ -126,8 +123,8 @@ class CampMixin:
                 self.terrain.add_rect(part['rect'])
         if camp.get('gate_rect'):
             camp['gate_rect'] = None
-        if camp['stash']['items'] or camp['stash']['coins']:
-            self.drop_pile(camp['x'], camp['y'], dict(camp['stash']['items']), camp['stash']['coins'], 'Брошенный ящик')
+        if camp['stash']['items']:
+            self.drop_pile(camp['x'], camp['y'], dict(camp['stash']['items']), 'Брошенный ящик')
         side = self.sides.get(camp['owner'])
         if side and side.get('camp') == camp['id']:
             side['camp'] = None
@@ -218,8 +215,8 @@ class CampMixin:
         self._notice('Лагерь атакуют', name + ' разрушен' + ('а' if name.endswith('а') else '') + '.', faction=camp['owner'], tone='error')
         if slot == 'stash':
             # A smashed crate spills its contents on the ground.
-            self.drop_pile(camp['x'], camp['y'], dict(camp['stash']['items']), camp['stash']['coins'], 'Разбитый ящик')
-            camp['stash'] = {'items':{}, 'coins':0}
+            self.drop_pile(camp['x'], camp['y'], dict(camp['stash']['items']), 'Разбитый ящик')
+            camp['stash'] = {'items':{}}
         return True
 
     def camp_targets(self):
@@ -254,119 +251,69 @@ class CampMixin:
         rec = next((r for r in RECIPES if r['id'] == rid), None)
         if not rec:
             raise self.GameError('Такого рецепта нет.')
-        if p['level'] < rec.get('level', 1):
-            raise self.GameError('Нужен уровень ' + str(rec['level']) + '.')
         at = rec['at']
-        if at == 'fire' and not (self.near_camp_part(p, 'fire', 110) or self._own_town_fire(p)):
-            raise self.GameError('Нужен огонь: костёр или печка в лагере, костёр на площади своего поселения.')
+        if at == 'fire' and not self.near_camp_part(p, 'fire', 110):
+            raise self.GameError('Нужен огонь: костёр или печка в лагере.')
         if at == 'bench' and not self.near_camp_part(p, 'bench', 90):
             raise self.GameError('Это делают на верстаке в лагере.')
+        if 'weapon_from' in rec:
+            src, dst = rec['weapon_from']
+            if src not in p['weapons']:
+                raise self.GameError('Нужно ' + WEAPONS[src]['name'].lower() + '.')
+            if dst in p['weapons']:
+                raise self.GameError('У тебя уже есть ' + WEAPONS[dst]['name'].lower() + '.')
+            self.take_items(p, rec.get('needs', {}))
+            p['weapons'].remove(src); p['weapons'].append(dst); p['weapons'].sort()
+            # The rounds left in the long gun go back into the backpack.
+            left = p['mags'].pop(str(src), 0)
+            if left:
+                self.give_item(p, WEAPONS[src]['ammo_item'], left)
+            if p['gear']['weapon'] == src:
+                p['gear']['weapon'] = dst
+            return {'title':rec['name'], 'text':'Ствол короче, дробь шире: в упор страшнее.', 'success':True}
         if 'gear' in rec:
             kind, tier = rec['gear']
-            if (tier in p['weapons']) if kind == 'weapon' else p['gear'][kind] >= tier:
+            if p['gear'][kind] >= tier:
                 raise self.GameError('У тебя уже есть это или лучше.')
-        if rec.get('res') and not self._can_pay(p['faction'], rec['res']):
-            raise self.GameError('Не хватает ресурсов стороны: ' + self.resource_text(rec['res']) + '.')
         if 'makes' in rec:
-            gained = {k: v for k, v in rec['makes'].items()}
             after = dict(p['items'])
             for k, v in rec.get('needs', {}).items():
                 after[k] = after.get(k, 0) - v
-            for k, v in gained.items():
+            for k, v in rec['makes'].items():
                 after[k] = after.get(k, 0) + v
             used = self.slots_used({k: v for k, v in after.items() if v > 0})
             if used > self.slots(p) and used > self.slots_used(p['items']):
                 raise self.GameError('В рюкзаке не хватит места.')
         self.take_items(p, rec.get('needs', {}))
-        if rec.get('res'):
-            self._pay(p['faction'], rec['res'])
         if 'gear' in rec:
             kind, tier = rec['gear']
-            if kind == 'weapon':
-                p['weapons'].append(tier); p['gear']['weapon'] = tier
-            else:
-                p['gear'][kind] = tier
-            p['act'] = {'kind':'hammer', 'at':round(self.elapsed, 2)}
+            old = p['gear'][kind]
+            p['gear'][kind] = tier
+            if old:
+                self._loot_add(GEAR_ITEM[(kind, old)], 1, p['x'], p['y'] + 16)
             return {'title':rec['name'], 'text':'Готово и надето.', 'success':True}
         for k, v in rec['makes'].items():
             p['items'][k] = p['items'].get(k, 0) + v
-        p['act'] = {'kind':'hammer' if at == 'bench' else 'gather', 'at':round(self.elapsed, 2)}
         return {'title':'Сделано: ' + rec['name'], 'text':self.items_text(rec['makes']), 'success':True}
 
-    def _own_town_fire(self, p):
-        return any(t['owner'] == p['faction'] and math.hypot(t['x'] + 60 - p['x'], t['y'] + 46 - p['y']) < 120 for t in self.towns.values())
-
-    # ---- houses ----
-    def search_house(self, p, hid):
-        h = self.terrain.houses.get(str(hid))
-        if not h:
-            raise self.GameError('Дом не найден.')
-        if math.hypot(h['x'] - p['x'], h['y'] - p['y']) > max(h['w'], h['h']) / 2 + 60:
-            raise self.GameError('Подойди к дому.')
-        camp = next((c for c in self.camps.values() if c.get('house') == h['id']), None)
-        if camp:
-            raise self.GameError('Здесь живут: ' + self.side_name(camp['owner']) + '.')
-        key = 'house:' + h['id']
-        if p['last_action'].get(key, -1e9) + HOUSE_SEARCH_COOLDOWN > self.elapsed:
-            raise self.GameError('Ты уже обыскал этот дом. Загляни через ' + str(int(p['last_action'][key] + HOUSE_SEARCH_COOLDOWN - self.elapsed)) + ' с.')
-        p['last_action'][key] = self.elapsed
-        got = {}
-        for i in range(self.rng.randint(1, 3)):
-            item = self.rng.choice(HOUSE_FINDS)
-            n = self.rng.randint(4, 12) if item == 'nails' else self.rng.randint(2, 6) if ITEMS[item].get('ammo') else self.rng.randint(1, 3) if ITEMS[item].get('stack', 1) > 1 else 1
-            n = self.give_item(p, item, n)
-            if n:
-                got[item] = got.get(item, 0) + n
-        self.gain_xp(p, 'search')
-        return {'title':'Обыскан дом', 'text':('Найдено: ' + self.items_text(got)) if got else 'Пусто или рюкзак полон.', 'success':bool(got)}
-
-    def poi_materials(self, p, poi):
-        got = {}
-        for i in range(2):
-            item = self.rng.choice(POI_MATERIALS.get(poi['kind'], ['scrap']))
-            n = self.give_item(p, item, self.rng.randint(3, 8) if ITEMS[item].get('ammo') else self.rng.randint(1, 3))
-            if n:
-                got[item] = got.get(item, 0) + n
-        return got
-
     # ---- bodies and dropped piles ----
-    def drop_pile(self, x, y, items, coins, name):
-        if not items and not coins:
+    def drop_pile(self, x, y, items, name):
+        if not items:
             return None
         bid = 'b' + secrets.token_hex(4)
-        self.bodies[bid] = {'id':bid, 'x':round(x, 1), 'y':round(y, 1), 'items':items, 'coins':coins, 'name':name, 'until':self.elapsed + BODY_TIME}
+        self.bodies[bid] = {'id':bid, 'x':round(x, 1), 'y':round(y, 1), 'items':items, 'name':name, 'until':self.elapsed + BODY_TIME}
         return bid
 
     def drop_corpse(self, npc):
-        """A dead person or animal stays where it fell; what it carried can be taken (E)."""
-        from world_data import NPC_TYPES
+        """A dead infected or animal stays where it fell; what it carried can be taken (E)."""
         bid = 'n' + npc['id']
-        self.bodies[bid] = {'id':bid, 'x':round(npc['x'], 1), 'y':round(npc['y'], 1), 'items':dict(npc.get('loot') or {}), 'coins':0,
+        self.bodies[bid] = {'id':bid, 'x':round(npc['x'], 1), 'y':round(npc['y'], 1), 'items':dict(npc.get('loot') or {}),
                             'name':NPC_TYPES[npc['type']]['name'], 'until':self.elapsed + CORPSE_TIME,
                             'npc':{'type':npc['type'], 'look':npc.get('look'), 'angle':round(npc.get('angle', 0.0), 2), 'faction':npc['faction']}}
         corpses = sorted((b for b in self.bodies.values() if b.get('npc')), key=lambda b: b['until'])
         for b in corpses[:max(0, len(corpses) - MAX_CORPSES)]:
             del self.bodies[b['id']]
         return bid
-
-    def loot_body(self, p, bid):
-        b = self.bodies.get(str(bid))
-        if not b:
-            raise self.GameError('Здесь уже ничего нет.')
-        if math.hypot(b['x'] - p['x'], b['y'] - p['y']) > 90:
-            raise self.GameError('Подойди ближе.')
-        taken = {}
-        for k in list(b['items']):
-            n = self.give_item(p, k, b['items'][k])
-            if n:
-                taken[k] = n; b['items'][k] -= n
-                if not b['items'][k]:
-                    del b['items'][k]
-        coins = b['coins']; p['coins'] += coins; b['coins'] = 0
-        if not b['items'] and not b.get('npc'):
-            del self.bodies[b['id']]
-        text = self.items_text(taken) + ((' и ' + str(coins) + ' монет') if coins else '')
-        return {'title':'Забрано: ' + b['name'], 'text':text + ('. Остальное не влезло.' if b.get('items') else '.'), 'success':bool(taken or coins)}
 
     def tick_bodies(self):
         for bid in [k for k, b in self.bodies.items() if b['until'] <= self.elapsed]:
@@ -380,14 +327,7 @@ class CampMixin:
         if not self.camp_allowed(camp, p['faction']) and not self.camp_breached(camp):
             raise self.GameError('Ящик за оградой. Чтобы добраться, пробей стену или ворота.')
         stash = camp['stash']['items']
-        if item == 'coins':
-            n = max(0, int(count))
-            if put:
-                n = min(n, p['coins']); p['coins'] -= n; camp['stash']['coins'] += n
-            else:
-                n = min(n, camp['stash']['coins']); camp['stash']['coins'] -= n; p['coins'] += n
-            return n
-        if item not in ITEMS:
+        if item not in ITEMS or 'weapon' in ITEMS[item] or 'gear' in ITEMS[item]:
             raise self.GameError('Такой вещи нет.')
         if put:
             n = min(int(count), p['items'].get(item, 0))

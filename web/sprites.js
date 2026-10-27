@@ -311,11 +311,29 @@ const RUIN = {
   heap(c, w, h, r) { for (let k = 0; k < 4; k++) { c.fillStyle = ['#4f4b44', '#5c5850', '#6b665c', '#7a756a'][k]; c.beginPath(); c.ellipse(0, 0, w / 2 * (1 - k * .2), h / 2 * (1 - k * .2), 0, 0, 7); c.fill(); } speckle(c, -w / 2, -h / 2, w, h, ['#3b3833', '#8c877a'], 50, 3, r); },
   station(c, w, h, r) { roofTiles(c, -w / 2, -h / 2, w, h - 16, '#7a5b49'); hole(c, w * .2, -h * .15, w * .2, h * .4, r); facade(c, -w / 2, h / 2 - 16, w, 16, '#c6b48a', 0, r, { windows: 7 }); // rails
     for (let k = 0; k < 2; k++) { const y = h / 2 + 30 + k * 34; c.fillStyle = '#5b4a3a'; for (let i = -w; i < w; i += 9) c.fillRect(i, y - 6, 4, 18); c.fillStyle = '#8c8c86'; c.fillRect(-w, y - 3, w * 2, 2); c.fillRect(-w, y + 7, w * 2, 2); } },
+  tent(c, w, h, r) { c.fillStyle = '#00000040'; c.fillRect(6, 6, w, h); const col = ['#56603f', '#4d5639', '#5f6646'][Math.floor(r() * 3)]; c.fillStyle = col; c.fillRect(-w / 2, -h / 2, w, h); c.fillStyle = shade(col, -.2); c.fillRect(-w / 2, 0, w, h / 2); c.strokeStyle = shade(col, .25); c.lineWidth = 2; c.beginPath(); c.moveTo(-w / 2, 0); c.lineTo(w / 2, 0); c.stroke(); c.strokeStyle = '#00000030'; c.lineWidth = 1; for (let i = -w / 2 + 8; i < w / 2; i += 10) { c.beginPath(); c.moveTo(i, -h / 2); c.lineTo(i, h / 2); c.stroke(); } if (r() < .5) hole(c, (r() - .5) * w * .4, -h * .2, w * .25, h * .3, r); c.fillStyle = '#2e2a22'; c.fillRect(-6, h / 2 - 4, 12, 4); },
+  tower(c, w, h, r) { c.fillStyle = '#00000044'; c.beginPath(); c.moveTo(-w / 2, -h / 2); c.lineTo(w / 2 + 50, h / 2 + 40); c.lineTo(w / 2 + 30, h / 2 + 50); c.lineTo(-w / 2, h / 2); c.fill(); c.fillStyle = '#8e8a7c'; c.fillRect(-w / 2, -h / 2, w, h); c.fillStyle = '#3c4a52'; c.fillRect(-w / 2 + 6, -h / 2 + 6, w - 12, h - 12); c.fillStyle = '#9fb6bf55'; c.fillRect(-w / 2 + 6, -h / 2 + 6, w - 12, 6); c.strokeStyle = '#6b6658'; c.lineWidth = 3; c.strokeRect(-w / 2 + 6, -h / 2 + 6, w - 12, h - 12); hole(c, w * .15, h * .1, w * .25, h * .25, r); c.strokeStyle = '#c9c4ae'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -h * .9); c.stroke(); },
+  runway(c, w, h, r) { c.fillStyle = '#56564f'; c.fillRect(-w / 2, -h / 2, w, h); c.fillStyle = '#4a4a44'; c.fillRect(-w / 2, -h / 2, w, 6); c.fillRect(-w / 2, h / 2 - 6, w, 6); c.fillStyle = '#d8d3bd99'; for (let x = -w / 2 + 60; x < w / 2 - 60; x += 70) c.fillRect(x, -3, 36, 6); for (let k = 0; k < 6; k++) { c.fillRect(-w / 2 + 14, -h / 2 + 12 + k * (h - 24) / 6, 40, 6); c.fillRect(w / 2 - 54, -h / 2 + 12 + k * (h - 24) / 6, 40, 6); } for (let i = 0; i < w / 18; i++) { c.fillStyle = r() < .5 ? '#3e3e3866' : '#5d6b3f66'; c.beginPath(); c.ellipse((r() - .5) * w, (r() - .5) * h, 6 + r() * 18, 3 + r() * 8, r() * 3, 0, 7); c.fill(); } },
   wagon(c, w, h, r) { c.fillStyle = '#00000040'; c.fillRect(4, 4, w, h); c.translate(-w / 2, -h / 2); roofMetal(c, 0, 0, w, h, ['#6c3a2c', '#4f5a4a', '#5a5f66'][Math.floor(r() * 3)], true); c.fillStyle = '#7a4a2c88'; for (let i = 0; i < 6; i++) c.fillRect(r() * w, r() * h, 10, 6); c.fillStyle = '#1c1c18'; c.fillRect(w * .4, 0, w * .2, 4); },
 };
 
 /* ---------- trees and plants, viewed from above ---------- */
+/* Painted trees and bushes from web/assets/trees.png (Liosan, prime8; see assets/CREDITS.md); snowy spruces stay drawn by code. */
+const TREE_IMG = new Image(); let treeMeta = null, treeReady = false;
+TREE_IMG.onload = () => { treeReady = true; }; TREE_IMG.src = 'assets/trees.png';
+fetch('assets/trees.json').then(r => r.json()).then(j => { treeMeta = j; }).catch(() => {});
+const TREE_ATLAS = { birch: ['tree1_4', 'tree3', 'tree5', 'tree7', 'tree9'], autumn: ['tree2_1', 'tree4', 'tree6'], pine: ['tree8', 'tree6', 'tree4'],
+  spruce: ['RE_03'], dead: ['deadtree1_0', 'deadtree2', 'deadtree3'], bush: ['foliage1', 'foliage2_0', 'foliage3_0', 'foliage4', 'foliage5', 'foliage6', 'foliage7', 'foliage8', 'foliage9'] };
+function atlasTree(type, v) {
+  const keys = TREE_ATLAS[type], cell = keys && treeMeta && treeMeta.items[keys[v % keys.length]];
+  if (!cell) return null;
+  const size = type === 'bush' ? 40 + v * 3 : type === 'dead' ? 62 + v * 4 : 60 + v * 5, im = canvas(size, size), c = im.getContext('2d');
+  smooth(c); c.drawImage(TREE_IMG, cell.x, cell.y, cell.w, cell.h, 0, 0, size, size);
+  if (type === 'autumn') { c.globalCompositeOperation = 'source-atop'; c.fillStyle = '#a0782a55'; c.fillRect(0, 0, size, size); }
+  return { im, ox: size / 2, oy: size / 2 };
+}
 AS.sprites.tree = function (type, v) {
+  if (treeReady && treeMeta && TREE_ATLAS[type]) { const t = cached('ta:' + type + v, () => atlasTree(type, v)); if (t) return t; }
   return cached('t:' + type + v, () => {
     const s = type === 'bush' ? 36 : 96, im = canvas(s * 1.5, s * 1.5), c = im.getContext('2d'), cx = s * .62, cy = s * .62;
     const r = rng(.13 + v * .071 + type.length * .01);
@@ -504,9 +522,8 @@ function drawWeapon(c, tier, recoil) {
    the parts are stretched about the hip and the shoulder (no gaps at the joints) to walk, aim, work. */
 const SHEET = new Image(); let sheetReady = false;
 SHEET.onload = () => { sheetReady = true; }; SHEET.src = 'assets/characters.png';
-// People on the squares who give work: their own drawn figures (web/assets/givers.png, 7 cells in a row).
-const GIVERS = new Image(); let giversReady = false;
-GIVERS.onload = () => { giversReady = true; }; GIVERS.src = 'assets/givers.png';
+// The people on the squares are gone since 0.8; the 'giver' source of the rig stays empty.
+const GIVERS = { width: 0 }; const giversReady = false;
 const RIG = 64;                // working size of one figure
 // Player cars drawn from web/assets/cars.png: 8 cells of 128 x 224, front up.
 const CARS_IMG = new Image(); let carsReady = false;
@@ -683,15 +700,16 @@ function heroFrame(c, n, tint) {
   hsc.globalCompositeOperation = 'source-over';
   const a = c.globalAlpha; c.globalAlpha = a * .82; c.drawImage(hscratch, -HAX, -HAY); c.globalAlpha = a;
 }
-const ACT_TIME = { swap: .5, chop: 1.1, mine: seqLen(HSEQ.mine), eat: seqLen(HSEQ.eat), drink: seqLen(HSEQ.drink), bandage: seqLen(HSEQ.bandage) };
+const ACT_TIME = { swap: .5, strike: .45, chop: 1.1, mine: seqLen(HSEQ.mine), eat: seqLen(HSEQ.eat), drink: seqLen(HSEQ.drink), bandage: seqLen(HSEQ.bandage) };
 // Returns false when the frames cannot show this pose (the cut-out rig draws it instead).
 function drawHero(c, o) {
   const act = o.act, at = act ? act.t : 99, moving = o.speed > 0;
   // Work and first aid are done standing still: a step cancels the pose (reloading and swapping go on while walking).
-  const live = act && at < (act.kind === 'reload' ? o.reloadTime || 1.5 : ACT_TIME[act.kind] || 1.2) && (!moving || act.kind === 'reload' || act.kind === 'swap');
+  const live = act && at < (act.kind === 'reload' ? o.reloadTime || 1.5 : ACT_TIME[act.kind] || 1.2) && (!moving || act.kind === 'reload' || act.kind === 'swap' || act.kind === 'strike');
   const dead = o.dead || 0;
-  const k = (o.size || 38) / 102, w = Math.max(0, Math.min(6, o.weapon | 0)), aim = dead ? 0 : ease(o.aim || 0);
-  let set = w >= 1 || aim > .05 ? 'w' + w : 'walk', frame = 0, turn = 0, dip = 0;
+  // Fists, knife, axe and crowbar (7-10) are held low: the hero walks unarmed and swings with the chop frames.
+  const melee = (o.weapon | 0) >= 7, k = (o.size || 38) / 102, w = melee ? 0 : Math.max(0, Math.min(6, o.weapon | 0)), aim = dead || melee ? 0 : ease(o.aim || 0);
+  let set = !melee && (w >= 1 || aim > .05) ? 'w' + w : 'walk', frame = 0, turn = 0, dip = 0;
   const [first, count] = HSET[set];
   if (o.speed > 0 && !dead) frame = Math.floor(((o.phase || 0) / (Math.PI * 2) % 1 + 1) % 1 * count);
   let n = first + frame;
@@ -702,6 +720,9 @@ function drawHero(c, o) {
     // Down on one knee: reach out, then into the bag (hammering keeps reaching).
     const seq = act.kind === 'hammer' ? [1, 2, 1, 2, 1, 2] : [1, 2, 2, 4, 4, 1];
     n = HSET.loot[0] + seq[Math.min(5, Math.floor(at / .2) % 6)];
+  } else if (live && act.kind === 'strike') {
+    // A quick blow: from over the shoulder down to the impact and back.
+    n = HSET.chop[0] + [1, 2, 3, 4, 5][Math.min(4, Math.floor(at / .09))];
   } else if (live && act.kind === 'chop') {
     let f = 0, left = at; while (f < 5 && left >= CHOP_TIME[f]) left -= CHOP_TIME[f++];
     n = HSET.chop[0] + f;
@@ -728,7 +749,7 @@ function drawHero(c, o) {
   if (!dead && o.speed === 0 && !live) { const b = 1 + Math.sin((o.time || 0) * 2.1) * .01; c.scale(b, b); }
   c.rotate(turn); c.translate(0, -(o.kick || 0) * (o.kickLen || 3) * 1.6 - dip * 6);
   heroFrame(c, n, o.tint);
-  if (o.flash && aim > .5 && !dead) {
+  if (o.flash && aim > .5 && !dead && !melee) {
     const [mx, my, ga] = HGUN[w]; c.translate(mx, my); c.rotate(Math.PI / 2 - ga); c.scale(2.4, 2.4);
     c.fillStyle = '#ffe7a0'; c.beginPath(); c.moveTo(0, 0); c.lineTo(8, -3.5); c.lineTo(13, 0); c.lineTo(8, 3.5); c.closePath(); c.fill();
     c.fillStyle = '#fff6d8'; c.beginPath(); c.arc(2, 0, 2.2, 0, 7); c.fill();
@@ -895,6 +916,66 @@ AS.sprites.creature = function (c, o) {
     c.strokeStyle = '#e6e0c8'; c.lineWidth = 1; [-10, 10].forEach(y => { const x = 12 + reach + (y > 0 ? sw : -sw) * 3; c.beginPath(); c.moveTo(x, y - 2); c.lineTo(x + 4, y - 3); c.moveTo(x, y); c.lineTo(x + 4, y); c.moveTo(x, y + 2); c.lineTo(x + 4, y + 3); c.stroke(); });
     c.fillStyle = skin; c.beginPath(); c.arc(4, 0, 5, 0, 7); c.fill(); c.fillStyle = '#ff5a3a'; c.beginPath(); c.arc(7, -2, 1.1, 0, 7); c.arc(7, 2, 1.1, 0, 7); c.fill();
   }
+};
+
+/* ---------- the infected: rendered frames from web/assets/infected.png (Riley Gombart, OGA-BY 3.0; see assets/CREDITS.md) ----------
+   Cells of 288 px face +y, at the hero's scale; every animation has its own anchor (the body centre). One silhouette, three looks:
+   civilians as drawn, workers and soldiers tinted where the light shirt is. */
+const INF = new Image(); let infReady = false, infMeta = null, infMask = null;
+INF.onload = () => { infReady = true; }; INF.src = 'assets/infected.png';
+fetch('assets/infected.json').then(r => r.json()).then(j => { infMeta = j; }).catch(() => {});
+const INF_TINT = { worker: '#d6823c', military: '#788454' };
+const iscratch = canvas(144, 144), isc = iscratch.getContext('2d');
+function infMaskOf() {
+  if (infMask) return infMask;
+  const w = INF.width / 2, h = INF.height / 2; infMask = canvas(w, h); const c = infMask.getContext('2d'); smooth(c); c.drawImage(INF, 0, 0, w, h);
+  const data = c.getImageData(0, 0, w, h), d = data.data;
+  for (let i = 0; i < d.length; i += 4) { if (d[i + 3] < 10) continue; const hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]); if (hsl[1] >= .2 || hsl[2] <= .38) d[i + 3] = 0; }
+  c.putImageData(data, 0, 0); return infMask;
+}
+AS.sprites.infectedReady = () => infReady && !!infMeta;
+// o: {anim: idle|walk|run|attack_swipe|attack_lunge|attack_grab|eat, t (seconds into it), phase, look: civil|worker|military, size, dead (0..1), fall}
+AS.sprites.infected = function (c, o) {
+  if (!infReady || !infMeta) return false;
+  const L = infMeta.looks.base, cell = infMeta.cell; let def, sx, sy;
+  if (o.dead) {
+    def = L.death[o.fall === 'back' ? 'death_back' : 'death_front'];
+    [sx, sy] = def.frames_xy[Math.min(def.count - 1, Math.floor(o.dead * def.count))];
+  } else {
+    def = L.stand[o.anim] || L.stand.idle;
+    const loop = o.anim === 'walk' || o.anim === 'run', attack = /^attack/.test(o.anim);
+    const f = loop ? Math.floor((((o.phase || 0) / (Math.PI * 2)) % 1 + 1) % 1 * def.count) : attack ? Math.min(def.count - 1, Math.floor((o.t || 0) / .6 * def.count)) : Math.floor((o.t || 0) * 6) % def.count;
+    const n = def.first + f; sx = (n % infMeta.cols) * cell; sy = Math.floor(n / infMeta.cols) * cell;
+  }
+  const k = (o.size || 38) / 102, ax = def.anchor[0], ay = def.anchor[1];
+  if (!o.dead) { c.fillStyle = '#0a0f0b55'; c.beginPath(); c.ellipse(3, 4, (o.size || 38) * .34, (o.size || 38) * .28, 0, 0, 7); c.fill(); }
+  c.save(); c.rotate(-Math.PI / 2); c.scale(k, k);
+  c.drawImage(INF, sx, sy, cell, cell, -ax, -ay, cell, cell);
+  const tint = INF_TINT[o.look];
+  if (tint) {
+    const m = infMaskOf();
+    isc.globalCompositeOperation = 'copy'; isc.drawImage(m, sx / 2, sy / 2, cell / 2, cell / 2, 0, 0, 144, 144);
+    isc.globalCompositeOperation = 'multiply'; isc.fillStyle = mix(tint, '#ffffff', .25); isc.fillRect(0, 0, 144, 144);
+    isc.globalCompositeOperation = 'destination-in'; isc.drawImage(m, sx / 2, sy / 2, cell / 2, cell / 2, 0, 0, 144, 144);
+    isc.globalCompositeOperation = 'source-over';
+    const a = c.globalAlpha; c.globalAlpha = a * .85; c.drawImage(iscratch, -ax, -ay, cell, cell); c.globalAlpha = a;
+  }
+  c.restore();
+  return true;
+};
+
+/* ---------- things lying on the ground and in the backpack: web/assets/loot.png (CC0; see assets/CREDITS.md) ---------- */
+const LOOT_IMG = new Image(); let lootReady = false, lootMeta = null;
+LOOT_IMG.onload = () => { lootReady = true; }; LOOT_IMG.src = 'assets/loot.png';
+fetch('assets/loot.json').then(r => r.json()).then(j => { lootMeta = j; }).catch(() => {});
+AS.sprites.lootCell = key => (lootMeta && lootMeta.items[key]) || null;
+// Draws the icon centred at the origin; without the atlas a small parcel stands in.
+AS.sprites.lootIcon = function (c, key, size) {
+  const cell = lootReady && lootMeta && lootMeta.items[key];
+  if (cell) { c.drawImage(LOOT_IMG, cell.x, cell.y, cell.w, cell.h, -size / 2, -size / 2, size, size); return true; }
+  c.fillStyle = '#00000040'; c.fillRect(-size * .3 + 2, -size * .22 + 2, size * .6, size * .44);
+  c.fillStyle = '#8b6c45'; c.fillRect(-size * .3, -size * .22, size * .6, size * .44); c.strokeStyle = '#4b3925'; c.lineWidth = 1; c.strokeRect(-size * .3, -size * .22, size * .6, size * .44);
+  return false;
 };
 AS.sprites.cache = cache;
 })();

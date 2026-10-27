@@ -9,10 +9,11 @@ sys.path.insert(0, str(ROOT))
 from world_data import VERSION  # noqa: E402
 DIST = ROOT / 'dist'
 FILES = (
-    'server.py', 'world_data.py', 'terrain.py', 'npc.py', 'vehicles.py', 'camps.py', 'launcher.py', 'make_shortcut.py',
+    'server.py', 'world_data.py', 'terrain.py', 'npc.py', 'vehicles.py', 'camps.py', 'loot.py', 'launcher.py', 'make_shortcut.py',
     'Играть.sh', 'Создать-ярлык.sh', 'README.md', 'CHANGELOG.md',
     'web/game.js', 'web/render.js', 'web/sprites.js', 'web/audio.js',
-    'web/icon.svg', 'web/index.html', 'web/style.css', 'web/assets/characters.png', 'web/assets/givers.png', 'web/assets/portraits.jpg', 'web/assets/cars.png', 'web/assets/hero.png',
+    'web/icon.svg', 'web/index.html', 'web/style.css', 'web/assets/characters.png', 'web/assets/cars.png', 'web/assets/hero.png',
+    'web/assets/infected.png', 'web/assets/infected.json', 'web/assets/loot.png', 'web/assets/loot.json', 'web/assets/trees.png', 'web/assets/trees.json', 'web/assets/CREDITS.md',
 )
 
 def normalize(member):

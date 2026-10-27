@@ -236,7 +236,7 @@ def main():
         open_button = button(body, 'Открыть игру', lambda: launch(URL), True)
         open_button.configure(state='disabled')
         tk.Label(body, text=('Передай друзьям адрес и код комнаты, либо пусть они нажмут\n«Подключиться к комнате по коду» в своём лаунчере.\nНе закрывай это окно, пока идёт сетевая игра.' if mode == 'lan'
-                             else 'Одиночная игра идёт только на этом компьютере.\nСоперником управляет компьютер.'),
+                             else 'Одиночная игра идёт только на этом компьютере.'),
                  font=('Arial', 10), fg=MUTED, bg=BG, justify='center').pack(pady=14)
 
         def ready():

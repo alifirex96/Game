@@ -20,7 +20,7 @@ const SNOWY = { tundra: 1, snowtaiga: 1 };
 let streets = [], houses = [], houseGrid = new Map(), streetGrid = new Map();
 // Highway asphalt width (two lanes each way, two cars side by side per lane); set from the config.
 let RW = 240, roadWrecks = [];
-let cfg = null, towns = [], townById = {}, roads = [], waterSegs = [], lakes = [], pois = [], nodeGrid = new Map(), buildingGrid = new Map();
+let cfg = null, towns = [], townById = {}, roads = [], waterSegs = [], lakes = [], pois = [], pumps = [], nodeGrid = new Map();
 let biomeMap = null, worldMap = null;
 const chunks = new Map(); let chunkQueue = 0, chunkMissedCars = false;
 const particles = []; const seenEffects = new Set(); let lightning = 0;
@@ -45,9 +45,9 @@ function water(x, y, pad) { pad = pad || 0; if (inCore(x, y)) return false; for 
 function built(x, y, pad) { return inCore(x, y, pad - 200) || onStreet(x, y, pad) || !!houseAt(x, y, pad + 6); }
 R.water = water; R.onRoad = onRoad; R.inTown = inTown;
 function nearestTown(x, y) { let best = null, bd = 1e18; for (const t of towns) { const d = (t.x - x) * (t.x - x) + (t.y - y) * (t.y - y); if (d < bd) { bd = d; best = t; } } return best; }
-function biomeAt(x, y) { const t = nearestTown(x, y); let b = cfg.regions[t.region] ? cfg.regions[t.region].biome : 'mixed'; if (y < 1250 * (cfg.scale || 1) && b !== 'tundra') b = 'tundra'; return b; }
+function biomeAt(x, y) { const t = nearestTown(x, y); return cfg.regions[t.region] ? cfg.regions[t.region].biome : 'mixed'; }
 R.biomeAt = biomeAt;
-R.coldAt = (x, y) => { const t = nearestTown(x, y); return (cfg.regions[t.region] || { cold: 0 }).cold + (y < 1300 * (cfg.scale || 1) ? 1 : 0); };
+R.coldAt = (x, y) => { const t = nearestTown(x, y); return (cfg.regions[t.region] || { cold: 0 }).cold; };
 
 R.init = function (config) {
   cfg = config; towns = cfg.towns.map(t => Object.assign({}, t)); townById = {}; towns.forEach(t => townById[t.id] = t);
@@ -60,7 +60,7 @@ R.init = function (config) {
   streets = cfg.streets || []; houses = cfg.houses || [];
   streetGrid.clear(); streets.forEach(s => { for (let gx = Math.floor((Math.min(s[0], s[2]) - s[4]) / 1000); gx <= Math.floor((Math.max(s[0], s[2]) + s[4]) / 1000); gx++) for (let gy = Math.floor((Math.min(s[1], s[3]) - s[4]) / 1000); gy <= Math.floor((Math.max(s[1], s[3]) + s[4]) / 1000); gy++) { const k = gx + ',' + gy; if (!streetGrid.has(k)) streetGrid.set(k, []); streetGrid.get(k).push(s); } });
   houseGrid.clear(); houses.forEach(h => { const k = gkey(h.x, h.y); if (!houseGrid.has(k)) houseGrid.set(k, []); houseGrid.get(k).push(h); });
-  buildingGrid.clear(); cfg.buildings_world.forEach(b => { const k = b.town; if (!buildingGrid.has(k)) buildingGrid.set(k, []); buildingGrid.get(k).push(b); });
+  pumps = cfg.pumps || [];
   BM = Math.round(100 * Math.max(1, (cfg.scale || 3) / 3));
   makeBiomeMap(); makeWorldMap(); chunks.clear(); townDecor.clear();
 };
@@ -76,7 +76,6 @@ function makeBiomeMap() {
     let col = [0, 0, 0], wsum = 0;
     for (const t of towns) { const d2 = (t.x - wx) ** 2 + (t.y - wy) ** 2 + 1e4, wgt = 1 / (d2 * d2); const bc = cols[cfg.regions[t.region].biome]; col[0] += bc[0] * wgt; col[1] += bc[1] * wgt; col[2] += bc[2] * wgt; wsum += wgt; }
     col = col.map(v => v / wsum);
-    const north = Math.max(0, Math.min(1, (1500 * (cfg.scale || 1) - wy) / (700 * (cfg.scale || 1)))); col = col.map((v, i) => v + (cols.tundra[i] - v) * north);
     for (const hl of cfg.hills) { const e = ((wx - hl[1]) / hl[3]) ** 2 + ((wy - hl[2]) / hl[4]) ** 2; if (e < 1) { const m = (1 - e) * .45; col = col.map((v, i) => v + ([104, 101, 88][i] - v) * m); } }
     const n = (hash(x, y) - .5) * 8; const o = (y * w + x) * 4; img.data[o] = col[0] + n; img.data[o + 1] = col[1] + n; img.data[o + 2] = col[2] + n; img.data[o + 3] = 255;
   }
@@ -84,17 +83,15 @@ function makeBiomeMap() {
 }
 
 function makeWorldMap() {
-  const w = 1200, h = 600, s = w / cfg.width; worldMap = canvas(w, h); const c = worldMap.getContext('2d');
+  const w = 1200, h = Math.round(1200 * cfg.height / cfg.width), s = w / cfg.width; worldMap = canvas(w, h); const c = worldMap.getContext('2d');
   c.imageSmoothingEnabled = true; c.drawImage(biomeMap, 0, 0, w, h); c.fillStyle = '#0e171433'; c.fillRect(0, 0, w, h);
   c.lineJoin = c.lineCap = 'round';
   cfg.rivers.forEach(r => { c.strokeStyle = '#3f6670'; c.lineWidth = Math.max(1.4, r[1] * s * 1.6); c.beginPath(); r[2].forEach((p, i) => i ? c.lineTo(p[0] * s, p[1] * s) : c.moveTo(p[0] * s, p[1] * s)); c.stroke(); });
-  lakes.forEach(l => { c.fillStyle = '#3f6670'; c.beginPath(); l.forEach((p, i) => i ? c.lineTo(p[0] * s, p[1] * s) : c.moveTo(p[0] * s, p[1] * s)); c.closePath(); c.fill(); });
+  lakes.forEach(l => { c.fillStyle = l.length > 6 ? '#2f5560' : '#3f6670'; c.beginPath(); l.forEach((p, i) => i ? c.lineTo(p[0] * s, p[1] * s) : c.moveTo(p[0] * s, p[1] * s)); c.closePath(); c.fill(); });
   cfg.hills.forEach(hl => { c.fillStyle = '#8b8a7a'; for (let i = 0; i < 26; i++) { const a = hash(i, hl[1]) * 6.28, d = Math.sqrt(hash(hl[2], i)); const x = (hl[1] + Math.cos(a) * hl[3] * d) * s, y = (hl[2] + Math.sin(a) * hl[4] * d) * s; c.beginPath(); c.moveTo(x - 3, y + 2); c.lineTo(x, y - 3); c.lineTo(x + 3, y + 2); c.fill(); } });
   c.strokeStyle = '#d9cfa955'; c.lineWidth = 2.2; roads.forEach(r => { c.beginPath(); c.moveTo(r.ax * s, r.ay * s); c.lineTo(r.bx * s, r.by * s); c.stroke(); });
   c.strokeStyle = '#2a2b2499'; c.lineWidth = .8; roads.forEach(r => { c.setLineDash([3, 3]); c.beginPath(); c.moveTo(r.ax * s, r.ay * s); c.lineTo(r.bx * s, r.by * s); c.stroke(); }); c.setLineDash([]);
-  c.font = 'bold 11px Segoe UI, Arial'; c.fillStyle = '#e3dcc433'; c.textAlign = 'center';
-  const k = cfg.scale || 1;
-  [['ЕВРОПЕЙСКАЯ ЧАСТЬ', 2600, 5600], ['УРАЛ', 6650, 5000], ['ЗАПАДНАЯ СИБИРЬ', 10300, 3000], ['ВОСТОЧНАЯ СИБИРЬ', 14400, 2000], ['ДАЛЬНИЙ ВОСТОК', 18300, 6800], ['СЕВЕР', 5600, 600]].forEach(a => c.fillText(a[0], a[1] * k * s, a[2] * k * s));
+
 }
 
 /* ---------- terrain chunks ---------- */
@@ -154,7 +151,7 @@ function buildChunk(cx, cy) {
   // Water: banks, depth and glints. Settlement embankments cut the water out.
   const box = [x0 - 200, y0 - 200, x0 + CHUNK + 200, y0 + CHUNK + 200];
   const hitSeg = s => !(Math.max(s[0], s[2]) + s[4] < box[0] || Math.min(s[0], s[2]) - s[4] > box[2] || Math.max(s[1], s[3]) + s[4] < box[1] || Math.min(s[1], s[3]) - s[4] > box[3]);
-  const segs = waterSegs.filter(hitSeg), lks = lakes.filter(l => l.some(p => p[0] > box[0] - 900 && p[0] < box[2] + 900 && p[1] > box[1] - 900 && p[1] < box[3] + 900));
+  const segs = waterSegs.filter(hitSeg), lks = lakes.filter(l => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; l.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }); return x1 > box[0] && x0 < box[2] && y1 > box[1] && y0 < box[3]; });
   const waterPts = [];
   if (segs.length || lks.length) {
     c.save(); c.beginPath(); c.rect(x0, y0, CHUNK, CHUNK); towns.forEach(t => c.rect(t.x + CORE[0], t.y - CORE[1], -CORE[0] * 2, CORE[1] * 2)); c.clip('evenodd');
@@ -231,14 +228,6 @@ function buildChunk(cx, cy) {
       if (st[4] > 60 && Math.floor(d / 30) % 2 === 0 && h2 > .35) { c.fillStyle = '#c8bf8c40'; c.save(); c.translate(px, py); c.rotate(Math.atan2(uy, ux)); c.fillRect(0, -1, 16, 2); c.restore(); }
     }
   });
-  towns.forEach(t => {
-    if (Math.abs(t.x - x0 - 256) > 500 || Math.abs(t.y - y0 - 256) > 500) return;
-    c.fillStyle = '#6e6b5e'; c.beginPath(); c.arc(t.x, t.y, 122, 0, 7); c.fill();
-    c.strokeStyle = '#5d5a4f'; c.lineWidth = 1; for (let k = 20; k < 122; k += 14) { c.beginPath(); c.arc(t.x, t.y, k, 0, 7); c.stroke(); } for (let a = 0; a < 6.28; a += .26) { c.beginPath(); c.moveTo(t.x + Math.cos(a) * 20, t.y + Math.sin(a) * 20); c.lineTo(t.x + Math.cos(a) * 122, t.y + Math.sin(a) * 122); c.stroke(); }
-    c.strokeStyle = '#8b8778'; c.lineWidth = 4; c.beginPath(); c.arc(t.x, t.y, 122, 0, 7); c.stroke();
-    const tr = rng(strSeed(t.id));
-    for (let i = 0; i < 60; i++) { c.fillStyle = tr() < .5 ? '#5d6b3f88' : '#00000020'; c.beginPath(); c.ellipse(t.x + (tr() - .5) * 230, t.y + (tr() - .5) * 230, 3 + tr() * 10, 2 + tr() * 6, tr() * 3, 0, 7); c.fill(); }
-  });
   // Ruins of places of interest get a cracked yard.
   pois.forEach(p => { if (Math.abs(p.x - x0 - 256) > 600 || Math.abs(p.y - y0 - 256) > 600) return; const pr = rng(strSeed(p.id)); c.fillStyle = '#5e5b4d'; rr(c, p.x - 230, p.y - 170, 460, 340, 30); c.fill(); for (let i = 0; i < 60; i++) { c.fillStyle = pr() < .5 ? '#00000018' : '#4f603a88'; c.beginPath(); c.ellipse(p.x - 230 + pr() * 460, p.y - 170 + pr() * 340, 6 + pr() * 22, 4 + pr() * 12, 0, 0, 7); c.fill(); } c.strokeStyle = '#6d6252'; c.lineWidth = 2; c.setLineDash([6, 4]); c.strokeRect(p.x - 236, p.y - 176, 472, 352); c.setLineDash([]); });
   return { im, trees, waterPts };
@@ -249,26 +238,6 @@ function wreck(c, h, bus) {
   const m = Math.floor(h * 97) % cfg.cars.length, spec = cfg.cars[m]; S.car(c, { model: m, len: spec.len, wid: spec.wid, damage: h > .5 ? 2 : 1 });
 }
 function line(c, rd) { c.beginPath(); c.moveTo(rd.ax, rd.ay); c.lineTo(rd.bx, rd.by); c.stroke(); }
-
-/* ---------- settlement dressing that follows development ---------- */
-function townLevel(t) { return Object.values(t.levels).reduce((a, b) => a + b, 0); }
-function decor(t) {
-  const dev = Math.min(3, Math.floor(townLevel(t) / 7)), key = t.id + dev + (t.owner || 'n');
-  let d = townDecor.get(key); if (d) return d;
-  const im = canvas(1000, 900), c = im.getContext('2d'); c.translate(500, 450); const r = rng(strSeed(t.id) + dev * .1);
-  const lmk = cfg.landmarks[t.id];
-  const avoid = (x, y) => Math.hypot(x, y) < 140 || (lmk && Math.abs(x - lmk.x) < lmk.w / 2 + 30 && Math.abs(y - lmk.y) < lmk.h / 2 + 40) || Math.abs(x) < 42 || Math.abs(y) < 42 || (cfg.buildings_world.some(b => b.town === t.id && Math.abs(b.x - t.x - x) < b.w / 2 + 26 && Math.abs(b.y - t.y - y) < b.h / 2 + 40));
-  const spots = n => { const out = []; for (let i = 0; i < n * 6 && out.length < n; i++) { const x = (r() - .5) * 900, y = (r() - .5) * 800; if (!avoid(x, y)) out.push([x, y]); } return out; };
-  // Debris shrinks as the town is rebuilt; lamps, benches and gardens appear.
-  spots([26, 16, 8, 3][dev]).forEach(p => { for (let i = 0; i < 6; i++) { const s = 3 + r() * 6; c.fillStyle = ['#7a7466', '#8d8676', '#5f5a50', '#6d5444'][i % 4]; c.beginPath(); c.ellipse(p[0] + (r() - .5) * 30, p[1] + (r() - .5) * 20, s, s * .7, r(), 0, 7); c.fill(); } });
-  spots([10, 6, 2, 0][dev]).forEach(p => { c.fillStyle = '#2d2b26'; c.beginPath(); c.ellipse(p[0], p[1], 9, 6, 0, 0, 7); c.fill(); c.fillStyle = '#5e5a4c'; c.fillRect(p[0] - 6, p[1] - 3, 4, 3); c.fillStyle = '#a69e8a'; c.fillRect(p[0] + 2, p[1] - 1, 3, 2); });
-  spots([4, 3, 1, 0][dev]).forEach(p => { c.save(); c.translate(p[0], p[1]); c.rotate(r() * 6); wreck(c, r(), false); c.restore(); });
-  if (dev >= 1) spots(dev * 3).forEach(p => { c.fillStyle = '#5f4a35'; c.fillRect(p[0] - 10, p[1] - 2, 20, 4); c.fillStyle = '#3f3a33'; c.fillRect(p[0] - 9, p[1] + 2, 2, 3); c.fillRect(p[0] + 7, p[1] + 2, 2, 3); });
-  if (dev >= 2) spots(dev * 2).forEach(p => { c.fillStyle = '#4a3a29'; rr(c, p[0] - 12, p[1] - 6, 24, 12, 3); c.fill(); for (let i = 0; i < 8; i++) { c.fillStyle = ['#c86e5a', '#e2c86f', '#d79cb7', '#6f9a54'][i % 4]; c.beginPath(); c.arc(p[0] - 9 + r() * 18, p[1] - 4 + r() * 8, 1.6, 0, 7); c.fill(); } });
-  if (!t.owner && dev === 0) { c.fillStyle = '#8a3d2e'; c.fillRect(-120, 128, 26, 10); c.fillRect(100, -140, 20, 8); }
-  d = { im, dev }; townDecor.set(key, d); if (townDecor.size > 10) townDecor.delete(townDecor.keys().next().value); return d;
-}
-function lampsOf(t) { const out = []; if (!t.owner || t.levels.depot < 2) return out; const n = t.levels.depot >= 3 ? 8 : 4; for (let i = 0; i < n; i++) { const a = i / n * 6.28 + .4; out.push([t.x + Math.cos(a) * 138, t.y + Math.sin(a) * 138]); } return out; }
 
 /* ---------- particles ---------- */
 function puff(kind, x, y, vx, vy, life, size, color) { if (particles.length > (R.quality === 'low' ? 160 : 480)) particles.shift(); particles.push({ kind, x, y, vx, vy, life, max: life, size, color }); }
@@ -294,11 +263,11 @@ function effectsFrom(state, v) {
     if (seenEffects.has(e.id)) continue; seenEffects.add(e.id); if (seenEffects.size > 600) seenEffects.delete(seenEffects.values().next().value);
     const near = Math.hypot(e.x - v.cam.x, e.y - v.cam.y);
     if (e.kind === 'boom') { for (let i = 0; i < 24; i++) { const a = Math.random() * 6.28, s = 40 + Math.random() * 160; puff('flame', e.x, e.y, Math.cos(a) * s * .4, Math.sin(a) * s * .4, .6 + Math.random() * .4, 14 + Math.random() * 10); puff('debris', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, .9, 2, '#2d2b27'); puff('smoke', e.x, e.y, Math.cos(a) * 20, Math.sin(a) * 20 - 10, 2.5, 10, '#3d3a36'); } if (R.onSound) R.onSound('boom', near); }
-    else if (e.kind === 'levelup') { for (let i = 0; i < 36; i++) { const a = i / 36 * 6.28; puff('spark', e.x, e.y, Math.cos(a) * 140, Math.sin(a) * 140, .8, 1); puff('flame', e.x + Math.cos(a) * 20, e.y + Math.sin(a) * 20, Math.cos(a) * 30, Math.sin(a) * 30 - 20, .7, 5, null); } if (R.onSound && v.state && e.player === v.state.me.id) R.onSound('levelup', 0); }
     else if (e.kind === 'fall') { for (let i = 0; i < 8; i++) puff('blood', e.x + (Math.random() - .5) * 10, e.y + (Math.random() - .5) * 10, 0, 0, 30, 2 + Math.random() * 3); }
     else if (e.kind === 'bite') { for (let i = 0; i < 6; i++) puff('blood', e.ex + (Math.random() - .5) * 16, e.ey + (Math.random() - .5) * 16, 0, 0, 12, 1.5 + Math.random() * 2); if (R.onSound) R.onSound('bite', near); }
     else if (e.kind === 'crash') { const k = e.power || .3; for (let i = 0; i < 6 + k * 14; i++) { const a = Math.random() * 6.28, s = 60 + Math.random() * 140; puff('spark', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, .35, 1); puff('debris', e.x, e.y, Math.cos(a) * s * .6, Math.sin(a) * s * .6, .8, 2, i % 2 ? '#3d3a35' : '#8a9496'); } puff('dust', e.x, e.y, 0, 0, 1, 14, '#8d8673'); if (R.onSound) R.onSound('crash', near); }
     else if (e.kind === 'acid') { for (let i = 0; i < 8; i++) puff('smoke', e.ex, e.ey, (Math.random() - .5) * 40, (Math.random() - .5) * 40, .8, 5, '#9cc23e'); if (R.onSound) R.onSound('acid', near); }
+    else if (e.kind === 'swing') { if (R.onSound) R.onSound('swing', near); }
     else { puff('smoke', e.x, e.y, (Math.random() - .5) * 10, -8, .6, 3, '#a8a69a'); for (let i = 0; i < 4; i++) puff('spark', e.ex, e.ey, (Math.random() - .5) * 120, (Math.random() - .5) * 120, .25, 1); puff('dust', e.ex, e.ey, 0, 0, .5, 5, '#8d8673'); if (R.onSound) R.onSound(e.kind === 'tower' ? 'tower' : 'shot' + (e.weapon || 0), near); }
   }
 }
@@ -330,17 +299,12 @@ R.draw = function (c, v) {
   // Animated water glints.
   c.strokeStyle = '#b8d4d633'; c.lineWidth = 1;
   visibleChunks.forEach(k => k.waterPts.forEach(p => { const s = Math.sin(now * 1.3 + p[2] * 20); if (s > .3) { c.beginPath(); c.moveTo(p[0] + s * 6, p[1]); c.lineTo(p[0] + s * 6 + 14, p[1]); c.stroke(); } }));
-  const towns2 = state ? state.towns : null;
-  // Settlement dressing and squares.
-  cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 520)) return; const t = towns2 ? Object.assign({}, t0, towns2[t0.id]) : t0; if (!t.levels) return; const d = decor(t); c.drawImage(d.im, t.x - 500, t.y - 450); drawSquare(c, t, v); });
   drawParticles(c, 'low');
-  // Depth-sorted scene: buildings, ruins, nodes, posts, vehicles, people.
+  // Depth-sorted scene: ruins, nodes, loot, cars, people, infected.
   const items = [];
-  cfg.buildings_world.forEach(b => { if (!vis(b.x, b.y, 200)) return; const t = towns2 ? towns2[b.town] : null; items.push({ y: b.y + b.h / 2, f: () => drawBuilding(c, b, t, v) }); });
-  cfg.towns.forEach(t => { const lm = cfg.landmarks[t.id]; if (!lm || !vis(t.x + lm.x, t.y + lm.y, 260)) return; items.push({ y: t.y + lm.y + lm.h / 2, f: () => { const sp = S.landmark(t.id, lm.w, lm.h); c.drawImage(sp.im, t.x + lm.x - sp.ox, t.y + lm.y - sp.oy); } }); });
-  pois.forEach(p => { if (!vis(p.x, p.y, 420)) return; p.parts.forEach((part, i) => items.push({ y: part.y + part.h / 2, f: () => { const sp = S.ruin(part.sprite, part.w, part.h, strSeed(p.id) + i * .13); c.drawImage(sp.im, part.x - sp.ox, part.y - sp.oy); } })); items.push({ y: p.y + 10, f: () => drawCache(c, p, state, v) }); });
+  pois.forEach(p => { if (!vis(p.x, p.y, 900)) return; p.parts.forEach((part, i) => { if (!vis(part.x, part.y, Math.max(part.w, part.h))) return; const flat = part.sprite === 'runway' || part.sprite === 'pump'; items.push({ y: flat ? -1e9 + part.y : part.y + part.h / 2, f: () => { const sp = S.ruin(part.sprite, part.w, part.h, strSeed(p.id) + i * .13); c.drawImage(sp.im, part.x - sp.ox, part.y - sp.oy); } }); }); });
   const gx0 = Math.floor((cam.x - cw / 2 - 100) / 1000), gx1 = Math.floor((cam.x + cw / 2 + 100) / 1000), gy0 = Math.floor((cam.y - ch / 2 - 100) / 1000), gy1 = Math.floor((cam.y + ch / 2 + 100) / 1000);
-  for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) (nodeGrid.get(gx + ',' + gy) || []).forEach(n => { if (!vis(n.x, n.y, 60) || (state && state.harvested && state.harvested[n.id] > state.time)) return; items.push({ y: n.y, f: () => { const sp = S.node(n.kind, Math.floor(hash(n.x, n.y) * 3)); c.drawImage(sp.im, n.x - sp.ox, n.y - sp.oy); if (v.nearest && v.nearest.obj === n) { c.strokeStyle = '#e7ae6b'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(n.x, n.y + 8, 30, 15, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
+  for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) (nodeGrid.get(gx + ',' + gy) || []).forEach(n => { if (!vis(n.x, n.y, 60) || (state && state.harvested && state.harvested[n.id] > state.time)) return; items.push({ y: n.y, f: () => { const sp = S.node(n.kind, Math.floor(hash(n.x, n.y) * 3)); c.drawImage(sp.im, n.x - sp.ox, n.y - sp.oy); if (v.nearest && v.nearest.obj === n) ring(c, n.x, n.y + 8, 30, 15); } }); });
   if (state) {
     // Houses: floors go under everyone, roofs sort with the scene by their south edge.
     const hx0 = Math.floor((cam.x - cw / 2 - 300) / 1000), hx1 = Math.floor((cam.x + cw / 2 + 300) / 1000), hy0 = Math.floor((cam.y - ch / 2 - 300) / 1000), hy1 = Math.floor((cam.y + ch / 2 + 300) / 1000);
@@ -350,36 +314,29 @@ R.draw = function (c, v) {
       Object.keys(camp.fence).forEach(k => { const piece = camp.fence[k]; items.push({ y: piece.y + piece.h / 2, f: () => drawFence(c, piece, camp, v) }); });
       Object.keys(camp.parts).forEach(k => { const part = camp.parts[k]; const house = camp.house; items.push({ y: house ? part.y - 400 : part.y, f: () => drawCampPart(c, k, part, camp, v) }); });
     });
+    // Things on the ground lie under feet and under roofs (a roof hides what is inside until you step in).
+    (state.loot || []).forEach(l => { if (!vis(l.x, l.y, 30)) return; items.push({ y: l.y - 30, f: () => drawLoot(c, l, v) }); });
     (state.bodies || []).forEach(b => { if (vis(b.x, b.y)) items.push({ y: b.y - 20, f: () => drawBody(c, b, v) }); });
-    (cfg.givers || []).forEach(g => { if (!vis(g.x, g.y)) return; items.push({ y: g.y, f: () => { const st = giverAnim(g, v); c.save(); c.translate(g.x, g.y); c.rotate(st.ang); S.giver(c, { art: g.art, look: g.look, time: now + g.x, gesture: st.gesture }); c.restore(); if (v.nearest && v.nearest.obj === g) { c.strokeStyle = '#d9b27a'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(g.x, g.y + 6, 26, 14, 0, 0, 7); c.stroke(); c.setLineDash([]); } } }); });
-    (state.posts || []).forEach(p => { if (vis(p.x, p.y)) items.push({ y: p.y, f: () => drawPost(c, p, now) }); });
-    (state.airdrops || []).forEach(d => { if (vis(d.x, d.y)) items.push({ y: d.y, f: () => drawDrop(c, d, now) }); });
     drawSkids(c, now, vis);
+    const drawCars = v.drawCars || {};
+    (state.cars || []).forEach(car => {
+      const r = drawCars[car.id], at = r ? Object.assign({}, car, { x: r.x, y: r.y, angle: r.ang != null ? r.ang : car.angle }) : car;
+      if (!vis(at.x, at.y)) return;
+      const road = R.onRoad(at.x, at.y, RW / 2 + 10) || R.inTown(at.x, at.y), snow = R.coldAt(at.x, at.y) >= 2;
+      items.push({ y: at.y, f: () => drawCar(c, at, r, now, dt, { damage: car.wrecked ? 2 : car.hp < 50 ? 1 : 0, engine: !!car.driver && !car.wrecked, door: (r && r.door) || 0, road, snow }) });
+      if (v.carNear && v.carNear.car.id === car.id && !v.nearest) items.push({ y: at.y + 1, f: () => ring(c, at.x, at.y, carSpec(car).len * .62, carSpec(car).wid * .8) });
+    });
     state.players.forEach(p => {
       const r = v.drawPlayers[p.id]; if (!r) return;
-      if (r.inCar !== p.vehicle) {
-        if (r.inCar != null) { r.carAt = now; r.carFrom = { x: r.footX != null ? r.footX : r.x, y: r.footY != null ? r.footY : r.y }; }
-        if (p.vehicle) r.rideId = p.ride || null; else r.leftRide = r.rideId;
-        r.inCar = p.vehicle;
-      }
+      if (p.vehicle) r.carId = p.car;
+      if (r.inCar !== p.vehicle) { if (r.inCar != null) { r.carAt = now; r.carFrom = { x: r.footX != null ? r.footX : r.x, y: r.footY != null ? r.footY : r.y }; } r.inCar = p.vehicle; }
       if (!p.vehicle) { r.footX = r.x; r.footY = r.y; }
-      const since = r.carAt ? now - r.carAt : 99, spec = carSpec(p.car), own = p.vehicle && !p.ride;
-      const entering = p.vehicle && since < ENTER_TIME, leaving = !p.vehicle && since < EXIT_TIME;
-      // Riding along: the animation plays at the driver's car, the own car stays parked.
-      const rideId = p.vehicle ? r.rideId : r.leftRide;
-      // While someone gets in, the car stays put where it was parked.
-      const car = Object.assign({}, p.car, own && !entering ? { x: r.x, y: r.y, angle: r.ang != null ? r.ang : p.car.angle } : {});
-      const door = rideId ? 0 : entering ? Math.sin(Math.min(1, Math.max(0, (since - .12) / (ENTER_TIME - .12))) * Math.PI) : leaving ? Math.sin(Math.min(1, since / EXIT_TIME) * Math.PI) : 0;
-      const road = R.onRoad(car.x, car.y, RW / 2 + 10) || R.inTown(car.x, car.y), snow = R.coldAt(car.x, car.y) >= 2;
-      if (vis(car.x, car.y)) items.push({ y: car.y, f: () => drawCar(c, car, r, now, dt, { damage: p.car.wrecked_until > state.time ? 2 : p.car.hp < 50 ? 1 : 0, engine: own && !entering && p.hp > 0, door, road, snow }) });
-      if (!r.bnT || now - r.bnT > .5) { r.bnT = now; r.buildNear = !p.vehicle && cfg.buildings_world.some(b => Math.abs(b.x - r.x) < 230 && Math.abs(b.y - r.y) < 230 && towns2 && towns2[b.town] && towns2[b.town].owner === p.faction && towns2[b.town].construct && towns2[b.town].construct[b.kind]); }
+      const since = r.carAt ? now - r.carAt : 99, entering = p.vehicle && since < ENTER_TIME, leaving = !p.vehicle && since < EXIT_TIME;
       if (entering || leaving) {
-        let acar = car, aspec = spec, sideSign = 1;
-        if (rideId) {
-          const d = state.players.find(q => q.id === rideId), dr = d && v.drawPlayers[d.id];
-          if (d) { acar = d.vehicle && !d.ride && dr ? Object.assign({}, d.car, { x: dr.x, y: dr.y, angle: dr.ang != null ? dr.ang : d.car.angle }) : d.car; aspec = carSpec(d.car); sideSign = -1; }
-        }
+        const car = (state.cars || []).find(k => k.id === r.carId), dr = car && drawCars[car.id]; if (!car) return;
+        const acar = Object.assign({}, car, dr ? { x: dr.x, y: dr.y, angle: dr.ang != null ? dr.ang : car.angle } : {}), aspec = carSpec(car), sideSign = p.seat === 'passenger' || (leaving && car.driver && car.driver !== p.id) ? -1 : 1;
         const out = doorSpot(acar, aspec, false, sideSign), seat = doorSpot(acar, aspec, true, sideSign);
+        if (dr && sideSign > 0) dr.door = entering ? Math.sin(Math.min(1, Math.max(0, (since - .12) / (ENTER_TIME - .12))) * Math.PI) : Math.sin(Math.min(1, since / EXIT_TIME) * Math.PI);
         let pos, alpha = 1, face = acar.angle, walk = false;
         if (entering) {
           const k1 = Math.min(1, since / .25), k2 = Math.max(0, (since - .25) / (ENTER_TIME - .25)), from = r.carFrom || out;
@@ -390,11 +347,13 @@ R.draw = function (c, v) {
           pos = { x: seat.x + (out.x - seat.x) * k, y: seat.y + (out.y - seat.y) * k }; alpha = since < .12 ? 0 : Math.min(1, k * 1.6); face = acar.angle - sideSign * (Math.PI / 2 * (1 - k) + .3 * k);
         }
         if (alpha > .02) items.push({ y: acar.y + 1, f: () => { c.save(); c.globalAlpha = alpha; c.translate(pos.x, pos.y); c.rotate(face); S.figure(c, { player: true, tint: col(p.faction), size: 38, phase: walk ? now * 7 : 0, speed: walk ? 1 : 0, weapon: p.gear ? p.gear.weapon : 0, time: now }); c.restore(); } });
-      } else if (!p.vehicle && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
+      } else {
+        const dr = r.carId && drawCars[r.carId]; if (dr) dr.door = 0;
+        if (!p.vehicle && vis(r.x, r.y)) items.push({ y: r.y, f: () => drawPlayer(c, p, r, v) });
+      }
     });
     (state.npcs || []).forEach(n => { const r = v.drawNpcs[n.id] || n; if (!vis(r.x, r.y)) return; items.push({ y: r.y, f: () => drawNpc(c, n, r, v) }); });
-    cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 500)) return; civilians(t0, towns2 && towns2[t0.id], now, v).forEach(cv => items.push({ y: cv.y, f: () => { c.save(); c.translate(cv.x, cv.y); c.rotate(cv.a); S.look(c, { look: SNOWY[biomeAt(t0.x, t0.y)] && cv.seed > .5 ? 15 : CIVIL_LOOKS[Math.floor(cv.seed * 5)], phase: now * 7 + cv.seed * 9, moving: cv.moving, weapon: 0, size: 34 }); c.restore(); } })); });
-  } else { items.push({ y: 5225, f: () => drawCar(c, { x: 7390, y: 5225, angle: -.4, model: 3 }, null, now, dt, {}) }); }
+  } else { items.push({ y: 0, f: () => drawCar(c, { x: cam.x + 90, y: cam.y + 25, angle: -.4, model: 3 }, null, now, dt, {}) }); }
   items.sort((a, b) => a.y - b.y).forEach(i => i.f());
   // Tracers.
   if (state) state.effects.forEach(e => { if (e.kind !== 'shot' && e.kind !== 'tower' && e.kind !== 'acid') return; const k = Math.max(0, (e.until - state.time) / .22); if (e.kind === 'acid') { c.strokeStyle = '#b9e04a' + Math.floor(Math.min(1, k) * 200).toString(16).padStart(2, '0'); c.lineWidth = 4; c.setLineDash([4, 6]); c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); c.setLineDash([]); return; } c.strokeStyle = (e.kind === 'tower' ? '#ffcf7a' : '#f8e3a8') + Math.floor(k * 220).toString(16).padStart(2, '0'); c.lineWidth = 1.6; c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.ex, e.ey); c.stroke(); });
@@ -412,65 +371,18 @@ R.draw = function (c, v) {
   if (state) { lights(c, v, vis); weather(c, v, dt, now); }
 };
 
-function drawSquare(c, t, v) {
-  const color = col(t.owner);
-  c.save(); c.translate(t.x, t.y);
-  if (t.capture) { const cp = t.capture; c.fillStyle = col(cp.faction) + '1e'; c.beginPath(); c.arc(0, 0, 160, 0, 7); c.fill(); c.strokeStyle = cp.contested ? '#e0805f' : col(cp.faction); c.lineWidth = 5; c.beginPath(); c.arc(0, 0, 160, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, Math.min(1, cp.progress / 30))); c.stroke(); c.strokeStyle = '#ffffff22'; c.lineWidth = 1; c.setLineDash([6, 8]); c.beginPath(); c.arc(0, 0, 160, 0, 7); c.stroke(); c.setLineDash([]); }
-  // Monument plinth and flagpole.
-  c.fillStyle = '#00000040'; c.fillRect(-12, -8, 30, 26); c.fillStyle = '#8c887a'; c.fillRect(-16, -14, 32, 28); c.fillStyle = '#a19c8c'; c.fillRect(-16, -14, 32, 5);
-  c.strokeStyle = '#00000044'; c.lineWidth = 3; c.beginPath(); c.moveTo(2, 0); c.lineTo(46, 22); c.stroke();
-  c.strokeStyle = '#c9c4ae'; c.lineWidth = 3; c.beginPath(); c.moveTo(0, 2); c.lineTo(0, -64); c.stroke();
-  const wave = Math.sin(v.now * 3 + t.x) * 3; c.fillStyle = color; c.beginPath(); c.moveTo(2, -62); c.quadraticCurveTo(18, -66 + wave, 36, -58 + wave); c.lineTo(34, -36 + wave * .6); c.quadraticCurveTo(18, -42 - wave, 2, -38); c.closePath(); c.fill(); c.fillStyle = '#ffffff22'; c.fillRect(2, -62, 30, 3);
-  // Evening campfire in held settlements.
-  if (t.owner) { c.fillStyle = '#3b3631'; c.beginPath(); c.arc(60, 46, 11, 0, 7); c.fill(); c.fillStyle = '#5a4a38'; c.fillRect(52, 44, 16, 3); c.fillRect(58, 38, 3, 16); if (v.dark > .3 && Math.random() < .5) puff('flame', 60 + (Math.random() - .5) * 6, 44, 0, -14, .5, 6 + Math.random() * 3); }
-  if (t.event_ready && v.state) { c.fillStyle = '#d6b86d'; c.beginPath(); c.arc(64, -40, 12 + Math.sin(v.now * 4) * 1.2, 0, 7); c.fill(); c.fillStyle = '#253426'; c.font = 'bold 15px Segoe UI'; c.textAlign = 'center'; c.fillText('?', 64, -35); }
+function ring(c, x, y, rx, ry) { c.strokeStyle = '#e7ae6b'; c.lineWidth = 1.2; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, 7); c.stroke(); c.setLineDash([]); }
+// A thing on the ground: its icon, a faint glint so it can be found, a ring when it is the nearest.
+function drawLoot(c, l, v) {
+  const near = v.nearest && v.nearest.type === 'loot' && v.nearest.obj.id === l.id, big = /^w_/.test(l.item) || (cfg.items[l.item] && cfg.items[l.item].gear);
+  const size = big ? 34 : 24, a = strSeed(l.id) * 6.28;
+  c.save(); c.translate(l.x, l.y); c.rotate(big ? a * .3 - .3 : a * .15);
+  c.fillStyle = '#0a0f0b44'; c.beginPath(); c.ellipse(2, 3, size * .42, size * .3, 0, 0, 7); c.fill();
+  S.lootIcon(c, l.item, size);
   c.restore();
-}
-function drawBuilding(c, b, t, v) {
-  const level = t ? t.levels[b.kind] : (['depot', 'house'].includes(b.kind) && b.town === 'shabrovsky' ? 1 : 0), owner = t ? t.owner : null;
-  const sp = S.building(b.kind, level, owner ? col(owner) : null, b.w, b.h); c.drawImage(sp.im, b.x - sp.ox, b.y - sp.oy);
-  const con = t && t.construct && t.construct[b.kind];
-  if (con) {
-    c.save(); c.translate(b.x, b.y); c.strokeStyle = '#c99a5c'; c.lineWidth = 2; c.strokeRect(-b.w / 2 - 6, -b.h / 2 - 6, b.w + 12, b.h + 12); c.lineWidth = 1; for (let i = -b.w / 2; i < b.w / 2; i += 14) { c.beginPath(); c.moveTo(i, -b.h / 2 - 6); c.lineTo(i + 8, b.h / 2 + 6); c.stroke(); }
-    c.fillStyle = '#16201ccc'; rr(c, -40, b.h / 2 + 14, 80, 8, 3); c.fill(); c.fillStyle = '#e7a568'; rr(c, -39, b.h / 2 + 15, 78 * Math.min(1, con.progress / con.total), 6, 3); c.fill();
-    if (Math.random() < .2) puff('spark', b.x + (Math.random() - .5) * b.w, b.y + (Math.random() - .5) * b.h, (Math.random() - .5) * 60, -40, .3, 1);
-    c.restore();
-  }
-  if (v.nearest && v.nearest.obj === b && !v.panel) { c.strokeStyle = '#e7b273'; c.lineWidth = 1.5; c.setLineDash([5, 5]); c.strokeRect(b.x - b.w / 2 - 9, b.y - b.h / 2 - 12, b.w + 18, b.h + 28); c.setLineDash([]); }
-}
-function drawCache(c, p, state, v) {
-  const looted = state && state.loot && state.loot[p.id];
-  c.save(); c.translate(p.x, p.y + 10);
-  c.fillStyle = '#00000044'; c.fillRect(-14, -6, 32, 22); c.fillStyle = looted ? '#5a5244' : '#6b7d55'; c.fillRect(-16, -10, 32, 20); c.strokeStyle = '#2e3328'; c.lineWidth = 1.5; c.strokeRect(-16, -10, 32, 20); c.fillStyle = looted ? '#3a352c' : '#c9b46a'; c.fillRect(-3, -3, 6, 5);
-  if (!looted) { c.strokeStyle = '#e7c27a' + (Math.floor(120 + Math.sin(v.now * 3) * 80)).toString(16); c.lineWidth = 1.2; c.beginPath(); c.arc(0, 0, 26, 0, 7); c.stroke(); }
-  c.restore();
-}
-function drawPost(c, p, now) {
-  c.save(); c.translate(p.x, p.y); const col = col(p.faction);
-  c.fillStyle = '#00000044'; c.beginPath(); c.ellipse(8, 8, 40, 26, 0, 0, 7); c.fill();
-  for (let a = 0; a < 6.28; a += .45) { c.fillStyle = (a * 10 | 0) % 2 ? '#a39470' : '#958763'; rr(c, Math.cos(a) * 30 - 5, Math.sin(a) * 22 - 3, 10, 6, 3); c.fill(); }
-  c.fillStyle = '#5b4a35'; c.fillRect(-12, -10, 24, 20); c.fillStyle = col; c.fillRect(-12, -10, 24, 4);
-  if (true) { c.fillStyle = '#d7d1bd'; c.fillRect(-46, -2, 34, 4); c.fillStyle = '#b8483c'; for (let i = 0; i < 4; i++) c.fillRect(-44 + i * 9, -2, 4, 4); }
-  else { c.fillStyle = '#e8e3d0'; c.fillRect(-4, -6, 8, 3); c.fillRect(-1.5, -9, 3, 9); }
-  c.strokeStyle = '#c9c4ae'; c.lineWidth = 2; c.beginPath(); c.moveTo(10, -6); c.lineTo(10, -36); c.stroke(); c.fillStyle = col; c.beginPath(); c.moveTo(11, -36); c.lineTo(26, -32 + Math.sin(now * 3) * 2); c.lineTo(11, -26); c.fill();
-  c.fillStyle = '#16201ccc'; c.fillRect(-20, 26, 40, 4); c.fillStyle = col; c.fillRect(-20, 26, 40 * Math.max(0, p.hp) / 220, 4);
-  c.restore();
-}
-function drawDrop(c, d, now) {
-  c.save(); c.translate(d.x, d.y); c.fillStyle = '#00000044'; c.fillRect(-10, -6, 30, 22);
-  c.fillStyle = '#d8d3c0aa'; c.beginPath(); c.moveTo(-30, -18); c.quadraticCurveTo(-10, -40, 20, -26); c.quadraticCurveTo(28, -8, 34, 4); c.lineTo(-24, 0); c.closePath(); c.fill(); c.fillStyle = '#c45a3a88'; c.fillRect(-20, -22, 30, 4);
-  crateDraw(c); c.strokeStyle = '#ffd38a' + Math.floor(140 + Math.sin(now * 4) * 100).toString(16).padStart(2, '0'); c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, 30, 0, 7); c.stroke(); c.restore();
-}
-function crateDraw(c) { c.fillStyle = '#6b7d55'; c.fillRect(-12, -10, 24, 20); c.strokeStyle = '#2e3328'; c.strokeRect(-12, -10, 24, 20); c.beginPath(); c.moveTo(-12, -10); c.lineTo(12, 10); c.stroke(); }
-// People on the squares turn to whoever comes close and talk with their hands during a conversation.
-const giverState = new Map();
-function giverAnim(g, v) {
-  let st = giverState.get(g.id); if (!st) giverState.set(g.id, st = { ang: Math.PI / 2, gesture: 0 });
-  const me = v.state && v.drawPlayers[v.state.me.id];
-  const target = me && Math.hypot(me.x - g.x, me.y - g.y) < 260 ? Math.atan2(me.y - g.y, me.x - g.x) : Math.PI / 2 + Math.sin(v.now * .25 + g.x) * .5;
-  let da = target - st.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); st.ang += da * Math.min(1, v.dt * 3);
-  st.gesture += ((v.talkTo === g.id ? 1 : 0) - st.gesture) * Math.min(1, v.dt * 4);
-  return st;
+  const g = .5 + .5 * Math.sin(v.now * 2.2 + a);
+  if (g > .93) { c.fillStyle = '#fff6d8' + Math.floor((g - .93) / .07 * 200).toString(16).padStart(2, '0'); c.fillRect(l.x - 1, l.y - size * .3, 2, 2); }
+  if (near) ring(c, l.x, l.y + 2, size * .7, size * .5);
 }
 // Tyre marks left by skids and hard braking; they fade over half a minute.
 const skids = [];
@@ -565,35 +477,31 @@ function drawPlayer(c, p, r, v) {
   if (isMe && p.reload > t) { const wd = cfgWeapons()[w], k = 1 - (p.reload - t) / ((r.actKind === 'swap' ? .5 : wd.reload) || 1); c.strokeStyle = '#d9cfae'; c.lineWidth = 2; c.beginPath(); c.arc(r.x, r.y, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, Math.min(1, k))); c.stroke(); }
 }
 function cfgWeapons() { return cfg.weapons || []; }
-const CREATURES = { wolf: 1, bear: 1, boar: 1, elk: 1, mutant: 1, spitter: 1, brute: 1 };
+const CREATURES = { wolf: 1, bear: 1, boar: 1, elk: 1 };
+// Which of the three looks an infected wears: soldiers in olive, some civilians in workers' orange.
+function infLook(n) { return n.type === 'infected_soldier' ? 'military' : (n.look || 0) % 3 === 1 ? 'worker' : 'civil'; }
+const INF_ATTACKS = ['attack_swipe', 'attack_lunge', 'attack_grab'];
 function drawNpc(c, n, r, v) {
+  const t = v.state.time, a = animState(r, n, v.now, v.dt, 0), dead = n.hp <= 0;
   if (CREATURES[n.type]) {
-    const t = v.state.time, a = animState(r, n, v.now, v.dt, 0), dead = n.hp <= 0;
     // Predators lunge and pull back; the bite lands at the far point.
-    const lunge = r.shotAt ? Math.sin(Math.min(1, (v.now - r.shotAt) / .32) * Math.PI) * (n.type === 'wolf' ? 10 : n.type === 'bear' || n.type === 'brute' ? 7 : 6) : 0;
+    const lunge = r.shotAt ? Math.sin(Math.min(1, (v.now - r.shotAt) / .32) * Math.PI) * (n.type === 'wolf' ? 10 : n.type === 'bear' ? 7 : 6) : 0;
     c.save(); c.translate(r.x, r.y); c.rotate(r.ang != null ? r.ang : n.angle); if (a.hit) c.translate(-a.hit * 3, 0);
     S.creature(c, { type: n.type, phase: (r.phase || 0) * (n.type === 'elk' || n.type === 'wolf' ? 1.4 : 1), moving: r.moving, attack: t - n.shot < .25, lunge, dead: a.dead });
     c.restore();
-    if (!dead && n.hp < n.max) bar(c, r.x, r.y + (n.type === 'bear' || n.type === 'brute' ? 34 : 24), n.hp / n.max, n.faction === 'mutants' ? '#a7c46a' : '#c9a36a');
+    if (!dead && n.hp < n.max) bar(c, r.x, r.y + (n.type === 'bear' ? 34 : 24), n.hp / n.max, '#c9a36a');
     return;
   }
-  if (n.type === 'convoy') {
-    const sp = S.vehicle('truck', mix(col(n.faction), '#3d4236', .45), n.hp < n.max * .4 ? 1 : 0);
-    c.save(); c.translate(r.x, r.y); c.rotate(r.ang != null ? r.ang : n.angle); c.drawImage(sp.im, -sp.ox, -sp.oy); c.restore();
-    if (Math.random() < .4) puff('dust', r.x - Math.cos(n.angle) * 50, r.y - Math.sin(n.angle) * 50, 0, 0, .9, 7, '#9d927a');
-    bar(c, r.x, r.y + 30, n.hp / n.max, col(n.faction)); return;
-  }
-  const t = v.state.time, now = v.now, a = animState(r, n, now, v.dt, n.mode === 'fight' ? 1 : 0);
-  const look = n.look != null ? n.look : ({ marauder: 0, raider: 19, ranger: 7, militia: 6 })[n.type] || 0, w = NPC_WEAPON[n.type] || 0;
-  ejectShell(r, r.ang != null ? r.ang : n.angle, w);
-  c.save(); c.translate(r.x, r.y); c.rotate(r.ang != null ? r.ang : n.angle);
-  S.figure(c, { look, weapon: w, size: n.type === 'guardian' ? 42 : 38, phase: r.phase || 0, speed: r.moving ? (r.sp > 150 ? 2 : 1) : 0, aim: r.aimK, kick: a.kick, kickLen: KICK[w], flash: t - n.shot < .07, hit: a.hit, dead: a.dead, time: now });
+  // The infected: shuffling, running at you, swiping; they fall the way the blow sends them.
+  const attackT = v.now - (r.shotAt || -9), seed = strSeed(n.id);
+  const anim = attackT < .6 ? INF_ATTACKS[Math.floor((seed * 7 + (r.shells || 0)) % 3)] : r.moving ? (n.run || r.sp > 120 ? 'run' : 'walk') : 'idle';
+  if (r.shells) r.shells = 0;
+  c.save(); c.translate(r.x, r.y); c.rotate(a.dead ? (r.deadAng != null ? r.deadAng : (r.deadAng = r.ang || n.angle)) : (r.ang != null ? r.ang : n.angle)); if (a.hit) c.translate(-a.hit * 4, 0);
+  if (!S.infected(c, { anim, t: anim === 'idle' ? v.now + seed * 5 : attackT, phase: (r.phase || 0) * (anim === 'run' ? .8 : 1.1), look: infLook(n), size: n.type === 'infected_soldier' ? 40 : 38, dead: a.dead, fall: seed > .5 ? 'front' : 'back' }))
+    S.figure(c, { look: n.look || 0, size: 38, phase: r.phase || 0, speed: r.moving ? 1 : 0, hit: a.hit, dead: a.dead, time: v.now });
   c.restore();
-  if (!a.dead && n.hp < n.max) bar(c, r.x, r.y + 24, n.hp / n.max, MONSTER[n.faction] ? '#b07a52' : col(n.faction));
+  if (!dead && n.hp < n.max) bar(c, r.x, r.y + 24, n.hp / n.max, '#b07a52');
 }
-const CIVIL_LOOKS = [0, 18, 5, 0, 18];
-const NPC_WEAPON = { marauder: 0, occupier: 1, occupier_elite: 2, defender: 2, guardian: 6, bandit: 3, raider: 2, ranger: 4, militia: 1 };
-const MONSTER = { marauders: 1, outlaws: 1 };
 /* ---------- abandoned houses: walls with a doorway, a floor, and a roof that clears when you step in ---------- */
 const houseCache = new Map();
 function houseWalls(h) {
@@ -688,9 +596,9 @@ function drawBody(c, b, v) {
     if (fade <= 0) return;
     c.save(); c.globalAlpha = fade; c.translate(b.x, b.y); c.rotate(n.angle || 0);
     if (CREATURES[n.type]) S.creature(c, { type: n.type, phase: 0, moving: false, dead: 1 });
-    else S.figure(c, { look: n.look != null ? n.look : ({ marauder: 0, raider: 19, ranger: 7, militia: 6 })[n.type] || 0, weapon: NPC_WEAPON[n.type] || 0, size: 38, dead: 1, time: 0 });
+    else if (!S.infected(c, { look: infLook(n), size: 38, dead: 1, fall: strSeed(b.id.slice(1)) > .5 ? 'front' : 'back' })) S.figure(c, { look: n.look || 0, size: 38, dead: 1, time: 0 });
     c.restore();
-    if (Object.keys(b.items).length || b.coins) { c.fillStyle = '#5b4a33'; rr(c, b.x + 12, b.y + 6, 10, 8, 2); c.fill(); }
+    if (Object.keys(b.items).length) { c.fillStyle = '#5b4a33'; rr(c, b.x + 12, b.y + 6, 10, 8, 2); c.fill(); }
     return;
   }
   c.save(); c.translate(b.x, b.y); c.rotate(strSeed(b.id) * 6);
@@ -700,42 +608,20 @@ function drawBody(c, b, v) {
 }
 function bar(c, x, y, k, col) { c.fillStyle = '#18271fcc'; c.fillRect(x - 18, y, 36, 4); c.fillStyle = col; c.fillRect(x - 18, y, 36 * Math.max(0, k), 4); }
 
-function civilians(t0, t, now, v) {
-  if (!t) return [];
-  const n = t.owner ? Math.min(10, 2 + Math.floor((t.population || 0) / 4)) : 2;
-  const night = v.dark > .5, out = [];
-  for (let i = 0; i < n; i++) {
-    const seed = hash(i, t0.x), speed = 18 + seed * 14, ring = 150 + hash(t0.y, i) * 160;
-    if (night && i % 3) { const a = i * 1.3; out.push({ x: t0.x + 60 + Math.cos(a) * 24, y: t0.y + 46 + Math.sin(a) * 18, a: a + Math.PI, moving: false, seed }); continue; }
-    const per = ring * 6.28 / speed, ph = ((now + seed * 100) % per) / per * 6.28 * (i % 2 ? 1 : -1);
-    const x = t0.x + Math.cos(ph) * ring, y = t0.y + Math.sin(ph) * ring * .8;
-    const a = ph + (i % 2 ? Math.PI / 2 : -Math.PI / 2);
-    out.push({ x, y, a, moving: true, seed });
-  }
-  return out;
-}
 function emitters(c, state, v, dt, vis) {
   const rate = R.quality === 'low' ? .3 : 1;
-  cfg.buildings_world.forEach(b => {
-    if (!vis(b.x, b.y, 300)) return; const t = state.towns[b.town]; if (!t) return;
-    if (t.fires && t.fires[b.kind]) { for (let i = 0; i < 2 * rate; i++) puff('flame', b.x + (Math.random() - .5) * b.w * .8, b.y + (Math.random() - .5) * b.h * .6, (Math.random() - .5) * 10, -30 - Math.random() * 30, .7, 10 + Math.random() * 10); if (Math.random() < .5 * rate) puff('smoke', b.x + (Math.random() - .5) * b.w * .5, b.y - b.h * .3, 8, -26, 3, 10, '#2f2c28'); }
-    else if (t.owner && t.active && t.active[b.kind] && Math.random() < dt * 2.2 * rate) puff('smoke', b.x + b.w * .3, b.y - b.h * .4, 6, -18, 3.2, 4, '#a9a69c');
-    else if (!t.owner && t.levels[b.kind] === 0 && hash(b.x, 1) > .8 && Math.random() < dt * 1.5 * rate) puff('smoke', b.x, b.y - 10, 4, -14, 3, 4, '#55524a');
-  });
   pois.forEach(p => { if (!vis(p.x, p.y, 300)) return; p.parts.forEach(part => { if (part.sprite === 'chimney' && Math.random() < dt * 1.2 * rate) puff('smoke', part.x, part.y, 10, -12, 4, 8, '#6b6862'); }); });
 }
+// Names of places as you enter them, people nearby, camps and bodies.
 function labels(c, state, v, vis) {
   c.font = '11px Segoe UI, Arial'; c.textAlign = 'center';
   const me = v.drawPlayers[state.me.id];
-  cfg.towns.forEach(t0 => { if (!vis(t0.x, t0.y, 200)) return; const t = state.towns[t0.id]; pill(c, t0.name.toUpperCase(), t0.x, t0.y - 104, col(t.owner)); if (!v.panel && me && Math.hypot(me.x - t0.x, me.y - t0.y) > 170) pill(c, 'E · ПЛОЩАДЬ', t0.x, t0.y + 136, '#d9d6bb'); });
-  cfg.buildings_world.forEach(b => { if (!me || Math.abs(b.x - me.x) > 260 || Math.abs(b.y - me.y) > 220) return; const t = state.towns[b.town], L = t.levels[b.kind]; pill(c, cfg.buildings[b.kind].name + (L ? ' · ' + L : ' · руины') + (t.construct && t.construct[b.kind] ? ' · стройка' : ''), b.x, b.y - b.h / 2 - 22, L ? '#dce1cf' : '#c8c6b1'); });
-  cfg.towns.forEach(t => { const lm = cfg.landmarks[t.id]; if (lm && me && Math.hypot(me.x - t.x - lm.x, me.y - t.y - lm.y) < 420) pill(c, '★ ' + lm.name, t.x + lm.x, t.y + lm.y - lm.h / 2 - 24, '#ecd29a'); });
-  pois.forEach(p => { if (vis(p.x, p.y, 100)) pill(c, p.name.toUpperCase() + ' · ' + p.kind_name.toLowerCase(), p.x, p.y - 196, '#d8c79c'); });
-  state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y) || p.id === state.me.id) return; if (me && Math.hypot(me.x - r.x, me.y - r.y) > 700) return; pill(c, (p.tag ? '[' + p.tag + '] ' : '') + p.name + ' · ' + (p.level || 1), r.x, r.y - 34, col(p.faction)); });
-  (cfg.givers || []).forEach(g => { if (me && Math.abs(me.x - g.x) < 260 && Math.abs(me.y - g.y) < 200) pill(c, g.role + ' · ' + g.name, g.x, g.y - 34, '#e2d3b0'); });
+  cfg.towns.forEach(t => { if (vis(t.x, t.y, 200)) pill(c, t.name.toUpperCase(), t.x, t.y - 140, '#d9d6bb'); });
+  pois.forEach(p => { if (vis(p.x, p.y, 100)) pill(c, p.name.toUpperCase(), p.x, p.y - 196, '#d8c79c'); });
+  state.players.forEach(p => { const r = v.drawPlayers[p.id]; if (!r || p.vehicle || !vis(r.x, r.y) || p.id === state.me.id || p.hp <= 0) return; if (me && Math.hypot(me.x - r.x, me.y - r.y) > 500) return; pill(c, (p.tag ? '[' + p.tag + '] ' : '') + p.name, r.x, r.y - 34, col(p.faction)); });
   (state.camps || []).forEach(cp => { if (!vis(cp.x, cp.y, 100) || !sides[cp.owner]) return; pill(c, 'ЛАГЕРЬ · ' + sides[cp.owner].name.toUpperCase(), cp.x, cp.y - (cp.house ? 60 : 124), col(cp.owner)); });
-  (state.bodies || []).forEach(b => { if (me && Math.hypot(me.x - b.x, me.y - b.y) < 260 && (!b.npc || Object.keys(b.items).length || b.coins)) pill(c, b.name, b.x, b.y - 30, '#c9a99a'); });
-  (state.posts || []).forEach(p => { if (vis(p.x, p.y)) pill(c, p.name, p.x, p.y - 48, col(p.faction)); });
+  (state.bodies || []).forEach(b => { if (me && Math.hypot(me.x - b.x, me.y - b.y) < 200 && Object.keys(b.items).length && !b.npc) pill(c, b.name, b.x, b.y - 30, '#c9a99a'); });
+  if (v.nearest && v.nearest.type === 'loot') { const l = v.nearest.obj, it = cfg.items[l.item]; if (it) pill(c, it.name + (l.n > 1 ? ' ×' + l.n : ''), l.x, l.y - 26, '#e6cf9c'); }
 }
 function pill(c, text, x, y, color, bg) { c.font = '11px Segoe UI, Arial'; const w = c.measureText(text).width + 14; c.fillStyle = bg || '#0e1311b8'; c.fillRect(x - w / 2, y - 9, w, 18); c.fillStyle = color || '#e3e3d4'; c.fillRect(x - w / 2, y - 9, 2, 18); c.fillStyle = '#d9d8cb'; c.textAlign = 'center'; c.fillText(text, x, y + 4); }
 R.pill = pill;
@@ -752,28 +638,19 @@ function lights(c, v, vis) {
   const glow = [];
   const hole = (x, y, r, k, warm) => { if (!vis(x, y, r)) return; const g = l.createRadialGradient(sx(x), sy(y), 0, sx(x), sy(y), r * zs); g.addColorStop(0, 'rgba(0,0,0,' + k + ')'); g.addColorStop(1, 'rgba(0,0,0,0)'); l.fillStyle = g; l.fillRect(sx(x) - r * zs, sy(y) - r * zs, r * 2 * zs, r * 2 * zs); if (warm) glow.push([x, y, r * .7, warm]); };
   const flick = Math.sin(v.now * 13) * .04 + Math.sin(v.now * 7.7) * .03;
-  cfg.towns.forEach(t0 => {
-    if (!vis(t0.x, t0.y, 700)) return; const t = state.towns[t0.id];
-    if (t.owner) hole(t0.x + 60, t0.y + 46, 150, .9 + flick, '#ff9c4a');
-    lampsOf(Object.assign({}, t0, t)).forEach(p => hole(p[0], p[1], 120, .8, '#ffd58a'));
-    cfg.buildings_world.forEach(b => { if (b.town !== t0.id) return; const L = t.levels[b.kind]; if (t.owner && L >= 1) hole(b.x, b.y + b.h / 2, 60 + L * 25, .55 + L * .1, L >= 2 ? '#f4c574' : null); if (t.fires && t.fires[b.kind]) hole(b.x, b.y, 230, 1, '#ff7a30'); });
-    if (t.levels.guard >= 3) { const g = cfg.buildings_world.find(b => b.town === t0.id && b.kind === 'guard'); const a = v.now * .6; cone(l, sx(g.x), sy(g.y), a, .5, 380 * zs, .7); }
-  });
-  (state.posts || []).forEach(p => hole(p.x, p.y, 160, .8, '#ffc36a'));
   (state.camps || []).forEach(cp => { const f = cp.parts.fire; if (f && f.hp > 0) hole(f.x, f.y, 170, .9 + flick, '#ff9c4a'); });
   state.players.forEach(p => {
     const r = v.drawPlayers[p.id]; if (!r || p.hp <= 0) return;
     hole(r.x, r.y, 70, .5);
     const ang = p.id === state.me.id && !p.vehicle ? Math.atan2(v.aim.y, v.aim.x) : p.angle;
-    if (p.vehicle) {
-      const sp = carSpec(p.car), hl = sp.len / 2;
-      [-1, 1].forEach(s => cone(l, sx(r.x + Math.cos(ang) * hl - Math.sin(ang) * s * sp.wid * .3), sy(r.y + Math.sin(ang) * hl + Math.cos(ang) * s * sp.wid * .3), ang, .3, 470 * zs, .9));
-      if (p.car.brake || carFwd(p.car) < -5) hole(r.x - Math.cos(ang) * hl, r.y - Math.sin(ang) * hl, 46, .7, carFwd(p.car) < -5 ? '#f4f1e0' : '#ff3020');
-    }
-    else cone(l, sx(r.x), sy(r.y), ang, .42, 330 * zs, .85);
+    if (p.vehicle) return;
+    cone(l, sx(r.x), sy(r.y), ang, .42, 330 * zs, .85);
     if (state.time - p.shot < .07) hole(r.x, r.y, 160, 1, '#ffe2a0');
   });
-  (state.npcs || []).forEach(n => { const r = v.drawNpcs[n.id] || n; if (n.type === 'convoy') cone(l, sx(r.x + Math.cos(n.angle) * 44), sy(r.y + Math.sin(n.angle) * 44), n.angle, .35, 420 * zs, .9); if (state.time - n.shot < .07) hole(r.x, r.y, 140, 1, '#ffe2a0'); });
+  // Headlights of every car with somebody at the wheel; brake lights and reversing lights.
+  (state.cars || []).forEach(car => { if (!car.driver || car.wrecked) return; const r = (v.drawCars || {})[car.id] || car, ang = r.ang != null ? r.ang : car.angle, sp = carSpec(car), hl = sp.len / 2;
+    [-1, 1].forEach(s => cone(l, sx(r.x + Math.cos(ang) * hl - Math.sin(ang) * s * sp.wid * .3), sy(r.y + Math.sin(ang) * hl + Math.cos(ang) * s * sp.wid * .3), ang, .3, 470 * zs, .9));
+    if (car.brake || carFwd(car) < -5) hole(r.x - Math.cos(ang) * hl, r.y - Math.sin(ang) * hl, 46, .7, carFwd(car) < -5 ? '#f4f1e0' : '#ff3020'); });
   particles.forEach(p => { if (p.kind === 'flame' && p.size > 8) hole(p.x, p.y, p.size * 5, .5); });
   l.globalCompositeOperation = 'source-over';
   c.drawImage(lightCanvas, 0, 0, cw, ch);
@@ -826,17 +703,23 @@ R.drawMap = function (cv, big, v, mapState) {
   c.setTransform(dpr, 0, 0, dpr, 0, 0); c.fillStyle = '#14221b'; c.fillRect(0, 0, w, h);
   let scale, ox, oy;
   if (big) { scale = Math.min((w - 30) / cfg.width, (h - 30) / cfg.height) * (mapState.zoom || 1); const fx = mapState.fx != null ? mapState.fx : cfg.width / 2, fy = mapState.fy != null ? mapState.fy : cfg.height / 2; ox = w / 2 - fx * scale; oy = h / 2 - fy * scale; }
-  else { scale = .07 * 3 / Math.max(3, Math.min(6, cfg.scale || 3)); ox = w / 2 - state.me.x * scale; oy = h / 2 - state.me.y * scale; }
+  else { scale = .012; ox = w / 2 - state.me.x * scale; oy = h / 2 - state.me.y * scale; }
   c.imageSmoothingEnabled = true; c.drawImage(worldMap, ox, oy, cfg.width * scale, cfg.height * scale);
   const P = (x, y) => [ox + x * scale, oy + y * scale];
+  // Close up the base image is blurry: roads, streets and rivers are drawn again as sharp lines.
+  if (scale > .006) {
+    c.lineCap = 'round'; c.strokeStyle = '#3f6670'; cfg.rivers.forEach(r => { c.lineWidth = Math.max(1.5, r[1] * scale); c.beginPath(); r[2].forEach((p, i) => { const q = P(p[0], p[1]); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.stroke(); });
+    c.strokeStyle = '#d9cfa9aa'; c.lineWidth = Math.max(1.5, RW * scale); roads.forEach(r => { const a = P(r.ax, r.ay), b = P(r.bx, r.by); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); });
+    c.strokeStyle = '#bdb69a88'; streets.forEach(st => { const a = P(st[0], st[1]), b = P(st[2], st[3]); if (Math.max(a[0], b[0]) < 0 || Math.min(a[0], b[0]) > w || Math.max(a[1], b[1]) < 0 || Math.min(a[1], b[1]) > h) return; c.lineWidth = Math.max(1, st[4] * scale); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); });
+    c.fillStyle = '#8a7f6c'; houses.forEach(hs => { const q = P(hs.x, hs.y); if (q[0] < -5 || q[0] > w + 5 || q[1] < -5 || q[1] > h + 5) return; c.fillRect(q[0] - hs.w * scale / 2, q[1] - hs.h * scale / 2, Math.max(1.5, hs.w * scale), Math.max(1.5, hs.h * scale)); });
+  }
   // Points of interest.
-  pois.forEach(p => { const [x, y] = P(p.x, p.y); if (x < -5 || x > w + 5 || y < -5 || y > h + 5) return; const looted = state.loot && state.loot[p.id]; c.fillStyle = looted ? '#776f5e' : '#d8c79c'; c.save(); c.translate(x, y); c.rotate(.785); c.fillRect(-2.5, -2.5, 5, 5); c.restore(); if (big && (mapState.zoom || 1) > 1.6) { c.fillStyle = '#c9c0a2'; c.font = '9px Segoe UI'; c.textAlign = 'center'; c.fillText(p.name, x, y + 12); } });
-  (state.airdrops || []).forEach(d => { const [x, y] = P(d.x, d.y); c.strokeStyle = '#ffd38a'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 5 + Math.sin(v.now * 5) * 1.5, 0, 7); c.stroke(); });
-  (state.posts || []).forEach(p => { const [x, y] = P(p.x, p.y); c.fillStyle = col(p.faction); c.fillRect(x - 3, y - 3, 6, 6); });
-  Object.values(state.towns).forEach(t => { const [x, y] = P(t.x, t.y); if (x < -40 || x > w + 40 || y < -20 || y > h + 20) return; const color = col(t.owner); c.fillStyle = '#0d1512'; c.beginPath(); c.arc(x, y, big ? 6 : 4, 0, 7); c.fill(); c.fillStyle = color; c.beginPath(); c.arc(x, y, big ? 4.5 : 3, 0, 7); c.fill(); if (big) { c.fillStyle = mapState.selected === t.id ? '#f0d09d' : '#e1e3d6'; c.font = (mapState.selected === t.id ? 'bold ' : '') + '11px Segoe UI, Arial'; c.textAlign = 'center'; c.fillText(t.name, x, y - 10); } if (t.capture) { c.strokeStyle = '#e3ad74'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 9 + Math.sin(v.now * 6) * 2, 0, 7); c.stroke(); } });
+  pois.forEach(p => { const [x, y] = P(p.x, p.y); if (x < -5 || x > w + 5 || y < -5 || y > h + 5) return; c.fillStyle = '#d8c79c'; c.save(); c.translate(x, y); c.rotate(.785); c.fillRect(-2.5, -2.5, 5, 5); c.restore(); if (big && (mapState.zoom || 1) > 1.6) { c.fillStyle = '#c9c0a2'; c.font = '9px Segoe UI'; c.textAlign = 'center'; c.fillText(p.name, x, y + 12); } });
+  cfg.towns.forEach(t => { const [x, y] = P(t.x, t.y); if (x < -60 || x > w + 60 || y < -20 || y > h + 20) return; const big2 = t.kind !== 'village';
+    if (big || big2) { c.fillStyle = '#0d1512'; c.beginPath(); c.arc(x, y, big2 ? 4 : 3, 0, 7); c.fill(); c.fillStyle = mapState && mapState.selected === t.id ? '#f0d09d' : '#cfd2c4'; c.beginPath(); c.arc(x, y, big2 ? 3 : 2, 0, 7); c.fill(); }
+    if (big && (big2 || (mapState.zoom || 1) > 1.5)) { c.fillStyle = mapState.selected === t.id ? '#f0d09d' : '#e1e3d6'; c.font = (big2 ? 'bold ' : '') + '11px Segoe UI, Arial'; c.textAlign = 'center'; c.fillText(t.name, x, y - 8); } });
   (state.camps || []).forEach(cp => { const [x, y] = P(cp.x, cp.y); if (x < -10 || x > w + 10 || y < -10 || y > h + 10) return; const mine = cp.owner === state.me.faction; c.fillStyle = '#0d1512'; c.fillRect(x - 4, y - 4, 8, 8); c.fillStyle = col(cp.owner); c.fillRect(x - 3, y - 3, 6, 6); if (mine) { c.strokeStyle = '#edaf6b'; c.lineWidth = 1.5; c.strokeRect(x - 6, y - 6, 12, 12); if (big) { c.fillStyle = '#edaf6b'; c.font = 'bold 10px Segoe UI'; c.textAlign = 'center'; c.fillText('ЛАГЕРЬ', x, y + 16); } } });
-  (state.npcs || []).forEach(n => { if (n.type !== 'convoy' && !big) return; const [x, y] = P(n.x, n.y); if (n.type === 'convoy') { c.fillStyle = col(n.faction); c.fillRect(x - 3, y - 2, 6, 4); } else if (n.faction === 'marauders') { c.fillStyle = '#c98a5a99'; c.fillRect(x - 1, y - 1, 2, 2); } else { c.fillStyle = col(n.faction) || '#ccc'; c.fillRect(x - 1.5, y - 1.5, 3, 3); } });
-  state.players.forEach(p => { const [x, y] = P(p.x, p.y); const me = p.id === state.me.id; c.fillStyle = me ? '#edaf6b' : col(p.faction); c.beginPath(); c.arc(x, y, me ? 4 : 3, 0, 7); c.fill(); if (me) { c.strokeStyle = '#eabf8a88'; c.lineWidth = 1; c.beginPath(); c.arc(x, y, 8 + Math.sin(v.now * 4) * 2, 0, 7); c.stroke(); const a = p.vehicle ? p.angle : Math.atan2(v.aim.y, v.aim.x); c.beginPath(); c.moveTo(x + Math.cos(a) * 11, y + Math.sin(a) * 11); c.lineTo(x + Math.cos(a + 2.5) * 5, y + Math.sin(a + 2.5) * 5); c.lineTo(x + Math.cos(a - 2.5) * 5, y + Math.sin(a - 2.5) * 5); c.fill(); } });
+  state.players.forEach(p => { const me = p.id === state.me.id; if (!me && !(R.friend && R.friend(p.faction))) return; const [x, y] = P(p.x, p.y); c.fillStyle = me ? '#edaf6b' : col(p.faction); c.beginPath(); c.arc(x, y, me ? 4 : 3, 0, 7); c.fill(); if (me) { c.strokeStyle = '#eabf8a88'; c.lineWidth = 1; c.beginPath(); c.arc(x, y, 8 + Math.sin(v.now * 4) * 2, 0, 7); c.stroke(); const a = p.vehicle ? p.angle : Math.atan2(v.aim.y, v.aim.x); c.beginPath(); c.moveTo(x + Math.cos(a) * 11, y + Math.sin(a) * 11); c.lineTo(x + Math.cos(a + 2.5) * 5, y + Math.sin(a + 2.5) * 5); c.lineTo(x + Math.cos(a - 2.5) * 5, y + Math.sin(a - 2.5) * 5); c.fill(); } });
   if (v.waypoint) { const [x, y] = P(v.waypoint.x, v.waypoint.y), [mx, my] = P(state.me.x, state.me.y); c.strokeStyle = '#dfbb7c'; c.lineWidth = 1; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(mx, my); c.lineTo(x, y); c.stroke(); c.setLineDash([]); c.strokeRect(x - 6, y - 6, 12, 12); }
   if (!big) { c.strokeStyle = '#ffffff22'; c.strokeRect(.5, .5, w - 1, h - 1); }
   return { scale, ox, oy };

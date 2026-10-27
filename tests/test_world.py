@@ -1,182 +1,159 @@
-"""Regression checks for the authoritative world state (stdlib only)."""
-import random
+"""Joining, survival, death on the DayZ rules, saving and old saves."""
+import json
+import math
+import tempfile
+import time
 import unittest
-from server import GameError, World
-from world_data import TOWNS, AI_SIDES, MAX_PLAYERS
+from pathlib import Path
+from server import GameError, World, SAVE_VERSION
+from world_data import FISTS, START_ITEMS, RESPAWN_TIME, WORLD_SIZE, MAX_PLAYERS
+from helpers import quiet_world, act, run
+
 
 class WorldTests(unittest.TestCase):
     def setUp(self):
-        self.world = World(rng=random.Random(7))
+        self.w = quiet_world()
+        self.token = self.w.join('Игрок'); self.p = self.w.players[self.token]
 
-    def test_map_and_resource_nodes(self):
-        self.assertEqual(len(self.world.towns), len(TOWNS))
-        self.assertGreaterEqual(len(self.world.towns), 15)
-        self.assertGreater(len(self.world.nodes), 15)
+    def test_fresh_character_wakes_on_the_shore_with_almost_nothing(self):
+        p = self.p
+        self.assertEqual(p['weapons'], [FISTS])
+        self.assertEqual(p['items'], START_ITEMS)
+        self.assertEqual(p['gear'], {'weapon':FISTS, 'armor':0, 'clothes':0, 'backpack':0})
+        self.assertFalse(self.w.terrain.water(p['x'], p['y']))
+        near_sea = any(self.w.terrain.sea(p['x'] + math.cos(a) * 1200, p['y'] + math.sin(a) * 1200) for a in [k * math.pi / 8 for k in range(16)])
+        self.assertTrue(near_sea)
+        self.assertNotIn('level', p); self.assertNotIn('coins', p)
 
-    def test_computer_clans_start_with_a_town(self):
-        for sid, name, color, home, fighter, method in AI_SIDES:
-            self.assertEqual(self.world.towns[home]['owner'], sid)
-        self.assertFalse(any(t['base'] for t in self.world.towns.values()))
+    def test_players_spawn_apart(self):
+        q = self.w.players[self.w.join('Второй')]
+        self.assertGreater(math.hypot(q['x'] - self.p['x'], q['y'] - self.p['y']), 1400)
 
-    def test_every_player_is_a_side_with_a_home(self):
-        a = self.world.players[self.world.join('A')]
-        b = self.world.players[self.world.join('B')]
-        self.assertNotEqual(a['faction'], b['faction'])
-        for p in (a, b):
-            self.assertIsNone(self.world.sides[p['faction']]['camp'])          # camps are built, not given
-            self.assertFalse(any(t['owner'] == p['faction'] for t in self.world.towns.values()))
-            self.assertGreater(p['items']['ammo9'], 0)
-            for resource in ('wood', 'stone', 'metal', 'food', 'fuel'):
-                self.assertGreater(self.world.stocks[p['faction']][resource], 0)
-
-    def test_player_limit(self):
-        self.assertEqual(MAX_PLAYERS, 25)
-        tokens = [self.world.join('P' + str(i)) for i in range(MAX_PLAYERS)]
-        self.assertEqual(len(set(tokens)), MAX_PLAYERS)
+    def test_room_is_capped(self):
+        for i in range(MAX_PLAYERS - 1):
+            self.w.join('Игрок ' + str(i))
         with self.assertRaises(GameError):
-            self.world.join('Лишний')
+            self.w.join('Лишний')
 
-    def test_reconnect_reuses_session(self):
-        token = self.world.join('Player')
-        self.assertEqual(self.world.join('Renamed', None, token), token)
-        self.assertEqual(len(self.world.players), 1)
-
-    def test_death_costs_coins_and_captured_towns(self):
-        p = self.world.players[self.world.join('A')]
-        f = p['faction']
-        for tid in ('revda', 'kazan'):
-            self.world.towns[tid]['owner'] = f
-        p['coins'] = 500; p['items'] = {'medkit':1, 'nails':20}
+    def test_death_leaves_everything_on_the_body_and_respawns_fresh(self):
+        p = self.p
+        p['weapons'] = [2, 8, FISTS]; p['gear'].update(weapon=2, clothes=1, backpack=2, armor=1); p['mags'] = {'2':17}
+        p['items'] = {'canned':2, 'ammo762':40}
         x, y = p['x'], p['y']
-        self.world._damage(p, 9999)
-        self.assertEqual(p['coins'], 0); self.assertEqual(p['items'], {})
-        self.assertIsNone(self.world.towns['revda']['owner'])
-        self.assertIsNone(self.world.towns['kazan']['owner'])
-        body = next(iter(self.world.bodies.values()))
+        self.w._damage(p, 1000)
+        body = next(b for b in self.w.bodies.values() if b.get('player') == p['id'])
         self.assertEqual((body['x'], body['y']), (round(x, 1), round(y, 1)))
-        # Anyone can pick the body clean, the owner included.
-        other = self.world.players[self.world.join('B')]; other['x'], other['y'] = x + 20, y; other['items'] = {}
-        self.world.loot_body(other, body['id'])
-        self.assertEqual(other['coins'], 500); self.assertEqual(other['items'], {'medkit':1, 'nails':20})
-        self.assertEqual(self.world.bodies, {})
-
-    def test_quests_come_only_from_people(self):
-        token = self.world.join('Player', 'survivors')
-        self.assertEqual(self.world.players[token]['quests'], [])
-
-    def test_nonfinite_input_does_not_poison_simulation(self):
-        token = self.world.join('Player', 'survivors')
-        self.world.command(token, {'op':'input', 'x':float('nan'),
-                                   'y':float('inf'), 'ax':float('-inf'), 'ay':0})
-        self.assertEqual(self.world.players[token]['input'][:2], [0,0])
-        self.world.tick(0.1)
-        state = self.world.snapshot(token)
-        self.assertEqual(state['me']['hp'], 100.0)
-
-    def test_session_token_hidden_from_snapshot(self):
-        token = self.world.join('Player', 'survivors')
-        state = self.world.snapshot(token)
-        self.assertNotIn(token, str(state))
-        self.assertEqual(state['me']['faction'], self.world.players[token]['faction'])
-
-    def test_unaffordable_action_keeps_stock(self):
-        before = dict(self.world.stocks['ai_scar'])
+        for item in ('w_ak', 'w_knife', 'vatnik', 'pack', 'vest', 'canned', 'ammo762'):
+            self.assertIn(item, body['items'])
+        self.assertEqual(body['mags'], {'2':17})
         with self.assertRaises(GameError):
-            self.world._pay('ai_scar', {'metal': 10**9})
-        self.assertEqual(self.world.stocks['ai_scar'], before)
+            act(self.w, self.token, 'heal')
+        run(self.w, RESPAWN_TIME + .5, [p])
+        self.assertGreater(p['hp'], 0)
+        self.assertEqual(p['weapons'], [FISTS]); self.assertEqual(p['items'], START_ITEMS)
+        self.assertEqual(p['stats']['infected'], 0)
+
+    def test_hunger_and_thirst_run_down(self):
+        p = self.p; food, water = p['food'], p['water']
+        run(self.w, 10, [p])
+        self.assertLess(p['food'], food); self.assertLess(p['water'], water)
+
+    def test_bleeding_hurts_until_bandaged(self):
+        p = self.p; p['bleeding'] = True
+        run(self.w, 4, [p]); hp = p['hp']
+        self.assertLess(hp, 100)
+        act(self.w, self.token, 'heal')
+        self.assertFalse(p['bleeding'])
+        self.assertNotIn('bandage', p['items'])
+
+    def test_cloth_stops_bleeding_without_a_bandage(self):
+        p = self.p; p['bleeding'] = True; p['items'] = {'cloth':1}
+        act(self.w, self.token, 'heal')
+        self.assertFalse(p['bleeding']); self.assertNotIn('cloth', p['items'])
+
+    def test_sea_water_is_not_drinkable(self):
+        p = self.p
+        for r in range(0, 3000, 20):
+            for a in range(16):
+                x = p['x'] + math.cos(a * math.pi / 8) * r; y = p['y'] + math.sin(a * math.pi / 8) * r
+                if self.w.terrain.sea(x, y + 40) and not self.w.terrain.water(x, y):
+                    p['x'], p['y'] = x, y
+                    with self.assertRaisesRegex(GameError, 'солён'):
+                        act(self.w, self.token, 'drink')
+                    return
+        self.fail('no shore')
+
+    def test_eating_from_the_backpack(self):
+        p = self.p; p['food'] = 30
+        act(self.w, self.token, 'use', item='apple')
+        self.assertEqual(p['food'], 42); self.assertNotIn('apple', p['items'])
+
+    def test_receipts_make_actions_idempotent(self):
+        p = self.p; p['items'] = {'apple':3}
+        data = {'op':'use', 'item':'apple', 'request_id':'same-id'}
+        self.w.command(self.token, dict(data)); self.w.command(self.token, dict(data))
+        self.assertEqual(p['items']['apple'], 2)
+
+    def test_snapshot_has_no_economy(self):
+        s = self.w.snapshot(self.token)
+        for key in ('towns', 'quests', 'stocks', 'posts', 'coins'):
+            self.assertNotIn(key, s); self.assertNotIn(key, s['me'])
+        self.assertIn('loot', s); self.assertIn('cars', s)
+
+    def test_save_and_load_round_trip(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'world.json'
+            w = World(path); t = w.join('Сохранённый'); p = w.players[t]
+            p['items'] = {'canned':2}; p['weapons'] = [0, FISTS]; p['mags'] = {'0':5}
+            camp_count = len(w.cars)
+            w.save()
+            w2 = World(path); q = w2.players[t]
+            self.assertEqual(q['items'], {'canned':2}); self.assertEqual(q['weapons'], [0, FISTS]); self.assertEqual(q['mags'], {'0':5})
+            self.assertEqual(len(w2.cars), camp_count)
+            self.assertIsNone(w2.load_warning)
+
+    def test_old_world_is_set_aside(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'world.json'
+            path.write_text(json.dumps({'schema':2, 'room_code':'654321', 'players':{}}), encoding='utf-8')
+            w = World(path)
+            self.assertIn('прошлой версии', w.load_warning)
+            self.assertEqual(w.room_code, '654321')
+            self.assertTrue(any('before-0.8' in f.name for f in Path(d).iterdir()))
+
+    def test_damaged_save_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'world.json'
+            path.write_text('{broken', encoding='utf-8')
+            w = World(path)
+            self.assertTrue(w.load_warning)
+            self.assertTrue(any('unreadable' in f.name for f in Path(d).iterdir()))
+
+    def test_new_world_keeps_a_backup(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'world.json'
+            w = World(path); w.room_code = '111222'; w.join('Старый'); w.save()
+            backup = w.reset()
+            self.assertTrue(backup.exists()); self.assertEqual(w.players, {}); self.assertEqual(w.room_code, '111222')
+
+    def test_clan_mates_do_not_hurt_each_other(self):
+        q_token = self.w.join('Друг'); q = self.w.players[q_token]
+        act(self.w, self.token, 'clan_create', name='Север')
+        act(self.w, self.token, 'clan_invite', side=q['faction'])
+        act(self.w, q_token, 'clan_join', id=self.w.sides[self.p['faction']]['clan'])
+        self.assertFalse(self.w.hostile_shot(self.p, q))
+        stranger = self.w.players[self.w.join('Чужой')]
+        self.assertTrue(self.w.hostile_shot(self.p, stranger))
+
+    def test_trade_moves_items(self):
+        q_token = self.w.join('Торговец'); q = self.w.players[q_token]
+        q['x'], q['y'] = self.p['x'] + 50, self.p['y']
+        self.p['items'] = {'canned':2}; q['items'] = {'ammo9':10}
+        r = act(self.w, self.token, 'offer_make', to=q['id'], give={'items':{'canned':1}}, want={'items':{'ammo9':10}})
+        oid = next(iter(self.w.offers))
+        act(self.w, q_token, 'offer_accept', id=oid)
+        self.assertEqual(self.p['items'], {'canned':1, 'ammo9':10}); self.assertEqual(q['items'], {'canned':1})
+
 
 if __name__ == '__main__':
     unittest.main()
-
-
-class TradeAndClanTests(unittest.TestCase):
-    def setUp(self):
-        self.world = World(rng=random.Random(3))
-        self.ta = self.world.join('Аня'); self.tb = self.world.join('Боря')
-        self.a = self.world.players[self.ta]; self.b = self.world.players[self.tb]
-        self.b['x'], self.b['y'] = self.a['x'] + 60, self.a['y']
-
-    def act(self, token, op, **data):
-        data.update(op=op, request_id='t' + str(random.random()))
-        return self.world.command(token, data)
-
-    def test_players_swap_coins_items_and_resources(self):
-        self.a['coins'] = 50; self.b['items']['medkit'] = 1
-        wood = self.world.stocks[self.a['faction']]['wood']
-        self.act(self.ta, 'offer_make', to=self.b['id'], give={'coins':30, 'res':{'wood':5}}, want={'items':{'medkit':1}})
-        offer = self.world.snapshot(self.tb)['offers'][0]
-        with self.assertRaises(GameError):
-            self.act(self.ta, 'offer_accept', id=offer['id'])        # only the other side accepts
-        self.act(self.tb, 'offer_accept', id=offer['id'])
-        self.assertEqual((self.a['coins'], self.b['coins']), (20, 30))
-        self.assertEqual(self.a['items'].get('medkit'), 1)
-        self.assertNotIn('medkit', self.b['items'])
-        self.assertEqual(self.world.stocks[self.a['faction']]['wood'], wood - 5)
-        self.assertEqual(self.world.offers, {})
-
-    def test_trade_needs_to_stand_close(self):
-        self.a['coins'] = 10
-        self.b['x'] += 2000
-        with self.assertRaises(GameError):
-            self.act(self.ta, 'offer_make', to=self.b['id'], give={'coins':10}, want={})
-
-    def test_clan_members_do_not_fight(self):
-        fa, fb = self.a['faction'], self.b['faction']
-        self.assertTrue(self.world.hostile(self.a, self.b))
-        self.a['coins'] = 30
-        self.act(self.ta, 'clan_create', name='Северный ветер')
-        cid = self.world.sides[fa]['clan']
-        self.act(self.ta, 'clan_invite', side=fb)
-        self.assertIn(cid, self.world.snapshot(self.tb)['invites'])
-        self.act(self.tb, 'clan_join', id=cid)
-        self.assertFalse(self.world.hostile(self.a, self.b))
-        self.assertEqual(self.world.snapshot(self.ta)['players'][0]['tag'], 'СВ')
-        self.act(self.tb, 'clan_leave')
-        self.assertTrue(self.world.hostile(self.a, self.b))
-
-
-class HeroLookTests(unittest.TestCase):
-    def test_look_follows_level_and_colour_tells_players_apart(self):
-        from world_data import hero_look, SIDE_COLORS, MAX_LEVEL
-        self.assertEqual(hero_look(1), 0)
-        self.assertEqual(hero_look(MAX_LEVEL), 19)
-        self.assertTrue(all(hero_look(n) <= hero_look(n + 1) for n in range(1, MAX_LEVEL)))
-        w = World(rng=random.Random(1))
-        a = w.players[w.join('А', None, None, SIDE_COLORS[5])]
-        b = w.players[w.join('Б', None, None, SIDE_COLORS[5])]
-        self.assertEqual(w.sides[a['faction']]['color'], SIDE_COLORS[5])
-        self.assertNotEqual(w.sides[b['faction']]['color'], SIDE_COLORS[5])
-        a['level'] = 16
-        self.assertEqual(w._public_player(a)['look'], hero_look(16))
-
-
-class WeaponHandlingTests(unittest.TestCase):
-    def test_magazine_runs_out_and_reloads(self):
-        from world_data import WEAPONS
-        w = World(rng=random.Random(2))
-        token = w.join('Стрелок'); p = w.players[token]
-        w.stocks[p['faction']]['metal'] = 999
-        results = []
-        for i in range(WEAPONS[0]['mag'] + 3):          # one attempt every half second
-            w.elapsed += .5
-            try:
-                w.command(token, {'op':'shoot', 'request_id':'shot-%d' % i}); results.append(True)
-            except GameError:
-                results.append(False)
-        mag = WEAPONS[0]['mag']
-        self.assertEqual(results, [True] * mag + [False, False, True])    # 1.4 s reload after the last round
-        w.command(token, {'op':'equip', 'weapon':0, 'request_id':'eq-1'})
-        p['weapons'].append(1)
-        w.command(token, {'op':'equip', 'weapon':1, 'request_id':'eq-2'})
-        self.assertEqual(p['act']['kind'], 'swap')
-        with self.assertRaises(GameError):
-            w.command(token, {'op':'shoot', 'request_id':'shot-x'})   # still drawing the new weapon
-
-    def test_actions_report_their_animation(self):
-        w = World(rng=random.Random(2))
-        token = w.join('Работник'); p = w.players[token]
-        n = next(n for n in w.nodes.values() if n['kind'] == 'wood')
-        p['x'], p['y'] = n['x'], n['y'] + 20
-        w.command(token, {'op':'harvest', 'id':n['id'], 'request_id':'harvest-1'})
-        self.assertEqual(p['act']['kind'], 'chop')
-        self.assertEqual(w._public_player(p)['act']['kind'], 'chop')

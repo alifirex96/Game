@@ -1,8 +1,8 @@
-"""World geometry shared by the simulation: water, roads, collisions and road routes."""
+"""World geometry shared by the simulation: settlements, water, roads, collisions, loot spots and the coast."""
 import heapq
 import math
 from world_data import (CARS, ROAD_HALF, ROAD_WIDTH, WORLD_SIZE, TOWNS, ROADS, RIVERS, LAKES, POIS, POI_KINDS, ROADSIDE_EVERY, ROADSIDE_KINDS, ROADSIDE_NAMES,
-                        RESOURCES, SLOTS, BUILDINGS, TOWN_GATE, LANDMARKS, LANDMARK_POS, POPULATION, town_size)
+                        SEA_SOUTH, SEA_EAST, town_size, town_population)
 
 CELL = 1000
 RECT_CELL = 250               # finer buckets for walls and buildings: cities have hundreds of houses
@@ -28,8 +28,13 @@ def point_in_poly(x, y, poly):
         j = i
     return inside
 
-# Footprints of ruins at each kind of point of interest: (dx, dy, w, h, sprite).
+# Footprints of buildings at each kind of place: (dx, dy, w, h, sprite). Flat sprites are drawn but never block.
+FLAT = ('pump', 'runway')
 POI_LAYOUTS = {
+    'airfield': [(0,0,1700,130,'runway'),(-560,-300,250,150,'hangar'),(-220,-300,250,150,'hangar'),(120,-300,250,150,'hangar'),
+                 (470,-290,70,70,'tower'),(-520,300,160,84,'barracks'),(-260,300,160,84,'barracks'),(20,300,160,84,'barracks')],
+    'tents': [(-150,-80,84,58,'tent'),(-20,-80,84,58,'tent'),(110,-80,84,58,'tent'),(-150,70,84,58,'tent'),(-20,70,84,58,'tent'),(140,80,120,70,'barracks')],
+    'checkpoint': [(-70,0,84,58,'tent'),(70,0,70,50,'shed')],
     'factory': [(-70,-40,230,140,'hall'),(115,-95,46,46,'chimney'),(110,70,100,74,'shed')],
     'gas': [(0,-80,96,58,'shop'),(0,40,10,10,'pump')],
     'military': [(-110,-60,150,84,'hangar'),(110,-60,150,84,'hangar'),(0,95,90,60,'barracks')],
@@ -45,7 +50,7 @@ class Terrain:
         self.towns = {}
         for t in TOWNS:
             r, h = town_size(t[0])
-            self.towns[t[0]] = {'id':t[0],'x':t[2],'y':t[3],'r':r,'h':h}
+            self.towns[t[0]] = {'id':t[0],'x':t[2],'y':t[3],'r':r,'h':h,'kind':t[5]}
         # Highways run between town gates, where the cross streets reach the edge of a settlement.
         self.road_segments = [self.gate(a, b) + self.gate(b, a) + (a, b) for a, b in ROADS]
         self.water_segments = []
@@ -84,6 +89,8 @@ class Terrain:
         for t in self.towns.values():
             self._lay_out_town(t)
         self._road_wrecks()
+        self._mark_houses()
+        self.coast = self._coast_points()
         self.graph = {t: [] for t in self.towns}
         for a, b in ROADS:
             d = math.hypot(self.towns[a]['x'] - self.towns[b]['x'], self.towns[a]['y'] - self.towns[b]['y'])
@@ -145,7 +152,7 @@ class Terrain:
 
     def _lay_out_town(self, t):
         tx, ty, R, H = t['x'], t['y'], t['r'], t['h']
-        pop = POPULATION.get(t['id'], 60)
+        pop = town_population(t['id'])
         # Two avenues cross at the square and carry on as the highways.
         self._add_street(tx - R, ty, tx + R, ty, 68); self._add_street(tx, ty - H, tx, ty + H, 68)
         step = 300 if pop >= 300 else 250
@@ -160,22 +167,20 @@ class Terrain:
                 else: self._add_street(tx - R, ty + s * d, tx + R, ty + s * d, 44)
         # Blocks between the streets fill with houses: wooden izbas in villages and on the outskirts,
         # five-storey panel blocks in cities.
-        public = [b for b in town_buildings(t['id'], tx, ty)]
-        lm = landmark_rect(t['id'], tx, ty)
-        if lm: public.append(dict(lm, w=lm['w'] / .6, h=lm['h'] / .5))
+        public = []
         edges_x = sorted({-R} | {-d for d in xs} | {0} | set(xs) | {R}); edges_y = sorted({-H} | {-d for d in ys} | {0} | set(ys) | {H})
         rnd = _seeded(t['id'])
         for i in range(len(edges_x) - 1):
             for j in range(len(edges_y) - 1):
                 bx0, bx1, by0, by1 = edges_x[i], edges_x[i + 1], edges_y[j], edges_y[j + 1]
                 far = max(abs(bx0 + bx1) / 2 / R, abs(by0 + by1) / 2 / H)
-                panel = pop >= 250 and far < .8
+                panel = pop >= 500 and far < .72
                 tries = 2 if panel else 4
                 for k in range(tries):
                     if panel:
                         horiz = rnd() < .5; w, h = (150 + rnd() * 50, 62) if horiz else (62, 150 + rnd() * 50); kind = 'panel'
                     else:
-                        w, h = 56 + rnd() * 18, 46 + rnd() * 12; kind = 'izba' if pop < 400 or far > .8 else 'house2'
+                        w, h = 56 + rnd() * 18, 46 + rnd() * 12; kind = 'izba' if pop < 100 or far > .85 else 'house2'
                     x = tx + bx0 + 30 + w / 2 + rnd() * max(1, (bx1 - bx0) - 60 - w)
                     y = ty + by0 + 30 + h / 2 + rnd() * max(1, (by1 - by0) - 60 - h)
                     self._try_house(t, kind, x, y, w, h, public)
@@ -305,6 +310,55 @@ class Terrain:
                 return True
         return False
 
+    def sea(self, x, y):
+        return point_in_poly(x, y, SEA_SOUTH) or point_in_poly(x, y, SEA_EAST)
+
+    # ---- the coast: fresh characters wash up here ------------------------------
+    def _coast_points(self):
+        """Dry spots a little inland along both coasts, every 1.5 km."""
+        out = []
+        for poly in (SEA_SOUTH, SEA_EAST):
+            for i in range(len(poly) - 1):
+                (ax, ay), (bx, by) = poly[i], poly[i + 1]
+                if ax in (0, WORLD_SIZE[0]) and bx in (0, WORLD_SIZE[0]) or ay == by == WORLD_SIZE[1] or ay == by == 0:
+                    continue           # the edge of the map, not the shore
+                length = math.hypot(bx - ax, by - ay)
+                for k in range(int(length // 1500) + 1):
+                    u = min(1.0, k * 1500 / max(1, length)); x, y = ax + (bx - ax) * u, ay + (by - ay) * u
+                    for inland in (360, 520, 700):
+                        # Inland is away from the sea corner of the map.
+                        px, py = (x, y - inland) if poly is SEA_SOUTH else (x - inland, y)
+                        if self.free_spot(px, py, 30) and not self.in_town(px, py, 80):
+                            out.append((round(px), round(py))); break
+        return out
+
+    # ---- what buildings hold: loot tables by kind ---------------------------------
+    def _mark_houses(self):
+        """Izbas are rural, other houses residential; some panel blocks in cities are clinics."""
+        rnd = _seeded('clinics')
+        for h in self.houses.values():
+            h['use'] = 'rural' if h['kind'] == 'izba' else 'residential'
+            if h['kind'] == 'panel' and rnd() < .08:
+                h['use'] = 'medical'
+
+    def loot_spots(self):
+        """Every place where loot can lie: (building id, table, [(x, y), ...]). Houses inside, other buildings at the door."""
+        out = []
+        for h in self.houses.values():
+            ax, ay = max(6, h['w'] / 2 - 18), max(6, h['h'] / 2 - 18)
+            rnd = _seeded('spot' + h['id'])
+            pts = [(round(h['x'] + (rnd() * 2 - 1) * ax), round(h['y'] + (rnd() * 2 - 1) * ay)) for i in range(3)]
+            out.append((h['id'], h['use'], h['kind'], pts))
+        for poi in self.pois.values():
+            table = POI_KINDS[poi['kind']]['loot']
+            for i, part in enumerate(poi['parts']):
+                if part['sprite'] in FLAT:
+                    continue
+                x, y = part['x'], part['y'] + part['h'] / 2 + 22
+                pts = [(round(x - 26), round(y)), (round(x + 26), round(y + 6))]
+                out.append((poi['id'] + ':' + str(i), table, 'poi', pts))
+        return out
+
     def route(self, start, goal):
         """Town ids along the shortest road route, or [] when unreachable."""
         if start == goal:
@@ -339,15 +393,6 @@ class Terrain:
             not self.water(x, y, r) and not self.solid(x, y, r)
 
 
-def town_buildings(tid, x, y):
-    out = []
-    for kind, dx, dy in SLOTS:
-        small = kind == 'guard'
-        out.append({'id':tid+':'+kind,'town':tid,'kind':kind,'x':x+dx,'y':y+dy,
-                    'w':64 if small else 116,'h':64 if small else 86})
-    return out
-
-
 def _seeded(text):
     state = [sum(ord(c) * (i + 7) for i, c in enumerate(text)) % 2147483646 + 1]
     def rnd():
@@ -373,19 +418,11 @@ def house_walls(h):
     return out
 
 
-def landmark_rect(tid, x, y):
-    if tid not in LANDMARKS:
-        return None
-    name, w, h = LANDMARKS[tid]
-    # The solid core is smaller than the drawing: people can walk around the plinth.
-    return {'id':tid+':landmark','x':x+LANDMARK_POS[0],'y':y+LANDMARK_POS[1],'w':w*.6,'h':h*.5}
-
-
 def resource_nodes(terrain):
-    """Deterministic harvest points: around towns, near ruins and along every road."""
+    """Deterministic harvest points: trees to cut (an axe gives planks), scrap heaps and berry bushes."""
     nodes = {}
-    kinds = list(RESOURCES)
-    amounts = {'wood':4,'stone':4,'metal':2,'food':3,'fuel':3}   # scarce on purpose
+    kinds = ['wood', 'metal', 'food', 'wood']
+    amounts = {'wood':2,'metal':1,'food':2}
 
     def place(nid, kind, x, y, amount=None):
         for step in range(12):
@@ -394,27 +431,25 @@ def resource_nodes(terrain):
                 nodes[nid] = {'id':nid,'kind':kind,'x':round(nx,1),'y':round(ny,1),'amount':amount or amounts[kind]}
                 return
 
-    for tid, name, x, y, region in TOWNS:
-        # Guaranteed nearby supplies prevent an empty-fuel or empty-resource softlock.
-        for n in range(24):
+    for t in TOWNS:
+        tid = t[0]; town = terrain.towns[tid]
+        for n in range(8):
             angle = n * 2.39996
-            radius = 490 + (n % 4) * 85
-            place(tid+':n'+str(n), kinds[n % 5], x + math.cos(angle) * radius, y + math.sin(angle) * radius)
-        place(tid+':first', 'wood', x + 70, y + 100)
+            radius = max(town['r'], town['h']) + 260 + (n % 3) * 120
+            place(tid+':n'+str(n), kinds[n % len(kinds)], town['x'] + math.cos(angle) * radius, town['y'] + math.sin(angle) * radius)
     for pid, poi in terrain.pois.items():
-        for n in range(3):
+        for n in range(2):
             angle = n * 2.1 + 0.6
-            kind = list(POI_KINDS[poi['kind']]['loot'])[n % len(POI_KINDS[poi['kind']]['loot'])]
-            place(pid+':n'+str(n), kind, poi['x'] + math.cos(angle) * 290, poi['y'] + math.sin(angle) * 290)
+            place(pid+':n'+str(n), 'metal' if n else 'wood', poi['x'] + math.cos(angle) * 420, poi['y'] + math.sin(angle) * 420)
     counter = 0
     for ax, ay, bx, by, a, b in terrain.road_segments:
         length = math.hypot(bx - ax, by - ay)
-        steps = int(length // 1500)
+        steps = int(length // 3200)
         for s in range(1, steps + 1):
             u = s / (steps + 1.0)
             nx = -(by - ay) / length; ny = (bx - ax) / length
             side = 1 if s % 2 else -1
-            place('road'+str(counter), kinds[counter % 5], ax + (bx - ax) * u + nx * (ROAD_HALF + 100) * side,
+            place('road'+str(counter), kinds[counter % len(kinds)], ax + (bx - ax) * u + nx * (ROAD_HALF + 100) * side,
                   ay + (by - ay) * u + ny * (ROAD_HALF + 100) * side)
             counter += 1
     return nodes
