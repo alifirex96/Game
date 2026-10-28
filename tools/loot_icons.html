@@ -1,0 +1,204 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- Exact icons drawn by code for things free icon sets do not have: Makarov, SKS, SVD with PSO-1, PKM, vatnik,
+     army peacoat, chest rig, rye rusks, thermos, gauze bandage, nails. tools/loot_icons.js renders this page and
+     writes the icons into web/assets/loot.png. Each draw function paints on a 256 x 256 canvas; guns lie muzzle right. -->
+<canvas id="c" width="256" height="256"></canvas>
+<script>
+'use strict';
+const STEEL = '#33383b', STEEL_HI = '#565e63', STEEL_DK = '#1f2224', WOOD = '#8a5230', WOOD_HI = '#a96a3e', WOOD_DK = '#5e361f';
+function poly(c, pts, fill) { c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); c.fillStyle = fill; c.fill(); }
+function rect(c, x, y, w, h, fill, r) { c.fillStyle = fill; c.beginPath(); if (r) { c.roundRect(x, y, w, h, r); } else c.rect(x, y, w, h); c.fill(); }
+function line(c, x1, y1, x2, y2, col, w) { c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round'; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); }
+function grain(c, x, y, w, h, n) { c.save(); c.beginPath(); c.rect(x, y, w, h); c.clip(); for (let i = 0; i < n; i++) { const yy = y + (i + .5) * h / n; line(c, x, yy, x + w, yy + (i % 2 ? 2 : -2), '#00000022', 1.5); } c.restore(); }
+function shine(c, x, y, w) { line(c, x, y, x + w, y, '#ffffff30', 2); }
+
+const ICONS = {
+  // Makarov PM: short slide with rear serrations, round hammer, trigger guard, brown grip with the star.
+  w_pm(c) {
+    c.translate(28, 70);
+    poly(c, [[18, 30], [62, 30], [54, 118], [6, 118], [2, 108]], '#3b2b22');                // grip
+    c.save(); c.beginPath(); c.moveTo(18, 30); c.lineTo(62, 30); c.lineTo(54, 118); c.lineTo(6, 118); c.closePath(); c.clip();
+    for (let i = -10; i < 80; i += 6) { line(c, i, 30, i + 40, 120, '#ffffff10', 1.5); line(c, i + 40, 30, i, 120, '#0000001a', 1.5); }
+    c.restore();
+    c.fillStyle = '#6b5a4a'; c.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 5 : 11; c.lineTo(34 + Math.cos(a) * r, 64 + Math.sin(a) * r); } c.closePath(); c.fill();
+    rect(c, 10, 22, 160, 12, STEEL_DK);                                                       // frame
+    c.strokeStyle = STEEL_DK; c.lineWidth = 7; c.beginPath(); c.moveTo(62, 34); c.quadraticCurveTo(66, 66, 92, 64); c.quadraticCurveTo(108, 62, 108, 34); c.stroke();
+    line(c, 80, 36, 76, 54, STEEL_HI, 4);                                                    // trigger
+    rect(c, 6, -6, 178, 30, STEEL, 5);                                                       // slide
+    shine(c, 14, -2, 164);
+    for (let x = 14; x < 46; x += 5) line(c, x, -2, x, 18, STEEL_DK, 2);                     // serrations
+    rect(c, 54, 4, 10, 8, '#202426', 2);                                                     // safety
+    c.fillStyle = STEEL_DK; c.beginPath(); c.arc(4, 4, 9, 0, 7); c.fill();                  // hammer
+    rect(c, 182, 0, 6, 16, STEEL_DK);                                                        // muzzle
+    rect(c, 170, -11, 7, 6, STEEL_DK); rect(c, 14, -11, 10, 6, STEEL_DK);                    // sights
+  },
+  // SKS: one-piece wooden stock, fixed 10-round magazine, gas tube with wooden handguard, folded blade bayonet.
+  w_sks(c) {
+    c.translate(2, 118);
+    poly(c, [[0, -2], [8, -14], [96, -4], [104, 6], [96, 24], [72, 18], [8, 30], [0, 26]], WOOD);   // butt and wrist
+    grain(c, 0, -14, 104, 44, 6);
+    rect(c, 0, -4, 8, 30, '#2a2420', 2);                                                    // butt plate
+    poly(c, [[96, -4], [178, -2], [178, 12], [104, 14]], WOOD); grain(c, 96, -4, 82, 18, 3);  // forend
+    rect(c, 96, -14, 46, 14, STEEL, 3); shine(c, 100, -12, 38);                              // receiver
+    rect(c, 128, -18, 12, 5, STEEL_DK);                                                      // rear sight
+    poly(c, [[110, 10], [134, 10], [128, 34], [112, 34]], STEEL);                           // magazine
+    c.strokeStyle = STEEL_DK; c.lineWidth = 4; c.beginPath(); c.moveTo(96, 12); c.quadraticCurveTo(100, 30, 112, 22); c.stroke();
+    line(c, 101, 13, 100, 24, STEEL_HI, 3);                                                  // trigger
+    rect(c, 142, -14, 60, 9, WOOD_HI, 3);                                                   // handguard over the gas tube
+    rect(c, 176, -2, 76, 6, STEEL);                                                          // barrel
+    rect(c, 200, -12, 30, 5, STEEL_DK, 2);                                                   // gas tube
+    rect(c, 246, -10, 4, 10, STEEL_DK);                                                      // front sight
+    poly(c, [[180, 6], [244, 6], [250, 9], [244, 12], [180, 12]], '#9aa2a6');                // folded bayonet
+    rect(c, 176, 4, 8, 10, STEEL_DK);
+  },
+  // SVD: skeleton stock with the cheek rest, curved 10-round magazine, slotted handguard, PSO-1 scope, flash hider.
+  w_svd(c) {
+    c.translate(2, 128);
+    poly(c, [[0, -16], [10, -24], [70, -14], [88, -8], [92, 14], [70, 12], [36, 26], [8, 30], [0, 26]], WOOD);
+    c.globalCompositeOperation = 'destination-out'; poly(c, [[16, -6], [58, -8], [70, 4], [36, 14], [16, 16]], '#000'); c.globalCompositeOperation = 'source-over';
+    poly(c, [[16, -24], [54, -20], [54, -14], [16, -16]], WOOD_DK);                           // cheek rest
+    rect(c, 0, -18, 6, 46, '#2a2420', 2);
+    rect(c, 86, -12, 64, 16, STEEL, 3); shine(c, 90, -10, 56);                               // receiver
+    poly(c, [[86, 2], [100, 2], [94, 30], [80, 26]], '#3b2b22');                            // pistol grip
+    poly(c, [[110, 4], [128, 4], [134, 34], [114, 36]], STEEL);                              // magazine
+    c.strokeStyle = STEEL_DK; c.lineWidth = 4; c.beginPath(); c.moveTo(98, 4); c.quadraticCurveTo(102, 20, 112, 14); c.stroke();
+    rect(c, 148, -12, 54, 16, WOOD, 4);                                                     // handguard with vents
+    for (let x = 156; x < 196; x += 9) rect(c, x, -8, 5, 8, WOOD_DK, 2);
+    rect(c, 200, -6, 46, 6, STEEL);                                                          // barrel
+    rect(c, 238, -8, 16, 10, STEEL_DK, 2); for (let x = 241; x < 254; x += 4) line(c, x, -7, x, 1, '#555c60', 1.5);
+    // PSO-1: tube, turrets, the big rubber eyecup at the back, sunshade at the front.
+    rect(c, 92, -22, 8, 10, STEEL_DK); rect(c, 130, -22, 8, 10, STEEL_DK);
+    rect(c, 70, -34, 86, 13, '#26292b', 6); shine(c, 78, -32, 70);
+    rect(c, 60, -36, 16, 17, '#121314', 5); rect(c, 154, -36, 14, 17, '#1d2022', 3);
+    rect(c, 108, -42, 10, 9, '#1d2022', 2); rect(c, 110, -28, 10, 8, '#1d2022', 2);
+  },
+  // PKM: skeleton stock, long receiver with the feed cover, ammunition box, fluted barrel, carrying handle, folded bipod.
+  w_pkm(c) {
+    c.translate(0, 120);
+    poly(c, [[0, -18], [8, -22], [62, -10], [62, 10], [8, 22], [0, 18]], WOOD);
+    c.globalCompositeOperation = 'destination-out'; poly(c, [[12, -10], [48, -4], [48, 4], [12, 10]], '#000'); c.globalCompositeOperation = 'source-over';
+    rect(c, 58, -14, 92, 20, STEEL, 3); shine(c, 62, -12, 84);                               // receiver
+    rect(c, 70, -22, 70, 9, STEEL_DK, 3);                                                    // feed cover
+    poly(c, [[74, 4], [88, 4], [84, 34], [70, 32]], '#3b2b22');                             // pistol grip
+    c.strokeStyle = STEEL_DK; c.lineWidth = 4; c.beginPath(); c.moveTo(88, 6); c.quadraticCurveTo(92, 22, 104, 14); c.stroke();
+    rect(c, 106, 6, 40, 32, '#4f5a3c', 3); rect(c, 106, 6, 40, 6, '#5f6b48'); line(c, 112, 20, 140, 20, '#00000030', 2);   // ammo box
+    for (let i = 0; i < 4; i++) rect(c, 104 + i * 4, -2 + i * 2, 4, 10, '#c9a24a', 1);                                       // belt
+    rect(c, 148, -9, 92, 9, STEEL); for (let x = 156; x < 196; x += 6) line(c, x, -8, x, -1, STEEL_DK, 1.5);                 // fluted barrel
+    rect(c, 238, -11, 16, 13, STEEL_DK, 2);                                                  // flash hider
+    c.strokeStyle = STEEL_DK; c.lineWidth = 4; c.beginPath(); c.moveTo(150, -10); c.quadraticCurveTo(162, -26, 176, -10); c.stroke();   // handle
+    line(c, 212, 2, 160, 10, '#2a2e30', 4); line(c, 212, 2, 164, 2, '#2a2e30', 4);             // bipod
+    rect(c, 222, -16, 4, 8, STEEL_DK);
+  },
+  // Vatnik: the quilted cotton jacket with horizontal stitching, a low collar and buttons.
+  vatnik(c) {
+    const body = '#3c4249', dark = '#2c3136';
+    poly(c, [[70, 52], [104, 40], [152, 40], [186, 52], [234, 150], [206, 166], [182, 112], [184, 222], [72, 222], [74, 112], [50, 166], [22, 150]], body);
+    c.save(); c.beginPath(); c.moveTo(70, 52); c.lineTo(186, 52); c.lineTo(234, 150); c.lineTo(206, 166); c.lineTo(184, 222); c.lineTo(72, 222); c.lineTo(50, 166); c.lineTo(22, 150); c.closePath(); c.clip();
+    for (let y = 60; y < 222; y += 13) line(c, 0, y, 256, y, dark, 2.5);
+    for (let y = 66; y < 222; y += 13) line(c, 0, y, 256, y, '#ffffff12', 2);
+    c.restore();
+    poly(c, [[104, 40], [128, 60], [152, 40], [146, 30], [110, 30]], dark);
+    line(c, 128, 60, 128, 222, '#22262a', 3);
+    [80, 112, 144, 176, 204].forEach(y => { c.fillStyle = '#15181a'; c.beginPath(); c.arc(136, y, 4, 0, 7); c.fill(); });
+  },
+  // Army winter jacket (bushlat): olive, fake-fur collar, two chest and two side pockets, belt loops.
+  peacoat(c) {
+    const body = '#5a5f3e', dark = '#474b30';
+    poly(c, [[70, 50], [104, 40], [152, 40], [186, 50], [236, 156], [208, 170], [182, 116], [186, 230], [70, 230], [74, 116], [48, 170], [20, 156]], body);
+    poly(c, [[94, 44], [128, 76], [162, 44], [160, 24], [128, 34], [96, 24]], '#6e5a42');            // fur collar
+    c.save(); c.beginPath(); c.moveTo(94, 44); c.lineTo(128, 76); c.lineTo(162, 44); c.lineTo(160, 24); c.lineTo(96, 24); c.closePath(); c.clip();
+    for (let i = 0; i < 60; i++) line(c, 90 + (i * 37) % 76, 20 + (i * 13) % 58, 92 + (i * 37) % 76, 26 + (i * 13) % 58, '#00000030', 2);
+    c.restore();
+    line(c, 128, 76, 128, 230, dark, 4);
+    [[86, 92], [138, 92]].forEach(([x, y]) => { rect(c, x, y, 34, 30, dark, 3); rect(c, x - 2, y - 4, 38, 10, '#3e4229', 3); });
+    [[82, 168], [142, 168]].forEach(([x, y]) => rect(c, x, y, 34, 34, dark, 3));
+    [96, 130, 164, 198].forEach(y => { c.fillStyle = '#2b2d20'; c.beginPath(); c.arc(136, y, 4, 0, 7); c.fill(); });
+    rect(c, 72, 150, 112, 7, '#3e4229');
+  },
+  // Chest rig with a plate: olive vest, four magazine pouches across the chest, shoulder straps, side buckles.
+  vest(c) {
+    const body = '#55603f', dark = '#434c32';
+    poly(c, [[78, 30], [104, 30], [112, 70], [144, 70], [152, 30], [178, 30], [196, 80], [196, 226], [60, 226], [60, 80]], body);
+    rect(c, 78, 30, 26, 40, dark, 4); rect(c, 152, 30, 26, 40, dark, 4);
+    for (let i = 0; i < 4; i++) { const x = 66 + i * 32; rect(c, x, 112, 28, 60, '#4b5536', 4); rect(c, x - 1, 108, 30, 16, '#3c4429', 4); rect(c, x + 10, 116, 8, 8, '#232619', 2); }
+    for (let y = 186; y < 222; y += 10) line(c, 64, y, 192, y, '#00000025', 3);                      // MOLLE
+    rect(c, 60, 140, 8, 24, '#1f2219', 2); rect(c, 188, 140, 8, 24, '#1f2219', 2);
+  },
+  // Rye rusks: a brown paper bag and a heap of dark crusty cubes.
+  crackers(c) {
+    poly(c, [[40, 52], [150, 40], [164, 196], [56, 210]], '#b9976a');
+    poly(c, [[40, 52], [150, 40], [148, 64], [44, 74]], '#9c7c52');
+    rect(c, 60, 110, 86, 34, '#8e2f26', 3); line(c, 70, 127, 136, 125, '#e8d6b0', 4);
+    const rusk = (x, y, a) => { c.save(); c.translate(x, y); c.rotate(a); rect(c, -24, -16, 48, 32, '#6b3d22', 7); rect(c, -20, -12, 40, 24, '#8b5530', 5); for (let i = 0; i < 9; i++) { c.fillStyle = '#5a321b'; c.fillRect(-16 + (i * 13) % 32, -8 + (i * 7) % 16, 3, 3); } c.restore(); };
+    rusk(170, 180, .3); rusk(206, 150, -.4); rusk(196, 206, .9); rusk(140, 222, -.2);
+  },
+  // A green Soviet thermos with its cup-cap.
+  tea(c) {
+    rect(c, 82, 58, 92, 176, '#3d6a52', 16);
+    line(c, 96, 70, 96, 220, '#ffffff26', 8);
+    rect(c, 78, 96, 100, 10, '#2c4d3c', 3); rect(c, 78, 196, 100, 10, '#2c4d3c', 3);
+    rect(c, 88, 22, 80, 44, '#8f979b', 8); line(c, 96, 30, 96, 58, '#ffffff40', 5);           // cup
+    rect(c, 102, 14, 52, 12, '#6b7377', 4);
+    for (let i = 0; i < 6; i++) line(c, 110 + i * 7, 128, 110 + i * 7, 168, '#ffffff10', 3);
+  },
+  // Gauze bandage: a white roll with a loose end and the weave.
+  bandage(c) {
+    poly(c, [[150, 110], [236, 140], [226, 170], [146, 150]], '#ecebe4');
+    c.save(); c.beginPath(); c.moveTo(150, 110); c.lineTo(236, 140); c.lineTo(226, 170); c.lineTo(146, 150); c.closePath(); c.clip();
+    for (let i = 0; i < 30; i++) { line(c, 140 + i * 4, 100, 130 + i * 4, 180, '#00000014', 1); line(c, 130, 108 + i * 3, 240, 118 + i * 3, '#00000010', 1); }
+    c.restore();
+    c.fillStyle = '#f2f1ea'; c.beginPath(); c.ellipse(112, 130, 78, 70, 0, 0, 7); c.fill();
+    c.strokeStyle = '#d7d5cc'; for (let r = 20; r < 74; r += 7) { c.lineWidth = 1.6; c.beginPath(); c.ellipse(112, 130, r * 1.05, r * .95, 0, 0, 7); c.stroke(); }
+    c.fillStyle = '#c8c5b9'; c.beginPath(); c.ellipse(112, 130, 16, 14, 0, 0, 7); c.fill();
+    c.fillStyle = '#ffffff60'; c.beginPath(); c.ellipse(84, 98, 26, 12, -.6, 0, 7); c.fill();
+  },
+  // A handful of steel nails with flat heads.
+  nails(c) {
+    const nail = (x, y, a, len) => { c.save(); c.translate(x, y); c.rotate(a); rect(c, -5, -len / 2, 10, len, '#8a9195'); line(c, -2, -len / 2 + 4, -2, len / 2 - 8, '#ffffffa0', 2.5); poly(c, [[-5, len / 2], [5, len / 2], [0, len / 2 + 16]], '#7a8185'); rect(c, -14, -len / 2 - 8, 28, 9, '#6e7579', 3); line(c, -12, -len / 2 - 6, 10, -len / 2 - 6, '#ffffff70', 2); c.restore(); };
+    nail(78, 120, -.5, 150); nail(128, 128, .1, 160); nail(178, 124, .6, 150); nail(140, 190, 1.4, 120);
+  },
+};
+const GUNS = { w_pm: 1.12, w_sks: 1.36, w_svd: 1.36, w_pkm: 1.36 };
+// Renders one icon the way the rest of the atlas looks: 48 px in a 64 px cell, guns across the diagonal,
+// colours slightly muted, a 1 px dark outline.
+function icon(key) {
+  const big = document.createElement('canvas'); big.width = big.height = 256; const c = big.getContext('2d');
+  if (GUNS[key]) { c.translate(128, 128); c.rotate(-.62); c.scale(GUNS[key], GUNS[key]); c.translate(-128, -128); }
+  ICONS[key](c);
+  const small = document.createElement('canvas'); small.width = small.height = 48; const s = small.getContext('2d');
+  s.imageSmoothingQuality = 'high'; s.drawImage(big, 0, 0, 48, 48);
+  const data = s.getImageData(0, 0, 48, 48), d = data.data;
+  for (let i = 0; i < d.length; i += 4) { const m = (d[i] + d[i + 1] + d[i + 2]) / 3; for (let k = 0; k < 3; k++) d[i + k] = m + (d[i + k] - m) * .85; }
+  s.putImageData(data, 0, 0);
+  const out = document.createElement('canvas'); out.width = out.height = 64; const o = out.getContext('2d');
+  const sil = document.createElement('canvas'); sil.width = sil.height = 48; const t = sil.getContext('2d');
+  t.drawImage(small, 0, 0); t.globalCompositeOperation = 'source-in'; t.fillStyle = '#16191a'; t.fillRect(0, 0, 48, 48);
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, 1], [-1, 1], [1, -1]]) o.drawImage(sil, 8 + dx, 8 + dy);
+  o.drawImage(small, 8, 8);
+  return out;
+}
+// Called by tools/loot_icons.js: paints the icons over their cells of the atlas and returns the PNG.
+window.build = async function (atlasUrl, cells) {
+  const img = new Image(); img.src = atlasUrl; await img.decode();
+  const atlas = document.createElement('canvas'); atlas.width = img.width; atlas.height = img.height; const a = atlas.getContext('2d');
+  a.drawImage(img, 0, 0);
+  for (const [key, x, y] of cells) { a.clearRect(x, y, 64, 64); a.drawImage(icon(key), x, y); }
+  return atlas.toDataURL('image/png');
+};
+window.preview = function (keys) {
+  const cv = document.getElementById('c'); cv.width = keys.length * 140; cv.height = 140; const c = cv.getContext('2d');
+  c.fillStyle = '#3c8a3c'; c.fillRect(0, 0, cv.width, cv.height); c.imageSmoothingEnabled = false;
+  keys.forEach((k, i) => c.drawImage(icon(k), i * 140 + 6, 6, 128, 128));
+  return cv.toDataURL('image/png');
+};
+</script>
+<script>
+// Full-size drawings, to check the shapes by eye.
+window.raw = function (keys) {
+  const cv = document.getElementById('c'); cv.width = keys.length * 260; cv.height = 260; const c = cv.getContext('2d');
+  c.fillStyle = '#3c8a3c'; c.fillRect(0, 0, cv.width, cv.height);
+  keys.forEach((k, i) => { c.save(); c.translate(i * 260, 0); ICONS[k](c); c.restore(); });
+  return cv.toDataURL('image/png');
+};
+</script>

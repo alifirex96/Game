@@ -4,7 +4,7 @@ From 0.8 the game follows DayZ, seen from above: one compact coastal region, inf
 loot lying in buildings, no levels, quests, coins or shops. Fresh characters wash up on the coast with
 next to nothing; everything a player has is found, crafted or taken from the dead.
 """
-VERSION = '0.8.1'
+VERSION = '0.8.2'
 # One region of about 14 km: a person is ~38 px tall, so 1 m is ~21 px. The sea lies to the south and the east.
 WORLD_SCALE = 1
 WORLD_SIZE = (300000, 300000)
