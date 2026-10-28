@@ -319,6 +319,7 @@ class VehicleMixin:
         self.make_noise(car['x'], car['y'], 900, p)
         if speed > 230:
             for q in [p] + self.car_riders(car):
+                q['hit_by'] = {'kind':'crash', 'name':'', 'at':self.elapsed}
                 self._damage(q, (speed - 230) * .06)
         if car['hp'] <= 0:
             self.wreck_car(car)

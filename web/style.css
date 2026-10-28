@@ -130,3 +130,8 @@
 @media(max-width:1150px){.inv-cols{grid-template-columns:1fr 1fr}#status-line{gap:12px}#status-line small{display:none}}
 @media(max-width:860px){.inv-cols{grid-template-columns:1fr}#screen.side{padding:70px 8px 8px}}
 .li.fist{width:44px;height:44px;background:none;display:flex;align-items:center;justify-content:center;color:#cfc6b0}.li.fist svg{width:30px;height:30px}
+/* Admin panel and death notices */
+.toast.death{border-color:#b04a3a99;background:#241414f5}.toast.death b{color:#e58a74}.toast.death b::before{content:'✝ ';opacity:.8}
+.admin .ad-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}.admin select,.admin input{min-width:0;flex:1;max-width:340px}.admin input[type=number]{max-width:80px;flex:none}
+.admin .ad-row button{padding:6px 11px;font-size:12px}.admin .ad-row button.on{border-color:var(--orange);color:var(--orange)}
+.ad-player{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #ffffff0d}.ad-player b{font-size:13px}.ad-player small{flex:1;color:var(--muted);font-size:11px}.ad-player button{padding:4px 8px;font-size:11px}

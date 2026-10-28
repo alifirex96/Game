@@ -193,6 +193,9 @@ class NpcMixin:
             if target['hp'] <= 0:
                 return False
             amount *= 1 - ARMOR[target['gear']['armor']]['reduce']
+            if attacker is not None:
+                kind = 'player' if 'stats' in attacker else 'infected' if attacker['faction'] == 'infected' else 'animal'
+                target['hit_by'] = {'kind':kind, 'id':attacker['id'], 'name':attacker['name'] if kind == 'player' else NPC_TYPES[attacker['type']]['name'], 'at':self.elapsed}
             if target['vehicle']:
                 car = self.cars.get(target.get('car'))
                 if car:

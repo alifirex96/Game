@@ -29,6 +29,7 @@ from npc import NpcMixin
 from vehicles import VehicleMixin
 from camps import CampMixin
 from loot import LootMixin
+from admin import AdminMixin
 
 ROOT = Path(__file__).resolve().parent
 SAVE_VERSION = 3
@@ -55,7 +56,7 @@ def finite(v, default=0):
 class GameError(Exception):
     pass
 
-class World(NpcMixin, VehicleMixin, CampMixin, LootMixin):
+class World(NpcMixin, VehicleMixin, CampMixin, LootMixin, AdminMixin):
     def __init__(self, save_path=None, rng=None):
         self.lock = threading.RLock()
         self.rng = rng or random.SystemRandom()
@@ -250,6 +251,7 @@ class World(NpcMixin, VehicleMixin, CampMixin, LootMixin):
     def snapshot(self,token,full=True):
         p=self.player(token); f=p['faction']; now=time.monotonic()
         me=self._public_player(p)
+        me['god']=bool(p.get('god'))
         for k in ('stats','weapons','items','food','water','warmth','bleeding','sick','mags','born'):
             me[k]=copy.deepcopy(p[k])
         near=lambda o,r:abs(o['x']-p['x'])<r and abs(o['y']-p['y'])<r
@@ -265,7 +267,7 @@ class World(NpcMixin, VehicleMixin, CampMixin, LootMixin):
              'clans':{cid:{k:c[k] for k in ('id','name','tag','leader','members','color')} for cid,c in self.clans.items()},
              'invites':[cid for cid,c in self.clans.items() if f in c['invites']],
              'offers':[self.offer_view(o) for o in self.offers.values() if o['until']>self.elapsed and p['id'] in (o['from'],o['to'])],
-             'messages':[e for e in self.log if (e['faction'] in (None,f)) and (e['player'] in (None,p['id'])) and e.get('skip')!=p['id']],
+             'messages':[e for e in self.log if (e['faction'] in (None,f)) and (e['player'] in (None,p['id'])) and p['id'] not in (e.get('skip') or ())],
              'effects':[e for e in self.effects if abs(e['x']-p['x'])<2600 and abs(e['y']-p['y'])<2000][-40:],
              'load_warning':self.load_warning,'full':full}
         if full:
@@ -640,6 +642,7 @@ class World(NpcMixin, VehicleMixin, CampMixin, LootMixin):
 
     # ---- death ---------------------------------------------------------------
     def _damage(self,p,amount):
+        if p.get('god'):return
         p['hp']=max(0,p['hp']-amount)
         if p['hp']==0 and not p['dead_until']:
             if p['vehicle']:self.leave_car(p,force=True)
@@ -662,7 +665,25 @@ class World(NpcMixin, VehicleMixin, CampMixin, LootMixin):
         lived=int((self.elapsed-p.get('born',self.elapsed))//60)
         st=p['stats']
         self._notice('Ты погиб','Прожито '+str(lived)+' мин. Заражённых: '+str(st['infected'])+', игроков: '+str(st['players'])+'. Всё осталось на теле.',player=p['id'],tone='error')
+        # Everybody else hears about it: who died, from what and where.
+        near=min(self.towns.values(),key=lambda t:dist(t,p))
+        hit=p.get('hit_by') or {}
+        killer=hit.get('id') if hit.get('kind')=='player' and self.elapsed-hit.get('at',-99)<20 else None
+        self._notice(p['name']+' погиб',self._death_cause(p)+' · рядом '+near['name']+'.',tone='death',skip=[p['id'],killer])
+        p.pop('hit_by',None)
         self.dirty=True
+
+    def _death_cause(self,p):
+        """A short line for the others: the last blow if it was recent, otherwise what drained the life."""
+        hit=p.get('hit_by')
+        if hit and self.elapsed-hit['at']<20:
+            if hit['kind']=='player':return 'Убит игроком '+hit['name']
+            if hit['kind']=='infected':return 'Растерзан заражёнными'
+            if hit['kind']=='animal':return 'Погиб от зверя: '+hit['name'].lower()
+            if hit['kind']=='crash':return 'Разбился на машине'
+            if hit['kind']=='admin':return 'Убит ведущим'
+        return {'bleeding':'Истёк кровью','water':'Умер от жажды','food':'Умер от голода','cold':'Замёрз насмерть',
+                'sick':'Умер от болезни'}.get(p.get('drain'),'Погиб')
 
     def _covered(self,a,b):
         length=dist(a,b)
@@ -746,8 +767,10 @@ class World(NpcMixin, VehicleMixin, CampMixin, LootMixin):
         target=100 if fire else clamp(100-max(0,exposure)*1.6,0,100)
         rate=2.5 if fire else .6
         p['warmth']+=clamp(target-p['warmth'],-rate*dt,rate*dt)
-        drain=(.3 if p['food']<=0 else 0)+(.5 if p['water']<=0 else 0)+(.35 if p['warmth']<20 else 0)+(.5 if p['bleeding'] else 0)+(.08 if sick else 0)
-        if drain:self._damage(p,drain*dt)
+        parts={'food':.3 if p['food']<=0 else 0,'water':.5 if p['water']<=0 else 0,'cold':.35 if p['warmth']<20 else 0,
+               'bleeding':.5 if p['bleeding'] else 0,'sick':.08 if sick else 0}
+        drain=sum(parts.values())
+        if drain:p['drain']=max(parts,key=parts.get);self._damage(p,drain*dt)
         elif p['food']>70 and p['water']>70 and p['warmth']>50:p['hp']=min(MAX_HP,p['hp']+.2*dt)
         for key,value,low,text in (('food',p['food'],25,'Ты голоден. Поешь из рюкзака: G.'),
                                    ('water',p['water'],25,'Хочется пить. V — вода из рюкзака, из реки или озера.'),
@@ -953,6 +976,7 @@ class Handler(BaseHTTPRequestHandler):
             cfg['lan_addresses']=lan_addresses(self.server.server_port) if cfg['join_code'] else []
             cfg['host']=self._local()
             with w.lock:cfg['settings']=dict(w.settings)
+            cfg['admin']=self.server.world.admin_info() if self._local() else None
             self._json(200,cfg);return
         if path=='/api/state':
             with self.server.world.lock:
@@ -1009,6 +1033,12 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.stop_event.set()
                         threading.Thread(target=self.server.shutdown,daemon=True).start();return
                     self._json(200,{'settings':self.server.world.settings});return
+                if path=='/api/admin':
+                    # The admin panel works only on the host computer itself.
+                    if not self._local():self._json(403,{'error':'Админ-панель доступна только на компьютере ведущего.'});return
+                    result=self.server.world.admin(self.headers.get('X-Session',''),data)
+                    self.server.world.dirty=True
+                    self._json(200,{'result':result,'state':self.server.world.snapshot(self.headers.get('X-Session',''))});return
                 if path!='/api/action':self._json(404,{'error':'Команда не найдена.'});return
                 token=self.headers.get('X-Session','')
                 if token not in self.server.world.players:self._json(401,{'error':'Ведущий начал новую игру. Войди снова.' if time.monotonic()-getattr(self.server.world,'reset_at',-1e9)<600 else 'Нужно войти в комнату.'});return

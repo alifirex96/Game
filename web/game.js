@@ -61,7 +61,7 @@ function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function readStorage(key){try{return localStorage.getItem(key)||'';}catch(e){return '';}}
 function writeStorage(key,v){try{localStorage.setItem(key,v);}catch(e){}}
-function notify(title,text,error){const div=document.createElement('div');div.className='toast'+(error?' error':'');div.innerHTML='<b>'+esc(title)+'</b>'+(text?'<p>'+esc(text)+'</p>':'');$('toast-stack').appendChild(div);while($('toast-stack').children.length>3)$('toast-stack').firstChild.remove();setTimeout(()=>div.remove(),5600);}
+function notify(title,text,error){const div=document.createElement('div');div.className='toast'+(error==='death'?' death':error?' error':'');div.innerHTML='<b>'+esc(title)+'</b>'+(text?'<p>'+esc(text)+'</p>':'');$('toast-stack').appendChild(div);while($('toast-stack').children.length>3)$('toast-stack').firstChild.remove();setTimeout(()=>div.remove(),5600);}
 function beep(kind){SND.play(kind);}
 function resize(){cw=innerWidth;ch=innerHeight;dpr=R.quality==='low'?.7:Math.min(devicePixelRatio||1,1.5);canvas.width=Math.round(cw*dpr);canvas.height=Math.round(ch*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
 // Preferences live in this browser only.
@@ -100,7 +100,7 @@ function acceptState(s){if(!s||s.stamp<latestStamp)return;latestStamp=s.stamp;
  if(!s.harvested)s.harvested={};
  if(s.me.hp<=0&&panel&&panel!=='pause'&&panel!=='settings'&&panel!=='help')closePanel();
  state=s;
- s.messages.forEach(m=>{if(m.id>lastMessage){if(lastMessage!==0){notify(m.title,m.text,m.tone==='error');if(m.tone==='error')beep('error');}lastMessage=m.id;}});
+ s.messages.forEach(m=>{if(m.id>lastMessage){if(lastMessage!==0){notify(m.title,m.text,m.tone==='death'?'death':m.tone==='error');if(m.tone==='error'||m.tone==='death')beep('error');}lastMessage=m.id;}});
  if(s.load_warning&&!showedWarning){showedWarning=true;notify('Сохранение',s.load_warning,true);}
  if(panel==='inventory'&&invDirty())showInventory();
 }
@@ -121,7 +121,7 @@ async function network(){if(!connected||!state||netBusy)return;netBusy=true;
  }finally{netBusy=false;}}
 setInterval(network,100);
 // Windows over the game do not stop the world: as in DayZ, the inventory is opened in the open.
-const STILL=['inventory','craft','camp','people'];
+const STILL=['inventory','craft','camp','people','admin'];
 function readInput(){if(panel!==null&&!STILL.includes(panel))return{x:0,y:0,sprint:false};return{x:(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0),y:(keys.KeyS||keys.ArrowDown?1:0)-(keys.KeyW||keys.ArrowUp?1:0),sprint:!!(keys.ShiftLeft||keys.ShiftRight)};}
 function clearKeys(){Object.keys(keys).forEach(k=>delete keys[k]);holdMouse=false;}
 addEventListener('blur',clearKeys);document.addEventListener('visibilitychange',()=>{if(document.hidden){clearKeys();if(connected&&!panel)showPause();}});
@@ -132,6 +132,7 @@ addEventListener('keydown',e=>{
  if(e.code==='Escape'){if(panel==='title')return;if(panel)closePanel();else showPause();}
  if(!connected||!state)return;
  if(e.code==='KeyM'){if(panel==='map')closePanel();else showMap();}
+ if(e.code==='F10'&&cfg.admin){e.preventDefault();if(panel==='admin')closePanel();else showAdmin();}
  if(e.code==='KeyO'){if(panel==='people')closePanel();else showPeople();}
  if(e.code==='KeyC'){if(panel==='craft')closePanel();else showCraft();}
  if(e.code==='KeyI'||e.code==='Tab'){e.preventDefault();if(panel==='inventory')closePanel();else if(!panel||STILL.includes(panel))showInventory();}
@@ -183,8 +184,8 @@ function showTitle(){panel='title';document.body.classList.remove('dialog-open')
  $('player-name').addEventListener('keydown',e=>{if(e.key==='Enter')join();});
 }
 function showPause(){if(!state)return;modal('pause','<span class="eyebrow">БЕЛОГОРЬЕ</span><h2>Передышка</h2>',
- '<div class="modal-body"><div class="menu-list"><button class="primary" id="resume">Продолжить '+icon('arrow')+'</button><button class="secondary" id="people-menu">'+icon('trade')+' Обмен и группа</button><button class="secondary" id="map-menu">'+icon('map')+' Карта</button><button class="secondary" id="settings-menu">'+icon('gear')+' Настройки</button><button class="secondary" id="help-menu">Управление и правила</button>'+(cfg.host?'<button class="quiet danger" id="new-world">Начать новую игру с нуля</button><button class="quiet danger" id="quit-host">Сохранить мир и завершить игру</button>':'')+'</div><div class="notice">Мир не ставится на паузу, пока в нём есть другие игроки. Мир сохраняется на компьютере ведущего.</div>'+(cfg.join_code&&cfg.lan_addresses.length?'<div class="room-inline"><b>Код комнаты: '+esc(cfg.join_code)+'</b><p>'+cfg.lan_addresses.map(esc).join('<br>')+'</p></div>':'')+'</div>');
- $('resume').onclick=closePanel;$('people-menu').onclick=()=>showPeople();$('map-menu').onclick=()=>showMap();$('help-menu').onclick=()=>showHelp(false);$('settings-menu').onclick=showSettings;
+ '<div class="modal-body"><div class="menu-list"><button class="primary" id="resume">Продолжить '+icon('arrow')+'</button><button class="secondary" id="people-menu">'+icon('trade')+' Обмен и группа</button><button class="secondary" id="map-menu">'+icon('map')+' Карта</button>'+(cfg.admin?'<button class="secondary" id="admin-menu">'+icon('tool')+' Админ-панель · F10</button>':'')+'<button class="secondary" id="settings-menu">'+icon('gear')+' Настройки</button><button class="secondary" id="help-menu">Управление и правила</button>'+(cfg.host?'<button class="quiet danger" id="new-world">Начать новую игру с нуля</button><button class="quiet danger" id="quit-host">Сохранить мир и завершить игру</button>':'')+'</div><div class="notice">Мир не ставится на паузу, пока в нём есть другие игроки. Мир сохраняется на компьютере ведущего.</div>'+(cfg.join_code&&cfg.lan_addresses.length?'<div class="room-inline"><b>Код комнаты: '+esc(cfg.join_code)+'</b><p>'+cfg.lan_addresses.map(esc).join('<br>')+'</p></div>':'')+'</div>');
+ $('resume').onclick=closePanel;$('people-menu').onclick=()=>showPeople();$('map-menu').onclick=()=>showMap();$('help-menu').onclick=()=>showHelp(false);$('settings-menu').onclick=showSettings;if($('admin-menu'))$('admin-menu').onclick=()=>showAdmin();
  if($('new-world'))$('new-world').onclick=confirmNewWorld;
  if($('quit-host'))$('quit-host').onclick=async()=>{if(!confirm('Все игроки отключатся, мир будет сохранён. Завершить?'))return;try{await fetchJson('/api/host',{shutdown:true});}catch(e){}connected=false;screen.innerHTML='<section class="modal"><div class="modal-body"><h2>Мир сохранён</h2><p style="margin-top:15px">Игра завершена. Эту вкладку можно закрыть. Чтобы продолжить, снова запусти «Играть.sh» или ярлык.</p></div></section>';};
 }
@@ -343,6 +344,40 @@ function showPeople(tab){if(!state)return;tab=tab||'trade';const me=state.me,f=m
   const r=await action('offer_make',{to:$('offer-to').value,give:pack('give'),want:pack('want')});if(r)showPeople('trade');};
 }
 
+/* ---------- admin panel: only on the host computer (the server refuses it from anywhere else) ---------- */
+let adminSel={item:'w_ak',n:1,target:'',npc:'infected',npcN:3,car:0,place:''};
+async function adminCmd(op,args){try{const data=await fetchJson('/api/admin',Object.assign({op},args||{}));acceptState(data.state);const r=data.result||{};notify(r.title||'Готово',r.text||'');beep('success');return r;}catch(e){notify('Админ-панель',e.message,true);beep('error');return null;}}
+function showAdmin(){if(!state||!cfg.admin)return;const me=state.me,opt=(v,t,on)=>'<option value="'+esc(v)+'"'+(on?' selected':'')+'>'+esc(t)+'</option>';
+ const groups=[['Еда и вода',k=>cfg.items[k].food!=null||cfg.items[k].water!=null],['Медицина',k=>cfg.items[k].hp!=null||cfg.items[k].stop_bleed||cfg.items[k].cure],['Оружие',k=>cfg.items[k].weapon!=null],['Патроны',k=>cfg.items[k].ammo],['Одежда и рюкзаки',k=>!!cfg.items[k].gear],['Материалы и инструменты',k=>true]];
+ const used={};let items='';groups.forEach(([g,f])=>{const ks=Object.keys(cfg.items).filter(k=>!used[k]&&f(k));ks.forEach(k=>used[k]=1);if(ks.length)items+='<optgroup label="'+g+'">'+ks.map(k=>opt(k,cfg.items[k].name,k===adminSel.item)).join('')+'</optgroup>';});
+ const players=state.players.slice().sort((a,b)=>(b.id===me.id)-(a.id===me.id));
+ const who='<select id="ad-target">'+players.map(p=>opt(p.id,p.id===me.id?'Мне ('+p.name+')':p.name,p.id===adminSel.target)).join('')+'</select>';
+ const places='<select id="ad-place">'+cfg.towns.map(t=>opt('t:'+t.id,t.name+' · '+(KIND_NAME[t.kind]||'').toLowerCase(),'t:'+t.id===adminSel.place)).join('')+cfg.pois.map(p=>opt('p:'+p.id,p.name,'p:'+p.id===adminSel.place)).join('')+'</select>';
+ let h='<div class="modal-body admin">'+
+  '<span class="eyebrow shop-eyebrow">ТЕЛЕПОРТ</span><div class="ad-row">'+places+'<button class="secondary" id="ad-tp">Туда</button></div><div class="ad-row"><button class="secondary" id="ad-tp-map">По карте…</button><span class="small muted">кого переносить — «Кому» ниже</span></div>'+
+  '<span class="eyebrow shop-eyebrow">ИГРОКИ</span>'+players.map(p=>'<div class="ad-player"><span class="dot" style="background:'+sideColor(p.faction)+'"></span><b>'+esc(p.name)+(p.id===me.id?' · ты':'')+'</b><small>'+(p.hp>0?Math.ceil(p.hp)+' hp':'мёртв')+' · '+km(distance(p,me))+'</small>'+(p.id===me.id?'':'<button class="quiet" data-ad="goto" data-id="'+p.id+'">К нему</button><button class="quiet" data-ad="bring" data-id="'+p.id+'">Ко мне</button>')+'<button class="quiet" data-ad="heal" data-id="'+p.id+'">Лечить</button><button class="quiet danger" data-ad="kill" data-id="'+p.id+'">Убить</button></div>').join('')+
+  '<span class="eyebrow shop-eyebrow">ВЕЩИ</span><div class="ad-row"><select id="ad-item">'+items+'</select><input id="ad-n" type="number" min="1" max="50" value="'+adminSel.n+'"></div><div class="ad-row"><label class="small muted">Кому</label>'+who+'<button class="primary" id="ad-give">Выдать</button><button class="secondary" id="ad-drop">На землю</button></div>'+
+  '<span class="eyebrow shop-eyebrow">СУЩЕСТВА</span><div class="ad-row"><select id="ad-npc">'+cfg.admin.npcs.map(k=>opt(k,cfg.npc_types[k].name,k===adminSel.npc)).join('')+'</select><input id="ad-npc-n" type="number" min="1" max="50" value="'+adminSel.npcN+'"><button class="secondary" id="ad-spawn">Создать</button><button class="quiet danger" id="ad-clear">Убрать всех рядом</button></div><p class="small muted">Появляются в 300 шагах туда, куда смотрит курсор.</p>'+
+  '<span class="eyebrow shop-eyebrow">МАШИНА</span><div class="ad-row"><select id="ad-car">'+cfg.cars.map((c,i)=>opt(i,c.name+' · мест '+c.seats,i===adminSel.car)).join('')+'</select><button class="secondary" id="ad-carb">Поставить рядом</button></div>'+
+  '<span class="eyebrow shop-eyebrow">МИР</span><div class="ad-row">'+Object.keys(cfg.weather_names).map(k=>'<button class="quiet'+(state.weather.kind===k?' on':'')+'" data-weather="'+k+'">'+esc(cfg.weather_names[k])+'</button>').join('')+'</div><div class="ad-row">'+[6,12,18,0].map(hh=>'<button class="quiet" data-hour="'+hh+'">'+String(hh).padStart(2,'0')+':00</button>').join('')+'</div>'+
+  '<div class="ad-row"><button class="'+(me.god?'primary':'secondary')+'" id="ad-god">Бессмертие: '+(me.god?'вкл':'выкл')+'</button><button class="secondary" id="ad-restock">Обновить лут вокруг</button></div>'+
+  '<p class="small muted" style="margin-top:12px">Панель есть только на компьютере ведущего: игроки по сети её не видят, а сервер не принимает эти команды с других адресов.</p></div>';
+ modal('admin','<span class="eyebrow">ВЕДУЩИЙ · F10</span><h2>Админ-панель</h2>',h,'wide');
+ const save=()=>{adminSel={item:$('ad-item').value,n:Number($('ad-n').value)||1,target:$('ad-target').value,npc:$('ad-npc').value,npcN:Number($('ad-npc-n').value)||1,car:Number($('ad-car').value)||0,place:$('ad-place').value};};
+ const run=(op,args)=>{save();adminCmd(op,args).then(r=>{if(r&&panel==='admin')showAdmin();});};
+ $('ad-tp').onclick=()=>{save();const [k,id]=adminSel.place.split(':'),o=k==='t'?cfg.towns.find(t=>t.id===id):cfg.pois.find(p=>p.id===id);if(o)run('teleport',{x:o.x+(k==='t'?0:0),y:o.y+(k==='p'?260:0),target:adminSel.target});};
+ $('ad-tp-map').onclick=()=>{save();mapState.adminPick=true;mapState.adminWho=adminSel.target;showMap();notify('Телепорт по карте','Нажми на место на карте.');};
+ screen.querySelectorAll('[data-ad]').forEach(b=>b.onclick=()=>{if(b.dataset.ad==='kill'&&!confirm('Убить игрока? Его вещи останутся на теле.'))return;run(b.dataset.ad,{target:b.dataset.id});});
+ $('ad-give').onclick=()=>{save();run('give',{item:adminSel.item,n:adminSel.n,target:adminSel.target});};
+ $('ad-drop').onclick=()=>{save();run('spawn_loot',{item:adminSel.item,n:adminSel.n});};
+ $('ad-spawn').onclick=()=>{save();run('spawn_npc',{kind:adminSel.npc,n:adminSel.npcN});};
+ $('ad-clear').onclick=()=>run('clear');
+ $('ad-carb').onclick=()=>{save();run('spawn_car',{model:adminSel.car});};
+ screen.querySelectorAll('[data-weather]').forEach(b=>b.onclick=()=>run('weather',{kind:b.dataset.weather}));
+ screen.querySelectorAll('[data-hour]').forEach(b=>b.onclick=()=>run('time',{hour:Number(b.dataset.hour)}));
+ $('ad-god').onclick=()=>run('god');$('ad-restock').onclick=()=>run('restock');
+}
+
 /* ---------- map ---------- */
 const KIND_NAME={city:'Город',town:'Посёлок',village:'Деревня'};
 function showMap(id){if(!state)return;modal('map','<span class="eyebrow">'+esc((cfg.region_name||'').toUpperCase())+'</span><h2>Карта</h2>',
@@ -356,6 +391,7 @@ function showMap(id){if(!state)return;modal('map','<span class="eyebrow">'+esc((
  big.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,fx:mapState.fx!=null?mapState.fx:cfg.width/2,fy:mapState.fy!=null?mapState.fy:cfg.height/2,moved:false};};
  big.onmousemove=e=>{if(!drag||!mapTr)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true;if(drag.moved&&mapState.zoom>1){mapState.fx=drag.fx-dx/mapTr.scale;mapState.fy=drag.fy-dy/mapTr.scale;}};
  big.onmouseup=e=>{const moved=drag&&drag.moved;drag=null;if(moved)return;const p=toWorld(e);if(!p)return;
+  if(mapState.adminPick){mapState.adminPick=false;adminCmd('teleport',{x:p.x,y:p.y,target:mapState.adminWho}).then(()=>closePanel());return;}
   const list=cfg.towns.slice().sort((a,b)=>distance(a,p)-distance(b,p)),poi=cfg.pois.slice().sort((a,b)=>distance(a,p)-distance(b,p))[0],pick=14/mapTr.scale;
   if(distance(list[0],p)<pick*1.4){mapState.selected=list[0].id;mapInfo(list[0].id);}else if(poi&&distance(poi,p)<pick){poiInfo(poi);}else{waypoint={x:clamp(p.x,0,cfg.width),y:clamp(p.y,0,cfg.height),name:'Отметка'};notify('Отметка на карте','Указатель появится в игровом мире.');}};
 }
